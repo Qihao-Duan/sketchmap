@@ -141,4 +141,12 @@ describe('parseOutline', () => {
       { text: '', priority: undefined, emoji: '💡' },
     ]);
   });
+
+  it('keeps a link and a bare URL exactly through toMarkdown and back, on a Key topic', () => {
+    const tree = n('R', [{ ...n('Read [x](https://a.com) and https://b.com/c'), emphasis: 'key' }]);
+    expect(toMarkdown(tree)).toBe('# R\n- **Read [x](https://a.com) and https://b.com/c**\n');
+    const back = parseOutline(toMarkdown(tree))!.root.children[0];
+    expect(back.text).toBe('Read [x](https://a.com) and https://b.com/c');
+    expect(back.emphasis).toBe('key');
+  });
 });

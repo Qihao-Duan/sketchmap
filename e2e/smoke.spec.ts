@@ -133,3 +133,81 @@ test('a link made with Cmd/Ctrl K survives a reload and opens from the view', as
   await (await popup).waitForURL('https://example.com/docs');
   await expect(page).toHaveURL(new RegExp(`/m/${id}$`)); // opened in a new tab; the view itself did not navigate
 });
+
+test('drag-to-move finds its drop target in a real browser (O1)', async ({ page }) => {
+  await openNewMap(page);
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Alpha');
+  await page.keyboard.press('Enter');
+  await page.locator('g.topic', { has: page.locator('text', { hasText: 'Central topic' }) }).click();
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Beta');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('g.topic')).toHaveCount(3);
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  const alpha = page.locator('g.topic', { has: page.locator('text', { hasText: 'Alpha' }) });
+  const beta = page.locator('g.topic', { has: page.locator('text', { hasText: 'Beta' }) });
+  const alphaBox = (await alpha.boundingBox())!;
+  const betaBox = (await beta.boundingBox())!;
+  const start = { x: betaBox.x + betaBox.width / 2, y: betaBox.y + betaBox.height / 2 };
+  const end = { x: alphaBox.x + alphaBox.width / 2, y: alphaBox.y + alphaBox.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  const steps = 12;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    await page.mouse.move(start.x + (end.x - start.x) * t, start.y + (end.y - start.y) * t);
+  }
+  await page.mouse.up();
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  await page.getByRole('button', { name: 'Outline' }).click();
+  const outline = await page.locator('textarea[aria-label="Outline text"]').inputValue();
+  expect(outline).toMatch(/- Alpha\n {2}- Beta\n/);
+});
+
+test('the editor box fits a long link, and the link field sits below it (I1)', async ({ page }) => {
+  await openNewMap(page);
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Read [the design spec](https://docs.example.com/superpowers/specs/2026-11-12-sketchmap-design.md) today');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  await page.keyboard.press('F2'); // reopen the editor on the same (selected) topic
+  const ta = page.locator('textarea.inline-editor');
+  await expect(ta).toBeVisible();
+  const fits = await ta.evaluate((el: HTMLTextAreaElement) => el.scrollHeight <= el.clientHeight + 1);
+  expect(fits).toBe(true);
+
+  await page.keyboard.press('ControlOrMeta+k');
+  const field = page.locator('input[aria-label="Link URL"]');
+  await expect(field).toBeVisible();
+  const [fieldTop, taBottom] = await Promise.all([
+    field.evaluate((el) => el.getBoundingClientRect().top),
+    ta.evaluate((el) => el.getBoundingClientRect().bottom),
+  ]);
+  expect(fieldTop).toBeGreaterThanOrEqual(taBottom);
+});
+
+test('a link opens from inside a Notion-sandboxed iframe (pins allow-popups)', async ({ page, context }) => {
+  await context.route('https://example.com/**', (r) => r.fulfill({ body: 'ok', contentType: 'text/plain' }));
+  const id = await openNewMap(page);
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Read the docs');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Shift+ArrowLeft');
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.keyboard.type('example.com/docs');
+  await page.keyboard.press('Enter'); // applies the link
+  await page.keyboard.press('Enter'); // commits the topic
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  await page.setContent(
+    `<iframe src="http://localhost:5173/m/${id}" sandbox="${NOTION_SANDBOX}" style="width:900px;height:500px;border:0"></iframe>`,
+  );
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('g.topic')).toHaveCount(2);
+  const popup = context.waitForEvent('page');
+  await frame.locator('g.topic a', { hasText: 'docs' }).click();
+  await (await popup).waitForURL('https://example.com/docs');
+});

@@ -100,7 +100,7 @@ type MapNode = {
 `text` stores a small, fixed subset of Markdown, so links survive copy, paste and export unchanged.
 
 - **Link:** `[label](https://…)`. Only `http` and `https` URLs count.
-- **Bare URL:** `http(s)://…` becomes a link automatically. Its label is shortened to the host and path, at most 28 characters.
+- **Bare URL:** `http(s)://…` becomes a link automatically. Its label is shortened to the host and path, at most 28 characters. A bare URL is always a link; there is no syntax to write one as plain text.
 - **Escapes:** `\[`, `\]` and `\\` stand for a literal bracket or backslash.
 - Everything else is plain text, and newlines are allowed. No bold or italics in v1.
 - One pure function, `parseRich(text)`, returns `{ plain, links: { start, end, href, label }[] }`. Every consumer goes through it: renderer, details panel, search and export.
@@ -224,6 +224,7 @@ Styles by depth:
   - Drag pans the map. ⌘/Ctrl + wheel zooms.
   - A plain mouse wheel scrolls the Notion page, not the map. The embed must not hijack scrolling.
   - Folding in the view changes only that viewer's screen and isn't saved.
+  - Clicking a link opens it in a new tab via `window.open`. In the Notion embed this depends on Notion's `allow-popups` sandbox flag.
 - **Headers:**
   - `/m/*` sends no `X-Frame-Options` and no `frame-ancestors`, so it can be framed anywhere.
   - `/e/*` and `/` send `frame-ancestors 'none'`. The editor is never framed, which also prevents clickjacking.
@@ -250,7 +251,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
 - **Auth:** `Authorization: Bearer <owner key>`, compared in constant time. Wrong or missing key → 401, with no hint about whether the map exists.
 - **Inputs are validated server-side:**
   - The schema is checked with a small zod schema.
-  - `href`s must be http(s).
+  - Link targets are never stored separately: they are derived from topic text by `parseRich`, which yields only http(s) URLs.
   - Size limits are enforced.
   - Image type is checked from the file's magic bytes, not only from the `Content-Type` header.
 - **Unused images:** deleting an image from a topic does not delete the file right away, because undo may need it. A clean-up task runs on map delete. A periodic sweep is v2.
@@ -304,7 +305,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
   - Attach an image.
   - Reload: everything persisted.
   - `/m/:id` renders inside an `<iframe>` on a local test page.
-- **Manual check** for each release: embed `/m/:id` in a real Notion page in the browser and in the desktop app.
+- **Manual check** for each release: embed `/m/:id` in a real Notion page in the browser and in the desktop app; click a link in the embed (browser and desktop app).
 
 ## 11. Delivery in four steps
 
