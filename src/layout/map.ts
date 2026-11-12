@@ -1,11 +1,26 @@
-import type { LayoutKind, MapNode } from '../shared/types';
+import type { Emphasis, LayoutKind, MapNode } from '../shared/types';
 import { visibleChildren } from '../model/tree';
-import { GAP, PALETTE, ROOT_COLOR, styleFor, type BranchColor, type NodeStyle } from './styles';
+import { badgeSize, DECOR, GAP, PALETTE, ROOT_COLOR, styleFor, type BranchColor, type NodeStyle } from './styles';
 import { wrapText, type Measure } from './wrap';
 
 export type Side = 1 | -1 | 0;
 
-export interface TopicBox {
+export interface Measured {
+  style: NodeStyle;
+  /** Wrapped lines; a marker emoji starts the first one. */
+  lines: string[];
+  lineWidths: number[];
+  /** Width of the text block: the widest line, at least 1.6 em. */
+  textW: number;
+  /** Space left of the text for the priority badge; 0 without a priority. */
+  badgeW: number;
+  /** Space right of the text for the note icon; 0 without a note. */
+  noteW: number;
+  w: number;
+  h: number;
+}
+
+export interface TopicBox extends Measured {
   id: string;
   node: MapNode;
   parentId: string | null;
@@ -13,10 +28,6 @@ export interface TopicBox {
   side: Side;
   x: number;
   y: number;
-  w: number;
-  h: number;
-  style: NodeStyle;
-  lines: string[];
   color: BranchColor;
   /** Centre of the fold toggle: just beyond where branches leave this topic. */
   fold: { x: number; y: number };
@@ -28,6 +39,8 @@ export interface BranchPath {
   d: string;
   color: BranchColor;
   fromDepth: number;
+  /** Importance of the topic this branch leads into: Key branches are wider, Aside ones thinner and dashed. */
+  toEmphasis?: Emphasis;
 }
 
 export interface Bounds {
@@ -44,23 +57,19 @@ export interface MapLayout {
   bounds: Bounds;
 }
 
-export interface Measured {
-  style: NodeStyle;
-  lines: string[];
-  w: number;
-  h: number;
-}
-
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
 export function measureTopic(node: MapNode, depth: number, measure: Measure, kind: LayoutKind = 'map'): Measured {
-  const style = styleFor(depth, kind);
-  const lines = wrapText(node.text || ' ', style.fontSize, style.maxW, measure);
-  const textW = Math.max(style.fontSize * 1.6, ...lines.map((l) => measure(l, style.fontSize)));
+  const style = styleFor(depth, kind, node.emphasis);
+  const display = (node.emoji ? `${node.emoji} ` : '') + node.text;
+  const lines = wrapText(display || ' ', style.fontSize, style.maxW, measure);
+  const lineWidths = lines.map((l) => measure(l, style.fontSize));
+  const textW = lineWidths.reduce((m, lw) => Math.max(m, lw), style.fontSize * 1.6);
+  const badgeW = node.priority ? badgeSize(style.fontSize) + DECOR.badgeGap : 0;
+  const noteW = node.note?.trim() ? DECOR.noteW : 0;
   return {
-    style,
-    lines,
-    w: Math.ceil(textW + style.padX * 2),
+    style, lines, lineWidths, textW, badgeW, noteW,
+    w: Math.ceil(badgeW + textW + noteW + style.padX * 2),
     h: Math.ceil(lines.length * style.lineHeight + style.padY * 2),
   };
 }
@@ -120,10 +129,7 @@ export function computeLayout(root: MapNode, measure: Measure, kind: 'map' | 'lo
   const add = (n: MapNode, depth: number, x: number, y: number, side: Side, color: BranchColor, parentId: string | null) => {
     const m = measured.get(n.id)!;
     const fs: 1 | -1 = side === -1 ? -1 : 1;
-    const box: TopicBox = {
-      id: n.id, node: n, parentId, depth, side, x, y, w: m.w, h: m.h, style: m.style, lines: m.lines, color,
-      fold: { x: 0, y: 0 },
-    };
+    const box: TopicBox = { ...m, id: n.id, node: n, parentId, depth, side, x, y, color, fold: { x: 0, y: 0 } };
     const [ox, oy] = anchorOut(box, fs);
     box.fold = { x: ox + fs * 11, y: oy };
     boxes.push(box);
@@ -134,7 +140,10 @@ export function computeLayout(root: MapNode, measure: Measure, kind: 'map' | 'lo
   const place = (n: MapNode, depth: number, edgeX: number, centerY: number, side: 1 | -1, color: BranchColor, parent: TopicBox) => {
     const m = measured.get(n.id)!;
     const box = add(n, depth, side > 0 ? edgeX : edgeX - m.w, centerY - m.h / 2, side, color, parent.id);
-    branches.push({ from: parent.id, to: n.id, d: branchPath(anchorOut(parent, side), anchorIn(box)), color, fromDepth: parent.depth });
+    branches.push({
+      from: parent.id, to: n.id, d: branchPath(anchorOut(parent, side), anchorIn(box)), color, fromDepth: parent.depth,
+      ...(n.emphasis && { toEmphasis: n.emphasis }),
+    });
     const kids = visibleChildren(n);
     if (!kids.length) return;
     const total = kids.reduce((s, c) => s + blockH.get(c.id)!, 0) + vGap(depth) * (kids.length - 1);

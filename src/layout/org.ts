@@ -20,10 +20,7 @@ export function computeOrgLayout(root: MapNode, measure: Measure): MapLayout {
 
   const place = (n: MapNode, depth: number, x: number, y: number, color: BranchColor, parentId: string | null): TopicBox => {
     const m = measureTopic(n, depth, measure, 'org');
-    const box: TopicBox = {
-      id: n.id, node: n, parentId, depth, side: 0, x, y, w: m.w, h: m.h, style: m.style, lines: m.lines, color,
-      fold: { x: x + m.w + 11, y: y + m.h / 2 },
-    };
+    const box: TopicBox = { ...m, id: n.id, node: n, parentId, depth, side: 0, x, y, color, fold: { x: x + m.w + 11, y: y + m.h / 2 } };
     boxes.push(box);
     byId.set(n.id, box);
     return box;
@@ -59,6 +56,7 @@ export function computeOrgLayout(root: MapNode, measure: Measure): MapLayout {
         branches.push({
           from: p.id, to: box.id, color, fromDepth: 0,
           d: `M0 ${r1(p.y + p.h)} C0 ${r1(mid)} ${r1(cx)} ${r1(mid)} ${r1(cx)} ${r1(box.y)}`,
+          ...(row.node.emphasis && { toEmphasis: row.node.emphasis }),
         });
       } else {
         const px = p.x + ORG.indent / 2;
@@ -66,6 +64,7 @@ export function computeOrgLayout(root: MapNode, measure: Measure): MapLayout {
         branches.push({
           from: p.id, to: box.id, color, fromDepth: p.depth,
           d: `M${r1(px)} ${r1(p.y + p.h)} L${r1(px)} ${r1(cy)} L${r1(box.x)} ${r1(cy)}`,
+          ...(row.node.emphasis && { toEmphasis: row.node.emphasis }),
         });
       }
       y += box.h + ORG.rowGap;

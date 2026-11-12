@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { MapNode } from '../shared/types';
+import type { LayoutKind, MapNode } from '../shared/types';
 import { computeLayout } from './map';
 import { layoutMap } from './index';
 import { PALETTE, ROOT_COLOR } from './styles';
@@ -115,6 +115,76 @@ describe('layoutMap (all layouts)', () => {
     for (let k = 0; k < 150; k++) {
       const l = layoutMap(randomTree(rand), kind, measure);
       expect(l.branches).toHaveLength(l.boxes.length - 1);
+      for (let i = 0; i < l.boxes.length; i++) {
+        for (let j = i + 1; j < l.boxes.length; j++) {
+          const a = l.boxes[i], b = l.boxes[j];
+          const overlap = a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
+          expect(overlap, `${kind}: ${a.id} overlaps ${b.id} in tree ${k}`).toBe(false);
+        }
+      }
+    }
+  });
+});
+
+/** Adds random importance, priority, notes and markers, using its own random stream. */
+function decorate(node: MapNode, rand: () => number): MapNode {
+  const r = rand();
+  return {
+    ...node,
+    ...(r < 0.2 ? { emphasis: 'key' as const } : r < 0.35 ? { emphasis: 'aside' as const } : r < 0.45 ? { emphasis: 'highlight' as const } : {}),
+    ...(rand() < 0.25 ? { priority: (1 + Math.floor(rand() * 3)) as 1 | 2 | 3 } : {}),
+    ...(rand() < 0.2 ? { note: 'a note' } : {}),
+    ...(rand() < 0.2 ? { emoji: '💡' } : {}),
+    children: node.children.map((c) => decorate(c, rand)),
+  };
+}
+
+describe('topic decorations', () => {
+  const at = (extra: Partial<MapNode>, kind: LayoutKind = 'map') =>
+    layoutMap(n('r', 'Root', [n('a', 'A', [n('x', 'Topic', [], extra)])]), kind, measure).byId.get('x')!;
+
+  it('Key promotes an underlined or small topic to a box with text 2 px larger', () => {
+    expect(at({}).style.kind).toBe('line');
+    expect(at({ emphasis: 'key' }).style).toMatchObject({ kind: 'box', fontSize: 19 });
+    expect(at({ emphasis: 'key' }, 'org').style).toMatchObject({ kind: 'box', fontSize: 19 });
+    const firstLevel = layoutMap(n('r', 'Root', [n('a', 'A', [], { emphasis: 'key' })]), 'map', measure).byId.get('a')!;
+    expect(firstLevel.style).toMatchObject({ kind: 'box', fontSize: 22 });
+  });
+
+  it('Aside makes the text 2 px smaller and keeps the kind', () => {
+    expect(at({ emphasis: 'aside' }).style).toMatchObject({ kind: 'line', fontSize: 15 });
+  });
+
+  it('a priority badge reserves space left of the text, a note reserves space right of it', () => {
+    const plain = at({});
+    const pri = at({ priority: 1 });
+    const note = at({ note: 'Remember' });
+    expect(pri.badgeW).toBe(Math.round(17 * 1.05) + 6);
+    expect(pri.w - plain.w).toBe(pri.badgeW);
+    expect(note.noteW).toBe(24);
+    expect(note.w - plain.w).toBe(24);
+    expect(at({ note: '  \n ' }).noteW).toBe(0);
+  });
+
+  it('draws the marker emoji as the first word of the text', () => {
+    const t = at({ emoji: '💡' });
+    expect(t.lines[0]).toBe('💡 Topic');
+    expect(t.lineWidths[0]).toBe(measure('💡 Topic', 17));
+  });
+
+  it('records the importance of the topic each branch leads into, in every layout', () => {
+    const tree = n('r', 'Root', [n('a', 'A', [], { emphasis: 'key' }), n('b', 'B', [], { emphasis: 'aside' }), n('c', 'C')]);
+    for (const kind of ['map', 'logic', 'org'] as const) {
+      const byTo = new Map(layoutMap(tree, kind, measure).branches.map((b) => [b.to, b.toEmphasis]));
+      expect([byTo.get('a'), byTo.get('b'), byTo.get('c')], kind).toEqual(['key', 'aside', undefined]);
+    }
+  });
+
+  it.each(['map', 'logic', 'org'] as const)('never overlaps decorated topics in 150 random maps: %s', (kind) => {
+    const rand = mulberry32(11);
+    const extras = mulberry32(5);
+    for (let k = 0; k < 150; k++) {
+      const l = layoutMap(decorate(randomTree(rand), extras), kind, measure);
       for (let i = 0; i < l.boxes.length; i++) {
         for (let j = i + 1; j < l.boxes.length; j++) {
           const a = l.boxes[i], b = l.boxes[j];

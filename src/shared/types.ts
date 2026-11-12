@@ -30,3 +30,6 @@ export interface MapSummary {
 }
 
 export const LIMITS = { mapJsonBytes: 2_000_000 } as const;
+
+/** The marker set: at most one marker per topic (spec §3). */
+export const MARKERS = ['💡', '✅', '⚠️', '❓', '⭐', '📌', '🔥', '❌', '📅', '👤'] as const;
