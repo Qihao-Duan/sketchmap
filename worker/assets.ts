@@ -1,9 +1,29 @@
 import type { Env } from './index';
 
-export function securityHeaders(pathname: string, contentType: string | null): Record<string, string> {
+/**
+ * Content-Security-Policy for the app's HTML. Production allows only same-origin scripts; `vite dev` also needs its
+ * inline React-refresh preamble and the HMR websocket. Inline style attributes are allowed: React and the renderer set
+ * them. `/m/*` may be framed anywhere (the Notion embed); every other page may not be framed at all.
+ */
+export function contentSecurityPolicy(pathname: string, dev: boolean): string {
+  const directives = [
+    "default-src 'self'",
+    dev ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    dev ? "connect-src 'self' ws: wss:" : "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ];
+  if (!pathname.startsWith('/m/')) directives.push("frame-ancestors 'none'");
+  return directives.join('; ');
+}
+
+export function securityHeaders(pathname: string, contentType: string | null, dev = import.meta.env.DEV): Record<string, string> {
   const headers: Record<string, string> = { 'X-Content-Type-Options': 'nosniff' };
-  const isHtml = (contentType ?? '').includes('text/html');
-  if (isHtml && !pathname.startsWith('/m/')) headers['Content-Security-Policy'] = "frame-ancestors 'none'";
+  if ((contentType ?? '').includes('text/html')) headers['Content-Security-Policy'] = contentSecurityPolicy(pathname, dev);
   return headers;
 }
 
