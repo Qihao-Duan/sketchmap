@@ -369,6 +369,40 @@ describe('Editor', () => {
     mount(fakeApi(), { ...map, root: { ...map.root, text: '[Plan](https://a.com) ahead' } });
     expect(container.querySelector('[aria-label="Topic details"] .topic-title')!.textContent).toBe('Plan ahead');
   });
+
+  it('closes the link prompt when its topic goes away, and the keys work again', async () => {
+    mount(fakeApi());
+    keydown({ key: 'Tab' });
+    type(container.querySelector('textarea')!, 'X');
+    keydown({ key: 'Enter' }, container.querySelector('textarea')!);
+    keydown({ key: 'k', metaKey: true });
+    expect(container.querySelector('[aria-label="Link"]')).not.toBeNull();
+    await click('Undo');
+    expect(container.querySelector('[aria-label="Link"]')).toBeNull();
+    expect(topics()).toBe(1);
+    keydown({ key: 'Tab' });
+    expect(topics()).toBe(2);
+  });
+
+  it('keeps the link prompt open with a reason when the link would make the topic too long', () => {
+    mount(fakeApi(), { ...map, root: { ...map.root, text: 'x'.repeat(4990) } });
+    keydown({ key: 'k', metaKey: true });
+    const input = container.querySelector('[aria-label="Link"] input') as HTMLInputElement;
+    typeInput(input, 'example.com');
+    keydown({ key: 'Enter' }, input);
+    expect(container.querySelector('[aria-label="Link"] [role="alert"]')!.textContent).toContain('5000');
+    expect(container.querySelector('g.topic a')).toBeNull();
+  });
+
+  it('closes the link prompt when a topic is opened for editing', () => {
+    mount(fakeApi());
+    keydown({ key: 'k', metaKey: true });
+    const hit = container.querySelector('g.topic rect.hit')!;
+    const press = (type: string) => act(() => void hit.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: 10, clientY: 10 })));
+    press('pointerdown'); press('pointerup'); press('pointerdown'); press('pointerup');
+    expect(container.querySelector('textarea.inline-editor')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Link"]')).toBeNull();
+  });
 });
 
 describe('Details panel', () => {

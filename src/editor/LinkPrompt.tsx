@@ -4,19 +4,18 @@ import { normalizeHref } from '../shared/rich';
 export interface LinkPromptProps {
   /** The topic already has a link: offer to remove it. */
   hasLink: boolean;
-  /** An http(s) address to link the whole topic to, or null to remove its links. */
-  onApply(href: string | null): void;
+  /** Applies the link (or removes links, with null); returns an error message to show, or null when done. */
+  onApply(href: string | null): string | null;
   onClose(): void;
 }
 
 /** ⌘/Ctrl K on a selected topic: link the whole topic. */
 export function LinkPrompt({ hasLink, onApply, onClose }: LinkPromptProps) {
   const [url, setUrl] = useState('');
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const apply = () => {
     const href = normalizeHref(url);
-    if (href) onApply(href);
-    else setError(true);
+    setError(href ? onApply(href) : 'Use a web address starting with http:// or https://');
   };
   return (
     <aside
@@ -38,7 +37,7 @@ export function LinkPrompt({ hasLink, onApply, onClose }: LinkPromptProps) {
           value={url}
           onChange={(e) => {
             setUrl(e.target.value);
-            setError(false);
+            setError(null);
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -48,10 +47,10 @@ export function LinkPrompt({ hasLink, onApply, onClose }: LinkPromptProps) {
           }}
         />
       </label>
-      {error && <p role="alert" className="error">Use a web address starting with http:// or https://</p>}
+      {error && <p role="alert" className="error">{error}</p>}
       <div className="row">
         <button type="button" className="primary" onClick={apply}>Link</button>
-        {hasLink && <button type="button" onClick={() => onApply(null)}>Remove link</button>}
+        {hasLink && <button type="button" onClick={() => setError(onApply(null))}>Remove link</button>}
         <button type="button" onClick={onClose}>Cancel</button>
       </div>
     </aside>

@@ -9,7 +9,7 @@ import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
 import { allText, findNode } from '../model/tree';
 import { canvasMeasure, ensureFonts } from '../render/fonts';
-import { parseRich } from '../shared/rich';
+import { linkWhole, parseRich } from '../shared/rich';
 import type { LayoutKind, MindMap } from '../shared/types';
 import { Autosaver, draftKey, readDraft, type Draft, type SaveStatus } from './autosave';
 import { Canvas, type CanvasHandle } from './Canvas';
@@ -78,7 +78,8 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const statusRef = useRef(status);
   statusRef.current = status;
   const modalRef = useRef(false);
-  modalRef.current = conflict || askKey || outlineOpen || linkFor !== null;
+  const linkNode = linkFor ? findNode(state.map.root, linkFor)?.node ?? null : null;
+  modalRef.current = conflict || askKey || outlineOpen || linkNode !== null;
 
   const saver = useMemo(
     () =>
@@ -185,6 +186,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   useEffect(() => {
     document.title = `${state.map.title || 'Untitled map'} · Sketchmap`;
   }, [state.map.title]);
+
+  // The ⌘K prompt belongs to one topic: close it when that topic goes away, gets edited, or stops being selected.
+  useEffect(() => {
+    if (linkFor && (!linkNode || state.editing || state.selectedId !== linkFor)) setLinkFor(null);
+  }, [linkFor, linkNode, state.editing, state.selectedId]);
 
   /**
    * Header, toolbar and sidebar buttons keep focus where it is, so first close what is open there:
@@ -436,13 +442,15 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         {outlineOpen && (
           <OutlinePanel initialText={toMarkdown(state.map.root)} onApply={applyOutline} onClose={() => setOutlineOpen(false)} lost={markdownLosses(state.map.root)} />
         )}
-        {linkFor && findNode(state.map.root, linkFor) && (
+        {linkFor && linkNode && (
           <LinkPrompt
             key={`link-${linkFor}`}
-            hasLink={parseRich(findNode(state.map.root, linkFor)!.node.text).links.length > 0}
+            hasLink={parseRich(linkNode.text).links.length > 0}
             onApply={(href) => {
+              if (linkWhole(linkNode.text, href).length > 5000) return 'With this link the topic would be longer than 5000 characters.';
               dispatch({ type: 'setLink', id: linkFor, href });
               setLinkFor(null);
+              return null;
             }}
             onClose={() => setLinkFor(null)}
           />

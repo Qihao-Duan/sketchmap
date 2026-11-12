@@ -1,5 +1,5 @@
 import rough from 'roughjs';
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { ASIDE_INK, HIGHLIGHTER, INK, PRIORITY_COLORS } from '../layout/styles';
 import { parseRich } from '../shared/rich';
 import { MARKERS, type Emphasis, type MapNode } from '../shared/types';
@@ -119,7 +119,7 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, n
     if (document.activeElement !== noteBox.current) setNote(node.note ?? '');
   }, [node.note]);
 
-  const rich = parseRich(node.text);
+  const rich = useMemo(() => parseRich(node.text), [node.text]);
   const title = (node.emoji ? `${node.emoji} ` : '') + (rich.plain.split('\n')[0].trim() || 'Untitled topic');
   return (
     <aside className="float details" aria-label="Topic details">
@@ -214,7 +214,7 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, n
           </ul>
         </div>
       )}
-      <p className="muted hint">While editing a topic, select words and press ⌘/Ctrl K, or paste a link over them.</p>
+      <p className="muted hint">Select a topic and press ⌘/Ctrl K to link all of it. While editing, select words and press ⌘/Ctrl K, or paste a link over them.</p>
     </aside>
   );
 }
