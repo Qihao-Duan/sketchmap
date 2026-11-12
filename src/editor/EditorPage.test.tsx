@@ -20,10 +20,10 @@ function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
     ...overrides,
   };
 }
-function mount(api: ApiClient) {
+function mount(api: ApiClient, initial: MindMap = map, etag = '"e1"') {
   container = document.createElement('div');
   document.body.appendChild(container);
-  act(() => createRoot(container).render(<Editor initial={map} etag='"e1"' api={api} measureFactory={measure} />));
+  act(() => createRoot(container).render(<Editor initial={initial} etag={etag} api={api} measureFactory={measure} />));
 }
 const keydown = (init: KeyboardEventInit, target: EventTarget = window) =>
   act(() => void target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })));
@@ -32,6 +32,13 @@ function type(ta: HTMLTextAreaElement, value: string) {
   act(() => {
     setter.call(ta, value);
     ta.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+function typeInput(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  act(() => {
+    setter.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
 const topics = () => container.querySelectorAll('g.topic').length;
@@ -97,6 +104,68 @@ describe('Editor', () => {
     expect(topics()).toBe(2);
     await advance(1000);
     expect(vi.mocked(api.saveMap).mock.calls[0][0].root.children[0].text).toBe('From draft');
-    expect(vi.mocked(api.saveMap).mock.calls[0][1]).toBe('"e1"');
+    expect(vi.mocked(api.saveMap).mock.calls[0][1]).toBe('"old"');
+  });
+
+  it('restoring a draft based on an old ETag asks via the conflict dialog instead of silently overwriting a newer server version', async () => {
+    const draftMap = { ...map, root: { ...map.root, children: [{ id: 'draft00001', text: 'From draft', children: [] }] } };
+    localStorage.setItem(draftKey(map.id), JSON.stringify({ map: draftMap, etag: '"old"', savedAt: 1 }));
+    const api = fakeApi({ saveMap: vi.fn(async () => { throw new ApiError(409, 'changed', '"x"'); }) });
+    mount(api);
+    await click('Restore');
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    await advance(1000);
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
+  it('on a 401, asks for the owner key and retries the save once it is entered', async () => {
+    let calls = 0;
+    const api = fakeApi({
+      saveMap: vi.fn(async (m: MindMap) => {
+        calls++;
+        if (calls === 1) throw new ApiError(401, 'Unauthorized');
+        return { map: { ...m, version: m.version + 1, title: m.root.text }, etag: '"e2"' };
+      }),
+    });
+    mount(api);
+    keydown({ key: 'Tab' });
+    type(container.querySelector('textarea')!, 'Child');
+    keydown({ key: 'Enter' }, container.querySelector('textarea')!);
+    await advance(1000);
+    expect(container.textContent).toContain('owner key');
+    const input = container.querySelector('#owner-key') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    typeInput(input, 'new-owner-key');
+    await click('Continue');
+    expect(calls).toBe(2);
+  });
+
+  it('"Keep mine and overwrite" saves the current map with the fresh ETag returned by getMap', async () => {
+    let calls = 0;
+    const api = fakeApi({
+      saveMap: vi.fn(async (m: MindMap) => {
+        calls++;
+        if (calls === 1) throw new ApiError(409, 'changed', '"x"');
+        return { map: { ...m, version: m.version + 1, title: m.root.text }, etag: '"e3"' };
+      }),
+    });
+    mount(api);
+    keydown({ key: 'Tab' });
+    type(container.querySelector('textarea')!, 'Mine');
+    keydown({ key: 'Enter' }, container.querySelector('textarea')!);
+    await advance(1000);
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    await click('Keep mine and overwrite');
+    expect(api.getMap).toHaveBeenCalledWith(map.id);
+    expect(vi.mocked(api.saveMap).mock.calls[1][1]).toBe('"server"');
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('warns that the draft is older than the saved map when its timestamp precedes updatedAt', async () => {
+    const draftMap = { ...map, root: { ...map.root, children: [{ id: 'draft00001', text: 'From draft', children: [] }] } };
+    localStorage.setItem(draftKey(map.id), JSON.stringify({ map: draftMap, etag: '"old"', savedAt: 1000 }));
+    const newerInitial = { ...map, updatedAt: new Date(2000).toISOString() };
+    mount(fakeApi(), newerInitial);
+    expect(container.textContent).toContain('older than the saved map');
   });
 });

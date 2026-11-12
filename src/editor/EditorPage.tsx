@@ -193,6 +193,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   };
   const restoreDraft = () => {
     if (!draft) return;
+    if (draft.etag && draft.etag !== saver.currentEtag) saver.resume(draft.etag);
     dispatch({ type: 'replaceMap', map: { ...draft.map, id: initial.id }, dirty: true });
     setDraft(null);
   };
@@ -230,7 +231,14 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         <button type="button" onClick={copyLink}>{copied ? 'Link copied' : 'Copy Notion embed link'}</button>
         <a href={`/m/${initial.id}`} target="_blank" rel="noopener">Open view ↗</a>
       </header>
-      {draft && <DraftBanner savedAt={draft.savedAt} onRestore={restoreDraft} onDiscard={discardDraft} />}
+      {draft && (
+        <DraftBanner
+          savedAt={draft.savedAt}
+          onRestore={restoreDraft}
+          onDiscard={discardDraft}
+          olderThanServer={draft.savedAt < Date.parse(initial.updatedAt)}
+        />
+      )}
       {exportError && <div className="banner" role="alert">{exportError}</div>}
       <main className="editor-stage">
         <Canvas

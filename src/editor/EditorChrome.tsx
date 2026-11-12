@@ -70,10 +70,25 @@ export function ConflictDialog({ onLoadNewer, onKeepMine, error }: { onLoadNewer
   );
 }
 
-export function DraftBanner({ savedAt, onRestore, onDiscard }: { savedAt: number; onRestore(): void; onDiscard(): void }) {
+export function DraftBanner({
+  savedAt,
+  onRestore,
+  onDiscard,
+  olderThanServer,
+}: {
+  savedAt: number;
+  onRestore(): void;
+  onDiscard(): void;
+  olderThanServer?: boolean;
+}) {
+  const when = new Date(savedAt).toLocaleString();
   return (
     <div className="banner" role="status">
-      <span>This browser has unsaved changes from {new Date(savedAt).toLocaleString()}.</span>
+      <span>
+        {olderThanServer
+          ? `This browser has unsaved changes from ${when}, older than the saved map. Restoring will ask before overwriting.`
+          : `This browser has unsaved changes from ${when}.`}
+      </span>
       <button type="button" onClick={onRestore}>Restore</button>
       <button type="button" onClick={onDiscard}>Discard</button>
     </div>
