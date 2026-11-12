@@ -103,6 +103,65 @@ describe('Canvas', () => {
     expect(a).not.toHaveBeenCalled();
   });
 
+  describe('links', () => {
+    const linked = computeLayout({ id: 'r', text: 'See [docs](https://example.com/d)', children: [] }, (t, s) => t.length * s * 0.5);
+    function mountLinked(interactive: boolean) {
+      const h = { onSelect: vi.fn(), onEdit: vi.fn(), onMove: vi.fn(), onToggleFold: vi.fn() };
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      act(() => createRoot(container).render(<Canvas layout={linked} selectedId={null} interactive={interactive} {...h} />));
+      return h;
+    }
+    const at = (el: Element, type: string, x: number, y: number, mods: MouseEventInit = {}) =>
+      act(() => void el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, ...mods })));
+    const link = () => container.querySelector('g.topic a tspan')!;
+
+    it('the view opens a link on a plain click', () => {
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      mountLinked(false);
+      at(link(), 'pointerdown', 10, 10);
+      at(link(), 'pointerup', 11, 10);
+      expect(open).toHaveBeenCalledWith('https://example.com/d', '_blank', 'noopener,noreferrer');
+      open.mockRestore();
+    });
+
+    it('the view does not open a link when the press turns into a pan', () => {
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      mountLinked(false);
+      at(link(), 'pointerdown', 10, 10);
+      at(link(), 'pointerup', 60, 40);
+      expect(open).not.toHaveBeenCalled();
+      open.mockRestore();
+    });
+
+    it('the editor selects on a plain click and opens on ⌘/Ctrl-click', () => {
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      const h = mountLinked(true);
+      at(link(), 'pointerdown', 10, 10);
+      at(link(), 'pointerup', 10, 10);
+      expect(h.onSelect).toHaveBeenCalledWith('r');
+      expect(open).not.toHaveBeenCalled();
+      h.onSelect.mockClear();
+      at(link(), 'pointerdown', 10, 10, { metaKey: true });
+      at(link(), 'pointerup', 10, 10, { metaKey: true });
+      expect(open).toHaveBeenCalledWith('https://example.com/d', '_blank', 'noopener,noreferrer');
+      expect(h.onSelect).not.toHaveBeenCalled();
+      open.mockRestore();
+    });
+
+    it('never lets the browser follow a link by itself; keyboard activation opens it', () => {
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      mountLinked(false);
+      const click = new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 });
+      act(() => void link().dispatchEvent(click));
+      expect(click.defaultPrevented).toBe(true);
+      expect(open).not.toHaveBeenCalled();
+      act(() => void link().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 })));
+      expect(open).toHaveBeenCalledTimes(1);
+      open.mockRestore();
+    });
+  });
+
   it('ensureVisible keeps the topic clear of a right-hand panel (rightInset)', () => {
     const spy = vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, width: 1000, height: 600, top: 0, left: 0, right: 1000, bottom: 600, toJSON: () => ({}),

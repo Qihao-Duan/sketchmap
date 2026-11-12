@@ -27,8 +27,14 @@ interface Props {
 }
 
 type Gesture =
-  | { kind: 'pan'; x: number; y: number; tx: number; ty: number }
-  | { kind: 'topic'; id: string; x: number; y: number; moved: boolean; dbl: boolean; ghost: SVGGElement | null };
+  | { kind: 'pan'; x: number; y: number; tx: number; ty: number; link: string | null }
+  | { kind: 'topic'; id: string; x: number; y: number; moved: boolean; dbl: boolean; ghost: SVGGElement | null }
+  | { kind: 'link'; x: number; y: number; href: string };
+
+/** Opens a topic's link in a new tab, without giving that page a handle on this one. */
+function openLink(href: string) {
+  if (/^https?:\/\//i.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
+}
 
 export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect, onEdit, onMove, onViewChange, rightInset = 0, fitMaxK, ref }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -130,10 +136,15 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
       onToggleFold(fold.getAttribute('data-fold')!);
       return;
     }
+    const href = target.closest('a')?.getAttribute('href') ?? null;
+    if (href && interactive && (e.metaKey || e.ctrlKey)) {
+      gesture.current = { kind: 'link', x: e.clientX, y: e.clientY, href };
+      return;
+    }
     svgRef.current?.setPointerCapture?.(e.pointerId);
     const topic = interactive ? target.closest('g.topic') : null;
     if (!topic) {
-      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty };
+      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, link: interactive ? null : href };
       return;
     }
     const id = topic.getAttribute('data-id')!;
@@ -153,6 +164,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
       gesture.current = null;
       return;
     }
+    if (g.kind === 'link') return;
     const dx = e.clientX - g.x;
     const dy = e.clientY - g.y;
     if (g.kind === 'pan') {
@@ -177,10 +189,19 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     setDrop(tid && tid !== g.id && !isInBranch(moving, tid) ? tid : null);
   };
 
-  const onPointerUp = () => {
+  const endGesture = (e: PointerEvent<SVGSVGElement>, cancelled: boolean) => {
     const g = gesture.current;
     gesture.current = null;
-    if (!g || g.kind !== 'topic') return;
+    if (!g) return;
+    const still = Math.hypot(e.clientX - g.x, e.clientY - g.y) < 6;
+    if (g.kind === 'link') {
+      if (still && !cancelled) openLink(g.href);
+      return;
+    }
+    if (g.kind === 'pan') {
+      if (g.link && still && !cancelled) openLink(g.link);
+      return;
+    }
     if (g.moved) {
       g.ghost?.remove();
       const target = dropRef.current;
@@ -199,8 +220,15 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
         aria-label="Mind map"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerUp={(e) => endGesture(e, false)}
+        onPointerCancel={(e) => endGesture(e, true)}
+        onClick={(e) => {
+          // Links open from the pointer handlers above, or here from the keyboard; never by the browser's own navigation.
+          const a = (e.target as Element).closest('a');
+          if (!a) return;
+          e.preventDefault();
+          if (e.detail === 0) openLink(a.getAttribute('href') ?? '');
+        }}
       >
         <g ref={worldRef} className="world" />
         <g ref={overlayRef} className="overlay" />
