@@ -58,4 +58,8 @@ describe('InlineEditor', () => {
     act(() => t.ta.blur());
     expect(t.onCommit).toHaveBeenCalledWith('Root');
   });
+  it('caps input at the 5000-character topic limit', () => {
+    const t = mount();
+    expect(t.ta.maxLength).toBe(5000);
+  });
 });

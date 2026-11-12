@@ -53,6 +53,7 @@ export function InlineEditor({ box, view, initialText, selectAll, onCommit, onCa
       aria-label="Topic text"
       placeholder="Topic"
       spellCheck={false}
+      maxLength={5000}
       value={value}
       style={style}
       onChange={(e) => setValue(e.target.value)}

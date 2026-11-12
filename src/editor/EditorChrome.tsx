@@ -8,6 +8,7 @@ export const STATUS_TEXT: Record<SaveStatus, string> = {
   retrying: 'Not saved, retrying',
   conflict: 'Not saved: conflict',
   unauthorized: 'Not saved: owner key needed',
+  rejected: 'Not saved: rejected by the server',
 };
 
 export function SaveBadge({ status }: { status: SaveStatus }) {

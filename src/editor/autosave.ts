@@ -1,7 +1,7 @@
 import type { MindMap } from '../shared/types';
 import { ApiError, type Saved } from '../api/client';
 
-export type SaveStatus = 'saved' | 'pending' | 'saving' | 'retrying' | 'conflict' | 'unauthorized';
+export type SaveStatus = 'saved' | 'pending' | 'saving' | 'retrying' | 'conflict' | 'unauthorized' | 'rejected';
 export const SAVE_DELAY_MS = 1000;
 export const MAX_BACKOFF_MS = 60_000;
 
@@ -42,7 +42,7 @@ export class Autosaver {
   constructor(
     private deps: AutosaveDeps,
     initialEtag: string,
-    private onStatus: (status: SaveStatus) => void,
+    private onStatus: (status: SaveStatus, message?: string) => void,
     private onSaved: (saved: Saved) => void,
   ) {
     this.etag = initialEtag;
@@ -148,7 +148,9 @@ export class Autosaver {
       }
       if (e instanceof ApiError && e.status === 409) this.setStatus('conflict');
       else if (e instanceof ApiError && e.status === 401) this.setStatus('unauthorized');
-      else {
+      else if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429) {
+        this.setStatus('rejected', e.message);
+      } else {
         this.failures += 1;
         this.setStatus('retrying');
         this.arm(Math.min(MAX_BACKOFF_MS, 1000 * 2 ** this.failures));
@@ -158,9 +160,9 @@ export class Autosaver {
     }
   }
 
-  private setStatus(status: SaveStatus) {
+  private setStatus(status: SaveStatus, message?: string) {
     if (status === this.status) return;
     this.status = status;
-    this.onStatus(status);
+    this.onStatus(status, message);
   }
 }

@@ -8,6 +8,7 @@ const mapWith = (text: string): MindMap => ({ id: 'abcdefghijklmnopqrstu', title
 function setup(save: (map: MindMap, etag: string) => Promise<Saved>) {
   const store = new Map<string, string>();
   const statuses: SaveStatus[] = [];
+  const messages: (string | undefined)[] = [];
   const saved: Saved[] = [];
   const deps: AutosaveDeps = {
     save: vi.fn(save),
@@ -16,8 +17,16 @@ function setup(save: (map: MindMap, etag: string) => Promise<Saved>) {
     clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     now: () => Date.now(),
   };
-  const saver = new Autosaver(deps, '"e0"', (s) => statuses.push(s), (s) => saved.push(s));
-  return { saver, deps, store, statuses, saved };
+  const saver = new Autosaver(
+    deps,
+    '"e0"',
+    (s, m) => {
+      statuses.push(s);
+      messages.push(m);
+    },
+    (s) => saved.push(s),
+  );
+  return { saver, deps, store, statuses, messages, saved };
 }
 const ok = (n: number) => async (map: MindMap): Promise<Saved> => ({ map: { ...map, version: n }, etag: `"e${n}"` });
 
@@ -145,6 +154,20 @@ describe('Autosaver', () => {
     releases[1](); // release the new save
     await vi.advanceTimersByTimeAsync(0);
     expect(t.statuses.at(-1)).toBe('saved');
+  });
+
+  it('a save the server rejects permanently (e.g. 400) is not retried automatically, but a later schedule() tries again once', async () => {
+    const t = setup(async () => { throw new ApiError(400, 'Topic text is too long'); });
+    t.saver.schedule(mapWith('a'));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(t.statuses.at(-1)).toBe('rejected');
+    expect(t.deps.save).toHaveBeenCalledTimes(1);
+    expect(t.messages.at(-1)).toBe('Topic text is too long');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(t.deps.save).toHaveBeenCalledTimes(1); // no automatic retry
+    t.saver.schedule(mapWith('b'));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(t.deps.save).toHaveBeenCalledTimes(2); // exactly one new save
   });
 
   it('editing during backoff wait keeps the backoff timer, not 1 s debounce', async () => {

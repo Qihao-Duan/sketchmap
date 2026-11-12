@@ -40,6 +40,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [askKey, setAskKey] = useState(false);
   const [copied, setCopied] = useState(false);
   const [exportError, setExportError] = useState<string>();
+  const [rejectedMessage, setRejectedMessage] = useState<string>();
   const [editInitial, setEditInitial] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(() => {
     const d = readDraft(storage, initial.id);
@@ -66,10 +67,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           now: () => Date.now(),
         },
         etag,
-        (s) => {
+        (s, message) => {
           setStatus(s);
           if (s === 'conflict') setConflict(true);
           if (s === 'unauthorized') setAskKey(true);
+          if (s === 'rejected') setRejectedMessage(message);
         },
         (saved) => dispatch({ type: 'serverSaved', map: saved.map }),
       ),
@@ -240,6 +242,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         />
       )}
       {exportError && <div className="banner" role="alert">{exportError}</div>}
+      {status === 'rejected' && (
+        <div className="banner" role="alert">
+          The server refused this save: {rejectedMessage}. Your changes are kept in this browser.
+        </div>
+      )}
       <main className="editor-stage">
         <Canvas
           ref={canvas}

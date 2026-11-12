@@ -78,6 +78,21 @@ describe('Editor', () => {
     expect(topics()).toBe(2);
   });
 
+  it('shows an alert banner with the server message when a save is rejected for good, and stops retrying', async () => {
+    const api = fakeApi({ saveMap: vi.fn(async () => { throw new ApiError(400, 'Topic text is too long'); }) });
+    mount(api);
+    keydown({ key: 'Tab' });
+    type(container.querySelector('textarea')!, 'Child');
+    keydown({ key: 'Enter' }, container.querySelector('textarea')!);
+    await advance(1000);
+    expect(container.querySelector('[data-testid="save-status"]')!.textContent).toBe('Not saved: rejected by the server');
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('Topic text is too long');
+    expect(alert?.textContent).toContain('kept in this browser');
+    await advance(60_000);
+    expect(api.saveMap).toHaveBeenCalledTimes(1);
+  });
+
   it('on a conflict, "Load the newer version" replaces the map and stops saving mine', async () => {
     const api = fakeApi({ saveMap: vi.fn(async () => { throw new ApiError(409, 'changed', '"x"'); }) });
     mount(api);
