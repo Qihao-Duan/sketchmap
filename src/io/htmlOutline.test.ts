@@ -61,6 +61,13 @@ describe('parseHtmlOutline', () => {
     expect(shape(parsed.root)).toEqual({ t: 'Outline', c: [{ t: 'A', c: [] }, { t: 'B', c: [] }] });
   });
 
+  it('keeps only absolute web links: relative, anchor, missing and unsafe hrefs keep just their text', () => {
+    const parsed = parseHtmlOutline(
+      '<ul><li><a href="/page">rel</a> <a href="#top">anchor</a> <a>none</a> <a href=\'https://x.com/"q\'>quoted</a> <a href="https://a.com"><b>bold</b> link</a></li></ul>',
+    )!;
+    expect(parsed.root.text).toBe('rel anchor none quoted [bold link](https://a.com)');
+  });
+
   it('keeps web links from pasted lists as [label](url), and drops other links to their text', () => {
     const parsed = parseHtmlOutline('<ul><li>Read <a href="https://example.com/docs">the [docs]</a> and <a href="javascript:x()">this</a></li></ul>')!;
     expect(parsed.root.text).toBe('Read [the \\[docs\\]](https://example.com/docs) and this');

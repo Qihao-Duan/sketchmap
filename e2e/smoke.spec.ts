@@ -131,4 +131,5 @@ test('a link made with Cmd/Ctrl K survives a reload and opens from the view', as
   const popup = context.waitForEvent('page');
   await page.locator('g.topic a', { hasText: 'docs' }).click();
   await (await popup).waitForURL('https://example.com/docs');
+  await expect(page).toHaveURL(new RegExp(`/m/${id}$`)); // opened in a new tab; the view itself did not navigate
 });
