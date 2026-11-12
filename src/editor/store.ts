@@ -1,4 +1,5 @@
 import { produce } from 'immer';
+import { linkWhole } from '../shared/rich';
 import type { Emphasis, LayoutKind, MapNode, MindMap } from '../shared/types';
 import * as T from '../model/tree';
 
@@ -37,7 +38,8 @@ export type EditorAction =
   | { type: 'bumpEmphasis'; delta: 1 | -1 }
   | { type: 'setPriority'; id: string; priority: 1 | 2 | 3 | null }
   | { type: 'setMarker'; id: string; emoji: string | null }
-  | { type: 'setNote'; id: string; note: string };
+  | { type: 'setNote'; id: string; note: string }
+  | { type: 'setLink'; id: string; href: string | null };
 
 export function initEditor(map: MindMap): EditorState {
   return { map, selectedId: map.root.id, editing: null, past: [], future: [], revision: 0 };
@@ -202,6 +204,15 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       // The note box dispatches at every pause in typing; one typing session on one topic is one undo step.
       if (state.lastEdit === session) return { ...state, map: next, future: [], revision: state.revision + 1 };
       return { ...commit(state, next), lastEdit: session };
+    }
+
+    case 'setLink': {
+      if (state.editing) return state;
+      const f = T.findNode(state.map.root, action.id);
+      if (!f) return state;
+      const text = linkWhole(f.node.text, action.href);
+      if (text === f.node.text || text.length > 5000) return state;
+      return commit(state, produce(state.map, (d) => void T.setText(d.root, action.id, text)));
     }
 
     case 'undo': {

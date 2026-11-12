@@ -111,3 +111,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .details .chip.tool[aria-pressed="true"] { color: var(--accent); }
 .details .importance { flex-wrap: nowrap; gap: 2px; }
 svg.mini { display: block; filter: var(--canvas-filter); }
+
+.details .links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.details .links a { color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }
+.details .links span { display: block; font-size: 11.5px; color: var(--ink-2); overflow-wrap: anywhere; }
+.details .hint { font-size: 11.5px; margin: 0; }
+.link-prompt { left: 50%; top: 12px; transform: translateX(-50%); width: min(380px, calc(100% - 24px)); box-sizing: border-box; padding: 14px; display: flex; flex-direction: column; gap: 8px; z-index: 6; }
+.link-prompt input { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }
+.link-prompt .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.link-prompt button { border: 1px solid var(--line); }
+.link-prompt button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }

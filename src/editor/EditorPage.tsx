@@ -9,6 +9,7 @@ import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
 import { allText, findNode } from '../model/tree';
 import { canvasMeasure, ensureFonts } from '../render/fonts';
+import { parseRich } from '../shared/rich';
 import type { LayoutKind, MindMap } from '../shared/types';
 import { Autosaver, draftKey, readDraft, type Draft, type SaveStatus } from './autosave';
 import { Canvas, type CanvasHandle } from './Canvas';
@@ -16,6 +17,7 @@ import { DetailsPanel } from './DetailsPanel';
 import { ConflictDialog, DraftBanner, SaveBadge, Toolbar } from './EditorChrome';
 import { InlineEditor } from './InlineEditor';
 import { keyToCommand, type Command } from './keymap';
+import { LinkPrompt } from './LinkPrompt';
 import { navigate } from './navigate';
 import { OutlinePanel } from './OutlinePanel';
 import { editorReducer, initEditor } from './store';
@@ -52,6 +54,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [rejectedMessage, setRejectedMessage] = useState<string>();
   const [editInitial, setEditInitial] = useState<string | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
+  const [linkFor, setLinkFor] = useState<string | null>(null);
   const [mdCopied, setMdCopied] = useState(false);
   const [mdNotice, setMdNotice] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(() => {
@@ -75,7 +78,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const statusRef = useRef(status);
   statusRef.current = status;
   const modalRef = useRef(false);
-  modalRef.current = conflict || askKey || outlineOpen;
+  modalRef.current = conflict || askKey || outlineOpen || linkFor !== null;
 
   const saver = useMemo(
     () =>
@@ -222,6 +225,9 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         return;
       case 'priority':
         dispatch({ type: 'setPriority', id: s.selectedId, priority: cmd.value === 0 ? null : cmd.value });
+        return;
+      case 'link':
+        setLinkFor(s.selectedId);
         return;
       default:
         dispatch({ type: cmd.type });
@@ -429,6 +435,17 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         )}
         {outlineOpen && (
           <OutlinePanel initialText={toMarkdown(state.map.root)} onApply={applyOutline} onClose={() => setOutlineOpen(false)} lost={markdownLosses(state.map.root)} />
+        )}
+        {linkFor && findNode(state.map.root, linkFor) && (
+          <LinkPrompt
+            key={`link-${linkFor}`}
+            hasLink={parseRich(findNode(state.map.root, linkFor)!.node.text).links.length > 0}
+            onApply={(href) => {
+              dispatch({ type: 'setLink', id: linkFor, href });
+              setLinkFor(null);
+            }}
+            onClose={() => setLinkFor(null)}
+          />
         )}
         <Toolbar
           zoom={view.k}

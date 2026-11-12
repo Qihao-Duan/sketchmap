@@ -17,6 +17,8 @@ describe('keyToCommand', () => {
     [k('z', { ctrlKey: true }), { type: 'undo' }],
     [k('Z', { metaKey: true, shiftKey: true }), { type: 'redo' }],
     [k('y', { ctrlKey: true }), { type: 'redo' }],
+    [k('k', { metaKey: true }), { type: 'link' }],
+    [k('K', { ctrlKey: true }), { type: 'link' }],
     [k('ArrowLeft'), { type: 'navigate', dir: 'left' }],
     [k('ArrowDown'), { type: 'navigate', dir: 'down' }],
     [k('q'), { type: 'edit', initial: 'q' }],

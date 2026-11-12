@@ -10,7 +10,8 @@ export type Command =
   | { type: 'redo' }
   | { type: 'navigate'; dir: Direction }
   | { type: 'emphasis'; delta: 1 | -1 }
-  | { type: 'priority'; value: 0 | 1 | 2 | 3 };
+  | { type: 'priority'; value: 0 | 1 | 2 | 3 }
+  | { type: 'link' };
 
 export interface KeyInput {
   key: string;
@@ -32,6 +33,7 @@ export function keyToCommand(e: KeyInput): Command | null {
     const key = e.key.toLowerCase();
     if (key === 'z') return { type: e.shiftKey ? 'redo' : 'undo' };
     if (key === 'y') return { type: 'redo' };
+    if (key === 'k') return { type: 'link' };
     if (e.key === '/') return { type: 'fold' };
     return null;
   }

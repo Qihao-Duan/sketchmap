@@ -334,6 +334,41 @@ describe('Editor', () => {
       Reflect.deleteProperty(navigator, 'clipboard');
     }
   });
+
+  it('⌘K on the selected topic links it; Remove link takes it off; each is one undo step', async () => {
+    mount(fakeApi());
+    keydown({ key: 'k', metaKey: true });
+    const input = () => container.querySelector('[aria-label="Link"] input[aria-label="Link URL"]') as HTMLInputElement;
+    typeInput(input(), 'example.com');
+    keydown({ key: 'Enter' }, input());
+    expect(container.querySelector('[aria-label="Link"]')).toBeNull();
+    expect(container.querySelector('g.topic a')!.getAttribute('href')).toBe('https://example.com');
+    const listed = container.querySelector('[aria-label="Topic details"] .links a')!;
+    expect(listed.textContent).toBe('Root ↗');
+    expect(listed.getAttribute('rel')).toBe('noopener noreferrer');
+    keydown({ key: 'k', metaKey: true });
+    await click('Remove link');
+    expect(container.querySelector('g.topic a')).toBeNull();
+    keydown({ key: 'z', metaKey: true });
+    expect(container.querySelector('g.topic a')).not.toBeNull();
+  });
+
+  it('⌘K refuses a non-web address and Escape closes the prompt', () => {
+    mount(fakeApi());
+    keydown({ key: 'k', ctrlKey: true });
+    const input = container.querySelector('input[aria-label="Link URL"]') as HTMLInputElement;
+    typeInput(input, 'javascript:alert(1)');
+    keydown({ key: 'Enter' }, input);
+    expect(container.querySelector('[aria-label="Link"] [role="alert"]')!.textContent).toContain('http://');
+    expect(container.querySelector('g.topic a')).toBeNull();
+    keydown({ key: 'Escape' }, input);
+    expect(container.querySelector('[aria-label="Link"]')).toBeNull();
+  });
+
+  it('the details panel shows the plain title of a linked topic', () => {
+    mount(fakeApi(), { ...map, root: { ...map.root, text: '[Plan](https://a.com) ahead' } });
+    expect(container.querySelector('[aria-label="Topic details"] .topic-title')!.textContent).toBe('Plan ahead');
+  });
 });
 
 describe('Details panel', () => {

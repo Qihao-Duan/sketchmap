@@ -203,3 +203,16 @@ describe('importance, priority, marker and note', () => {
     for (const action of actions) expect(reduce(s, action)).toBe(s);
   });
 });
+
+describe('setLink', () => {
+  it('links a whole topic, removes the link with null, one undo step each; no change changes nothing', () => {
+    let s = initEditor(base());
+    s = reduce(s, { type: 'setLink', id: 'a', href: 'https://a.com' });
+    expect(s.map.root.children[0].text).toBe('[A](https://a.com)');
+    s = reduce(s, { type: 'setLink', id: 'a', href: null });
+    expect(s.map.root.children[0].text).toBe('A');
+    expect(s.past).toHaveLength(2);
+    expect(reduce(s, { type: 'setLink', id: 'a', href: null })).toBe(s);
+    expect(reduce(s, { type: 'setLink', id: 'gone', href: 'https://a.com' })).toBe(s);
+  });
+});

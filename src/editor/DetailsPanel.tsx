@@ -1,6 +1,7 @@
 import rough from 'roughjs';
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
 import { ASIDE_INK, HIGHLIGHTER, INK, PRIORITY_COLORS } from '../layout/styles';
+import { parseRich } from '../shared/rich';
 import { MARKERS, type Emphasis, type MapNode } from '../shared/types';
 
 type Rough = ReturnType<typeof rough.svg>;
@@ -118,7 +119,8 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, n
     if (document.activeElement !== noteBox.current) setNote(node.note ?? '');
   }, [node.note]);
 
-  const title = (node.emoji ? `${node.emoji} ` : '') + (node.text.split('\n')[0].trim() || 'Untitled topic');
+  const rich = parseRich(node.text);
+  const title = (node.emoji ? `${node.emoji} ` : '') + (rich.plain.split('\n')[0].trim() || 'Untitled topic');
   return (
     <aside className="float details" aria-label="Topic details">
       <h2>Topic details</h2>
@@ -199,6 +201,20 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, n
           onBlur={flush}
         />
       </label>
+      {rich.links.length > 0 && (
+        <div className="field">
+          <span className="flabel">Links in this topic</span>
+          <ul className="links">
+            {rich.links.map((l, i) => (
+              <li key={`${i}-${l.href}`}>
+                <a href={l.href} target="_blank" rel="noopener noreferrer">{l.label} ↗</a>
+                <span>{l.href}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="muted hint">While editing a topic, select words and press ⌘/Ctrl K, or paste a link over them.</p>
     </aside>
   );
 }
