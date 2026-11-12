@@ -82,6 +82,9 @@ describe('importXmind', () => {
     await expect(importXmind(new TextEncoder().encode('hello'))).rejects.toThrow(/not an XMind file/);
     await expect(importXmind(await zipped([{ name: 'other.txt', data: 'x' }]))).rejects.toThrow(/No mind map/);
     await expect(importXmind(await zipped([{ name: 'content.json', data: '{broken' }]))).rejects.toThrow(XmindError);
+    const damaged = await zipped([{ name: 'content.json', data: '{"some":"json that compresses"}'.repeat(20) }]);
+    for (let i = 40; i < 60; i++) damaged[i] = 0xff;
+    await expect(importXmind(damaged)).rejects.toThrow(/can't be read: the archive is damaged/);
   });
 
   it('refuses a map too big to save', async () => {

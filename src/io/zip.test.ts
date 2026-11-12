@@ -32,3 +32,24 @@ describe('readZip', () => {
     await expect(readZip(zip, ['content.json'], 1000)).rejects.toBeInstanceOf(ZipError);
   });
 });
+
+describe('readZip on damaged archives', () => {
+  it('turns corrupt deflate data, mismatched sizes and names past the end into ZipError', async () => {
+    const deflated = await makeZip([{ name: 'content.json', data: '{"some":"json that compresses"}'.repeat(20) }]);
+    const broken = deflated.slice();
+    for (let i = 40; i < 60; i++) broken[i] = 0xff; // inside the compressed data
+    await expect(readZip(broken, ['content.json'])).rejects.toBeInstanceOf(ZipError);
+
+    const stored = await makeZip([{ name: 'content.json', data: 'hello', deflate: false }]);
+    const v = new DataView(stored.buffer, stored.byteOffset);
+    const cd = v.getUint32(stored.length - 22 + 16, true);
+    const lying = stored.slice();
+    new DataView(lying.buffer).setUint32(cd + 24, 4, true); // usize 4 ≠ csize 5
+    await expect(readZip(lying, ['content.json'])).rejects.toBeInstanceOf(ZipError);
+
+    const longName = stored.slice();
+    new DataView(longName.buffer).setUint16(cd + 28, 60_000, true);
+    await expect(readZip(longName, ['content.json'])).rejects.toBeInstanceOf(ZipError);
+    expect(new ZipError('x').name).toBe('ZipError');
+  });
+});

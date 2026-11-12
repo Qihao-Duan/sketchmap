@@ -1,4 +1,6 @@
-export class ZipError extends Error {}
+export class ZipError extends Error {
+  override name = 'ZipError';
+}
 
 const EOCD = 0x06054b50;
 const CENTRAL = 0x02014b50;
@@ -10,7 +12,13 @@ async function inflate(data: Uint8Array, max: number): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let total = 0;
   for (;;) {
-    const { done, value } = await reader.read();
+    let step: ReadableStreamReadResult<Uint8Array>;
+    try {
+      step = await reader.read();
+    } catch {
+      throw new ZipError('The archive is damaged.'); // corrupt deflate data
+    }
+    const { done, value } = step;
     if (done) break;
     total += value.length;
     if (total > max) {
@@ -57,6 +65,7 @@ export async function readZip(bytes: Uint8Array, names: string[], maxBytes = 20_
     const extraLen = v.getUint16(p + 30, true);
     const commentLen = v.getUint16(p + 32, true);
     const localAt = v.getUint32(p + 42, true);
+    if (p + 46 + nameLen > bytes.length) throw new ZipError('The archive is damaged.');
     const name = dec.decode(bytes.subarray(p + 46, p + 46 + nameLen));
     p += 46 + nameLen + extraLen + commentLen;
     if (!wanted.has(name)) continue;
@@ -65,9 +74,12 @@ export async function readZip(bytes: Uint8Array, names: string[], maxBytes = 20_
     if (usize > maxBytes) throw new ZipError('A file inside the archive is too large.');
     if (localAt + 30 > bytes.length || v.getUint32(localAt, true) !== LOCAL) throw new ZipError('The archive is damaged.');
     const dataAt = localAt + 30 + v.getUint16(localAt + 26, true) + v.getUint16(localAt + 28, true);
+    if (dataAt + csize > bytes.length) throw new ZipError('The archive is damaged.');
     const data = bytes.subarray(dataAt, dataAt + csize);
-    if (method === 0) out.set(name, data.slice());
-    else if (method === 8) out.set(name, await inflate(data, maxBytes));
+    if (method === 0) {
+      if (csize !== usize) throw new ZipError('The archive is damaged.');
+      out.set(name, data.slice());
+    } else if (method === 8) out.set(name, await inflate(data, maxBytes));
     else throw new ZipError('This archive uses an unsupported compression method.');
   }
   return out;

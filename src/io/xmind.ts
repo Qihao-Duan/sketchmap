@@ -257,8 +257,8 @@ export async function importXmind(bytes: Uint8Array): Promise<XmindImport> {
     files = await readZip(bytes, ['content.json', 'content.xml']);
   } catch (e) {
     if (e instanceof ZipError) {
-      if (/too large/i.test(e.message)) throw new XmindError(e.message);
-      throw new XmindError('This is not an XMind file (it is not a zip archive).');
+      if (/not a zip/i.test(e.message)) throw new XmindError('This is not an XMind file (it is not a zip archive).');
+      throw new XmindError(`This XMind file can't be read: ${e.message.charAt(0).toLowerCase()}${e.message.slice(1)}`);
     }
     throw e;
   }
