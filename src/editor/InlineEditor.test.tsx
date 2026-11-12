@@ -68,4 +68,71 @@ describe('InlineEditor', () => {
     expect(t.ta.style.paddingLeft).toBe(`${decoratedBox.style.padX + decoratedBox.badgeW}px`);
     expect(t.ta.style.paddingRight).toBe(`${decoratedBox.style.padX + decoratedBox.noteW}px`);
   });
+
+  it('⌘/Ctrl K links the selected words: type a web address, Enter, and the editor keeps going', () => {
+    const { ta, onCommit, onCancel } = mount({ initialText: 'Read the docs', selectAll: false });
+    act(() => ta.setSelectionRange(9, 13));
+    key(ta, { key: 'k', metaKey: true });
+    const url = container.querySelector('input[aria-label="Link URL"]') as HTMLInputElement;
+    expect(document.activeElement).toBe(url);
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    act(() => {
+      setter.call(url, 'example.com/docs');
+      url.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    key(url, { key: 'Enter' });
+    expect(container.querySelector('input[aria-label="Link URL"]')).toBeNull();
+    expect(ta.value).toBe('Read the [docs](https://example.com/docs)');
+    expect(document.activeElement).toBe(ta);
+    expect(onCommit).not.toHaveBeenCalled();
+    key(ta, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith('Read the [docs](https://example.com/docs)');
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('⌘/Ctrl K with nothing selected links the whole text; a bad address shows an error and changes nothing', () => {
+    const { ta } = mount({ initialText: 'Plan', selectAll: false });
+    key(ta, { key: 'k', ctrlKey: true });
+    const url = container.querySelector('input[aria-label="Link URL"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    act(() => {
+      setter.call(url, 'javascript:alert(1)');
+      url.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    key(url, { key: 'Enter' });
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain('http://');
+    expect(ta.value).toBe('Plan');
+    act(() => {
+      setter.call(url, 'https://a.com');
+      url.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    key(url, { key: 'Enter' });
+    expect(ta.value).toBe('[Plan](https://a.com)');
+  });
+
+  it('Escape in the link field closes only the field', () => {
+    const { ta, onCancel } = mount({ initialText: 'Plan', selectAll: true });
+    key(ta, { key: 'k', metaKey: true });
+    key(container.querySelector('input[aria-label="Link URL"]')!, { key: 'Escape' });
+    expect(container.querySelector('input[aria-label="Link URL"]')).toBeNull();
+    expect(document.activeElement).toBe(ta);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('pasting a web address over selected words links them; other pastes are left alone', () => {
+    const { ta } = mount({ initialText: 'Read the docs', selectAll: false });
+    const paste = (text: string) => {
+      const ev = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clipboardData', { value: { getData: () => text } });
+      act(() => void ta.dispatchEvent(ev));
+      return ev;
+    };
+    act(() => ta.setSelectionRange(9, 13));
+    expect(paste('https://example.com/docs').defaultPrevented).toBe(true);
+    expect(ta.value).toBe('Read the [docs](https://example.com/docs)');
+    act(() => ta.setSelectionRange(0, 4));
+    expect(paste('not a url').defaultPrevented).toBe(false);
+    act(() => ta.setSelectionRange(3, 3));
+    expect(paste('https://b.com').defaultPrevented).toBe(false); // no selection: a normal paste (a bare URL)
+  });
 });

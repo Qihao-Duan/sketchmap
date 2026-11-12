@@ -38,6 +38,9 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
 }
 @media (prefers-reduced-motion: reduce) { .canvas .fold:not(.folded) { transition: none; } }
 
+.inline-link { position: absolute; z-index: 5; box-sizing: border-box; font: 13px var(--ui); padding: 6px 8px; border: 1.5px solid var(--accent); border-radius: 6px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); outline: none; }
+.inline-link-error { position: absolute; z-index: 5; margin: 0; font-size: 12px; background: var(--surface); padding: 2px 6px; border-radius: 6px; }
+
 .editor { height: 100%; display: flex; flex-direction: column; }
 .editor-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .editor-bar .map-title { font: 400 22px/1.2 var(--hand); margin: 0 auto 0 0; }
