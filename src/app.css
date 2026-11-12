@@ -1,0 +1,36 @@
+:root {
+  --paper: #fbfaf6; --surface: #ffffff; --surface-2: #f4f2ec; --ink: #1e1e1e; --ink-2: #5f5b53; --line: #e3e0d8;
+  --accent: #3b5bdb; --accent-ink: #ffffff; --accent-soft: #e9edff; --dots: #dedad0; --warn: #c2410c;
+  --shadow: 0 1px 2px rgba(40, 36, 28, 0.06), 0 8px 24px rgba(40, 36, 28, 0.08);
+  --canvas-filter: none;
+  --hand: "Excalifont", "Xiaolai", "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+  --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #151517; --surface: #1e1e21; --surface-2: #26262a; --ink: #ebe8e2; --ink-2: #a8a49b; --line: #34343a;
+    --accent: #9fb1ff; --accent-ink: #11131c; --accent-soft: #252b45; --dots: #2b2b30; --warn: #fb923c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.4);
+    --canvas-filter: invert(93%) hue-rotate(180deg);
+    color-scheme: dark;
+  }
+}
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--paper); color: var(--ink); font-family: var(--ui); font-size: 14px; }
+.canvas {
+  position: relative; width: 100%; height: 100%; overflow: hidden; touch-action: none;
+  background-color: var(--paper); background-image: radial-gradient(var(--dots) 1px, transparent 1.3px); background-size: 22px 22px;
+}
+.canvas svg { width: 100%; height: 100%; display: block; filter: var(--canvas-filter); user-select: none; -webkit-user-select: none; }
+.canvas .topic { cursor: pointer; }
+.canvas .topic.drop .hit { stroke: #4263eb; stroke-width: 2.5; stroke-dasharray: 5 5; }
+.canvas .fold { cursor: pointer; }
+.canvas .fold:not(.folded) { opacity: 0; transition: opacity 0.12s; }
+.canvas .topic:hover .fold, .canvas .topic.selected .fold { opacity: 1; }
+.inline-editor {
+  position: absolute; z-index: 4; box-sizing: border-box; margin: 0; resize: none; overflow: hidden; outline: none;
+  border: 1.5px dashed var(--accent); border-radius: 6px; background: var(--surface); color: var(--ink);
+  font-family: var(--hand); box-shadow: var(--shadow);
+}
+@media (prefers-reduced-motion: reduce) { .canvas .fold:not(.folded) { transition: none; } }
