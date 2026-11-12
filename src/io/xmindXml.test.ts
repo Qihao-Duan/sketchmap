@@ -20,10 +20,14 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
 describe('fromXmindXml (XMind 8)', () => {
   it('keeps titles, attached children, notes and fold state', () => {
     const got = fromXmindXml(xml);
-    expect(shape(got.root)).toEqual({ t: 'Old map', c: [{ t: 'First', c: [{ t: 'Deep', c: [] }] }, { t: 'Second', c: [] }] });
+    expect(shape(got.root)).toEqual({
+      t: 'Old map',
+      c: [{ t: 'First', c: [{ t: 'Deep', c: [] }] }, { t: 'Second', c: [] }, { t: 'Floating', c: [] }],
+    });
     expect(got.root.children[0]).toMatchObject({ note: 'A note', collapsed: true });
     expect(got.layout).toBe('logic');
-    expect(got.dropped).toEqual(['1 floating topic']);
+    expect(got.dropped).toEqual([]);
+    expect(got.changed).toEqual(['1 floating topic attached to the root']);
   });
 
   it('is used when an archive has no content.json', async () => {

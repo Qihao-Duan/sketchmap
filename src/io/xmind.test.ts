@@ -34,11 +34,18 @@ describe('fromXmindJson', () => {
   it('keeps titles, attached children, notes, http links, fold state, priority and a mapped marker', () => {
     const got = fromXmindJson(content);
     expect(got.layout).toBe('org');
-    expect(shape(got.root)).toEqual({ t: 'Plan \\[draft\\]', c: [{ t: '[Site](https://example.com/plan)', c: [{ t: 'Hidden child', c: [] }] }, { t: 'Spec', c: [] }] });
+    expect(shape(got.root)).toEqual({
+      t: 'Plan \\[draft\\]',
+      c: [
+        { t: '[Site](https://example.com/plan)', c: [{ t: 'Hidden child', c: [] }] },
+        { t: 'Spec', c: [] },
+        { t: 'Floating', c: [{ t: 'Under it', c: [] }] },
+      ],
+    });
     const a = got.root.children[0];
     expect(a).toMatchObject({ note: 'Call Ana', priority: 3, emoji: '⭐', collapsed: true });
     expect(got.root.children[1]).not.toHaveProperty('priority');
-    expect(got.topics).toBe(4);
+    expect(got.topics).toBe(6);
     expect(got.root.id).toMatch(/^[A-Za-z0-9_-]{10}$/);
   });
 
@@ -47,13 +54,13 @@ describe('fromXmindJson', () => {
       '1 more sheet',
       '2 relationships',
       '1 boundary',
-      '2 floating topics',
       '1 summary topic',
       '1 label',
       '2 other markers',
       '1 link to another topic or file',
       '1 image (images arrive in step 4)',
     ]);
+    expect(fromXmindJson(content).changed).toEqual(['1 floating topic attached to the root']);
   });
 
   it('maps the layout and caps priority at ③', () => {
@@ -66,6 +73,25 @@ describe('fromXmindJson', () => {
   it('refuses content that is not an XMind sheet list', () => {
     expect(() => fromXmindJson({ nope: true })).toThrow(XmindError);
     expect(() => fromXmindJson([])).toThrow(XmindError);
+  });
+
+  it('never crashes on malformed fields', () => {
+    const odd = [
+      { id: 's', rootTopic: { id: 'r', title: 42, notes: { plain: { content: 7 } }, markers: 'priority-1', href: { x: 1 },
+        children: { attached: [null, 5, 'x', { id: 'a', title: ['no'], children: { attached: {} } }], detached: 'nope', summary: 3 },
+        labels: 'l', boundaries: {} }, relationships: 'r' },
+    ];
+    const got = fromXmindJson(odd);
+    expect(got.root.text).toBe('');
+    expect(got.root.children.map((c) => c.text)).toEqual(['']);
+    expect(() => fromXmindJson([{ id: 's', rootTopic: 'not a topic' }])).toThrow(XmindError);
+  });
+
+  it('handles absurdly deep nesting without overflowing the stack', () => {
+    let deep: Record<string, unknown> = { id: 'leaf', title: 'leaf' };
+    for (let i = 0; i < 50_000; i++) deep = { id: `n${i}`, title: 't', children: { attached: [deep] } };
+    const got = fromXmindJson([{ id: 's', rootTopic: { id: 'r', title: 'R', children: { attached: [deep], detached: [deep] } } }]);
+    expect(got.dropped.some((d) => /nested too deep/.test(d))).toBe(true);
   });
 });
 
@@ -89,6 +115,12 @@ describe('importXmind', () => {
 
   it('refuses a map too big to save', async () => {
     const many = Array.from({ length: 4000 }, (_, i) => ({ id: `t${i}`, title: 'x'.repeat(500) }));
+    const big = [sheet({ id: 'r', title: 'Big', children: { attached: many } })];
+    await expect(importXmind(await zipped([{ name: 'content.json', data: JSON.stringify(big) }]))).rejects.toThrow(/too big/);
+  });
+
+  it('measures the size in bytes, as the server does (CJK text is 3 bytes a character)', async () => {
+    const many = Array.from({ length: 1300 }, (_, i) => ({ id: `t${i}`, title: '字'.repeat(500) }));
     const big = [sheet({ id: 'r', title: 'Big', children: { attached: many } })];
     await expect(importXmind(await zipped([{ name: 'content.json', data: JSON.stringify(big) }]))).rejects.toThrow(/too big/);
   });

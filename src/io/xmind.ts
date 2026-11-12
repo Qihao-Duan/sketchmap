@@ -13,6 +13,8 @@ export interface XmindImport {
   topics: number;
   /** What could not be brought over, as readable phrases for the import summary ("2 relationships"). */
   dropped: string[];
+  /** What was brought over in a different form, for the summary ("2 floating topics attached to the root"). */
+  changed: string[];
 }
 
 const MAX_TEXT = 5000;
@@ -30,7 +32,6 @@ class Dropped {
   sheets = 0;
   relationships = 0;
   boundaries = 0;
-  floating = 0;
   summaryTopics = 0;
   labels = 0;
   markers = 0;
@@ -44,7 +45,6 @@ class Dropped {
     if (this.sheets) out.push(`${this.sheets} more sheet${plural(this.sheets)}`);
     if (this.relationships) out.push(`${this.relationships} relationship${plural(this.relationships)}`);
     if (this.boundaries) out.push(`${this.boundaries} ${this.boundaries === 1 ? 'boundary' : 'boundaries'}`);
-    if (this.floating) out.push(`${this.floating} floating topic${plural(this.floating)}`);
     if (this.summaryTopics) out.push(`${this.summaryTopics} summary topic${plural(this.summaryTopics)}`);
     if (this.labels) out.push(`${this.labels} label${plural(this.labels)}`);
     if (this.markers) out.push(`${this.markers} other marker${plural(this.markers)}`);
@@ -57,9 +57,28 @@ class Dropped {
   }
 }
 
-/** Shared state threaded through a tree build: what gets dropped, and how many topics made it in. */
+/** Counts what an import changed from its original form (currently just floating topics), then words it. */
+class Changed {
+  floatingAttached = 0;
+
+  /** Readable phrases for the import summary; counts top-level floating topics, not their subtrees. */
+  list(): string[] {
+    const out: string[] = [];
+    if (this.floatingAttached) {
+      out.push(
+        this.floatingAttached === 1
+          ? '1 floating topic attached to the root'
+          : `${this.floatingAttached} floating topics attached to the root`,
+      );
+    }
+    return out;
+  }
+}
+
+/** Shared state threaded through a tree build: what gets dropped, what gets changed, and how many topics made it in. */
 interface BuildCtx {
   dropped: Dropped;
+  changed: Changed;
   topics: number;
 }
 
@@ -129,31 +148,61 @@ interface JsonSheet {
   relationships?: unknown[];
 }
 
-/** A topic plus its attached subtree, for counting topics that get dropped whole (floating, too deep). */
-function countJsonTopics(topics: JsonTopic[]): number {
+/** A topic that survived `JSON.parse` but may be any shape at all; only a plain object counts as a topic. */
+function isTopic(x: unknown): x is JsonTopic {
+  return typeof x === 'object' && x !== null && !Array.isArray(x);
+}
+
+/** A topic plus its attached subtree, for counting topics that get dropped whole (too deep). Iterative: arbitrarily deep input must never overflow the stack. */
+function countJsonTopics(topics: unknown[]): number {
   let n = 0;
-  for (const t of topics) n += 1 + countJsonTopics(t.children?.attached ?? []);
+  const stack: unknown[] = [...topics];
+  while (stack.length > 0) {
+    const t = stack.pop();
+    if (!isTopic(t)) continue;
+    n++;
+    const attached = Array.isArray(t.children?.attached) ? t.children.attached : [];
+    for (const c of attached) stack.push(c);
+  }
   return n;
 }
 
 function buildJsonTopic(topic: JsonTopic, depth: number, ctx: BuildCtx): MapNode {
   ctx.topics++;
-  const markerIds = (topic.markers ?? [])
-    .map((m) => m.markerId)
+  const title = typeof topic.title === 'string' ? topic.title : '';
+  const href = typeof topic.href === 'string' ? topic.href : undefined;
+  const noteRaw = typeof topic.notes?.plain?.content === 'string' ? topic.notes.plain.content : '';
+  const markers = Array.isArray(topic.markers) ? topic.markers : [];
+  const markerIds = markers
+    .map((m) => (m && typeof m === 'object' ? m.markerId : undefined))
     .filter((id): id is string => typeof id === 'string');
-  const fields = buildFields(topic.title ?? '', topic.href, topic.notes?.plain?.content ?? '', markerIds, ctx.dropped);
+  const fields = buildFields(title, href, noteRaw, markerIds, ctx.dropped);
 
-  ctx.dropped.labels += topic.labels?.length ?? 0;
-  ctx.dropped.boundaries += topic.boundaries?.length ?? 0;
+  ctx.dropped.labels += Array.isArray(topic.labels) ? topic.labels.length : 0;
+  ctx.dropped.boundaries += Array.isArray(topic.boundaries) ? topic.boundaries.length : 0;
   if (topic.image) ctx.dropped.images++;
-  ctx.dropped.summaryTopics += topic.children?.summary?.length ?? 0;
-  for (const floating of topic.children?.detached ?? []) ctx.dropped.floating += countJsonTopics([floating]);
+  ctx.dropped.summaryTopics += Array.isArray(topic.children?.summary) ? topic.children.summary.length : 0;
+
+  const attached = Array.isArray(topic.children?.attached) ? topic.children.attached : [];
+  const detached = Array.isArray(topic.children?.detached) ? topic.children.detached : [];
 
   const children: MapNode[] = [];
-  for (const child of topic.children?.attached ?? []) {
+  for (const child of attached) {
+    if (!isTopic(child)) continue;
     const childDepth = depth + 1;
     if (childDepth > MAX_OUTLINE_DEPTH) ctx.dropped.tooDeep += countJsonTopics([child]);
     else children.push(buildJsonTopic(child, childDepth, ctx));
+  }
+  // Floating topics are attached under the same topic, after its attached children, at the same depth rules
+  // (XMind only puts these under the root, but treated generically here); counted in `changed`, not `dropped`.
+  for (const floating of detached) {
+    if (!isTopic(floating)) continue;
+    const childDepth = depth + 1;
+    if (childDepth > MAX_OUTLINE_DEPTH) ctx.dropped.tooDeep += countJsonTopics([floating]);
+    else {
+      children.push(buildJsonTopic(floating, childDepth, ctx));
+      ctx.changed.floatingAttached++;
+    }
   }
 
   const node: MapNode = { id: newNodeId(), ...fields, children };
@@ -163,19 +212,26 @@ function buildJsonTopic(topic: JsonTopic, depth: number, ctx: BuildCtx): MapNode
 
 /** `content.json`: an array of sheets. Only the first sheet is imported; the rest are counted. */
 export function fromXmindJson(content: unknown): XmindImport {
-  if (!Array.isArray(content) || content.length === 0 || typeof content[0] !== 'object' || content[0] === null) {
-    throw new XmindError('This does not look like an XMind file.');
-  }
-  const sheets = content as JsonSheet[];
-  const [first, ...rest] = sheets;
-  const dropped = new Dropped();
-  dropped.sheets = rest.length;
-  dropped.relationships = first.relationships?.length ?? 0;
+  try {
+    if (!Array.isArray(content) || content.length === 0 || typeof content[0] !== 'object' || content[0] === null) {
+      throw new XmindError('This does not look like an XMind file.');
+    }
+    const sheets = content as JsonSheet[];
+    const [first, ...rest] = sheets;
+    if (!isTopic(first.rootTopic)) throw new XmindError('The XMind file has no map in it.');
 
-  const ctx: BuildCtx = { dropped, topics: 0 };
-  const root = buildJsonTopic(first.rootTopic ?? {}, 0, ctx);
-  const layout = layoutFromStructureClass(first.rootTopic?.structureClass);
-  return { root, layout, topics: ctx.topics, dropped: dropped.list() };
+    const dropped = new Dropped();
+    dropped.sheets = rest.length;
+    dropped.relationships = Array.isArray(first.relationships) ? first.relationships.length : 0;
+
+    const ctx: BuildCtx = { dropped, changed: new Changed(), topics: 0 };
+    const root = buildJsonTopic(first.rootTopic, 0, ctx);
+    const layout = layoutFromStructureClass(first.rootTopic.structureClass);
+    return { root, layout, topics: ctx.topics, dropped: dropped.list(), changed: ctx.changed.list() };
+  } catch (e) {
+    if (e instanceof XmindError) throw e;
+    throw new XmindError('The XMind file is damaged.');
+  }
 }
 
 // ---------- XMind 8 (content.xml) ----------
@@ -186,13 +242,16 @@ function xmlChildren(el: Element, localName: string): Element[] {
   return Array.from(el.children).filter((c) => c.localName === localName);
 }
 
+/** Iterative (explicit stack): arbitrarily deep input must never overflow the stack. */
 function countXmlTopics(topics: Element[]): number {
   let n = 0;
-  for (const t of topics) {
-    n += 1;
+  const stack: Element[] = [...topics];
+  while (stack.length > 0) {
+    const t = stack.pop() as Element;
+    n++;
     const childrenEl = xmlChildren(t, 'children')[0];
     const attached = childrenEl && xmlChildren(childrenEl, 'topics').find((x) => x.getAttribute('type') === 'attached');
-    if (attached) n += countXmlTopics(xmlChildren(attached, 'topic'));
+    if (attached) for (const c of xmlChildren(attached, 'topic')) stack.push(c);
   }
   return n;
 }
@@ -209,15 +268,20 @@ function buildXmlTopic(topicEl: Element, depth: number, ctx: BuildCtx): MapNode 
   const attachedContainer = topicsEls.find((t) => t.getAttribute('type') === 'attached');
   const detachedContainer = topicsEls.find((t) => t.getAttribute('type') === 'detached');
 
-  for (const floating of detachedContainer ? xmlChildren(detachedContainer, 'topic') : []) {
-    ctx.dropped.floating += countXmlTopics([floating]);
-  }
-
   const children: MapNode[] = [];
   for (const child of attachedContainer ? xmlChildren(attachedContainer, 'topic') : []) {
     const childDepth = depth + 1;
     if (childDepth > MAX_OUTLINE_DEPTH) ctx.dropped.tooDeep += countXmlTopics([child]);
     else children.push(buildXmlTopic(child, childDepth, ctx));
+  }
+  // Floating topics are attached under the same topic, after its attached children, at the same depth rules.
+  for (const floating of detachedContainer ? xmlChildren(detachedContainer, 'topic') : []) {
+    const childDepth = depth + 1;
+    if (childDepth > MAX_OUTLINE_DEPTH) ctx.dropped.tooDeep += countXmlTopics([floating]);
+    else {
+      children.push(buildXmlTopic(floating, childDepth, ctx));
+      ctx.changed.floatingAttached++;
+    }
   }
 
   const node: MapNode = { id: newNodeId(), ...fields, children };
@@ -227,25 +291,30 @@ function buildXmlTopic(topicEl: Element, depth: number, ctx: BuildCtx): MapNode 
 
 /** `content.xml` (XMind 8): `<xmap-content><sheet><topic structure-class="…">…`. */
 export function fromXmindXml(xml: string): XmindImport {
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  if (doc.getElementsByTagName('parsererror').length > 0) throw new XmindError('The XMind file is damaged.');
-  const root = doc.documentElement;
-  const sheets = xmlChildren(root, 'sheet');
-  if (sheets.length === 0) throw new XmindError('No mind map found in this file.');
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length > 0) throw new XmindError('The XMind file is damaged.');
+    const root = doc.documentElement;
+    const sheets = xmlChildren(root, 'sheet');
+    if (sheets.length === 0) throw new XmindError('No mind map found in this file.');
 
-  const dropped = new Dropped();
-  dropped.sheets = sheets.length - 1;
-  const first = sheets[0];
-  const relationshipsEl = xmlChildren(first, 'relationships')[0];
-  dropped.relationships = relationshipsEl ? xmlChildren(relationshipsEl, 'relationship').length : 0;
+    const dropped = new Dropped();
+    dropped.sheets = sheets.length - 1;
+    const first = sheets[0];
+    const relationshipsEl = xmlChildren(first, 'relationships')[0];
+    dropped.relationships = relationshipsEl ? xmlChildren(relationshipsEl, 'relationship').length : 0;
 
-  const topicEl = xmlChildren(first, 'topic')[0];
-  if (!topicEl) throw new XmindError('No mind map found in this file.');
+    const topicEl = xmlChildren(first, 'topic')[0];
+    if (!topicEl) throw new XmindError('No mind map found in this file.');
 
-  const ctx: BuildCtx = { dropped, topics: 0 };
-  const rootNode = buildXmlTopic(topicEl, 0, ctx);
-  const layout = layoutFromStructureClass(topicEl.getAttribute('structure-class') ?? undefined);
-  return { root: rootNode, layout, topics: ctx.topics, dropped: dropped.list() };
+    const ctx: BuildCtx = { dropped, changed: new Changed(), topics: 0 };
+    const rootNode = buildXmlTopic(topicEl, 0, ctx);
+    const layout = layoutFromStructureClass(topicEl.getAttribute('structure-class') ?? undefined);
+    return { root: rootNode, layout, topics: ctx.topics, dropped: dropped.list(), changed: ctx.changed.list() };
+  } catch (e) {
+    if (e instanceof XmindError) throw e;
+    throw new XmindError('The XMind file is damaged.');
+  }
 }
 
 // ---------- Container (.xmind zip) ----------
@@ -280,7 +349,8 @@ export async function importXmind(bytes: Uint8Array): Promise<XmindImport> {
     result = fromXmindXml(dec.decode(xml));
   }
 
-  if (JSON.stringify(result.root).length > LIMITS.mapJsonBytes * 0.9) {
+  const rootBytes = new TextEncoder().encode(JSON.stringify(result.root)).byteLength;
+  if (rootBytes > LIMITS.mapJsonBytes * 0.9) {
     throw new XmindError('This map is too big to import (over 2 MB).');
   }
   return result;
