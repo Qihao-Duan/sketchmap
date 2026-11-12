@@ -37,6 +37,7 @@ export class Autosaver {
   private inFlight = false;
   private failures = 0;
   private status: SaveStatus = 'saved';
+  private epoch = 0;
 
   constructor(
     private deps: AutosaveDeps,
@@ -60,6 +61,7 @@ export class Autosaver {
       // storage full or blocked: the server save still runs
     }
     if (this.status === 'conflict' || this.status === 'unauthorized') return;
+    if (this.status === 'retrying') return; // keep the backoff timer running
     this.setStatus('pending');
     this.arm(SAVE_DELAY_MS);
   }
@@ -73,6 +75,7 @@ export class Autosaver {
 
   /** Continue after a conflict was resolved or a new key was entered. */
   resume(etag: string, map?: MindMap): void {
+    this.epoch++;
     this.etag = etag;
     this.failures = 0;
     if (map) this.latest = map;
@@ -88,6 +91,7 @@ export class Autosaver {
 
   /** Drop pending changes and the local draft, e.g. after loading the newer server version. */
   discard(etag: string, mapId: string): void {
+    this.epoch++;
     this.dispose();
     this.etag = etag;
     this.latest = null;
@@ -111,10 +115,16 @@ export class Autosaver {
   private async run(): Promise<void> {
     if (this.inFlight || !this.latest) return;
     const map = this.latest;
+    const epochAtStart = this.epoch;
     this.inFlight = true;
     this.setStatus('saving');
     try {
       const saved = await this.deps.save(map, this.etag);
+      if (this.epoch !== epochAtStart) {
+        // discard() or resume() was called while save was in flight: ignore stale result
+        if (this.latest && !this.timer) this.arm(0);
+        return;
+      }
       this.etag = saved.etag;
       this.failures = 0;
       if (this.latest === map) {
@@ -131,6 +141,11 @@ export class Autosaver {
       }
       this.onSaved(saved);
     } catch (e) {
+      if (this.epoch !== epochAtStart) {
+        // discard() or resume() was called while save was in flight: ignore stale error
+        if (this.latest && !this.timer) this.arm(0);
+        return;
+      }
       if (e instanceof ApiError && e.status === 409) this.setStatus('conflict');
       else if (e instanceof ApiError && e.status === 401) this.setStatus('unauthorized');
       else {

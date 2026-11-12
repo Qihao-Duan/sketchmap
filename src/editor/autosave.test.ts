@@ -118,4 +118,53 @@ describe('Autosaver', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(t.statuses.at(-1)).toBe('saved');
   });
+
+  it('discard() while a save is in flight: stale save is ignored', async () => {
+    let release!: () => void;
+    const t = setup(() => new Promise<Saved>((res) => { release = () => res({ map: mapWith('old'), etag: '"e1"' }); }));
+    t.saver.schedule(mapWith('old'));
+    await vi.advanceTimersByTimeAsync(1000); // save starts, awaiting
+    t.saver.discard('"fresh"', 'abcdefghijklmnopqrstu');
+    expect(t.saver.currentEtag).toBe('"fresh"');
+    release(); // stale save resolves
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.saver.currentEtag).toBe('"fresh"'); // not overwritten by stale etag
+    expect(t.statuses.at(-1)).toBe('saved'); // status stays at saved, not pending
+    expect(t.saved).toHaveLength(0); // onSaved not called with stale data
+  });
+
+  it('resume(etag, newMap) while a save is in flight: stale save is ignored, newMap is saved with resumed etag', async () => {
+    const releases: (() => void)[] = [];
+    const t = setup(() => new Promise<Saved>((res) => { releases.push(() => res({ map: mapWith('old'), etag: '"e1"' })); }));
+    t.saver.schedule(mapWith('old'));
+    await vi.advanceTimersByTimeAsync(1000); // save starts, awaiting
+    t.saver.resume('"server"', mapWith('new'));
+    releases[0](); // stale save resolves, should be ignored
+    await vi.advanceTimersByTimeAsync(0); // process the stale save and arm the new save
+    expect(vi.mocked(t.deps.save).mock.calls[1]).toEqual([mapWith('new'), '"server"']);
+    releases[1](); // release the new save
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.statuses.at(-1)).toBe('saved');
+  });
+
+  it('editing during backoff wait keeps the backoff timer, not 1 s debounce', async () => {
+    let calls = 0;
+    const t = setup(async () => {
+      calls++;
+      if (calls === 1) throw new ApiError(0, 'offline');
+      return { map: mapWith('new'), etag: '"ok"' };
+    });
+    t.saver.schedule(mapWith('a'));
+    await vi.advanceTimersByTimeAsync(1000); // 1st attempt fails at t=1000
+    expect(t.statuses.at(-1)).toBe('retrying');
+    expect(calls).toBe(1);
+    t.saver.schedule(mapWith('ab')); // edit at t=1000, during 2s backoff
+    await vi.advanceTimersByTimeAsync(500); // t=1500, not enough for 1s debounce
+    expect(calls).toBe(1); // no save yet
+    await vi.advanceTimersByTimeAsync(500); // t=2000, still not enough for 2s backoff
+    expect(calls).toBe(1);
+    await vi.advanceTimersByTimeAsync(1000); // t=3000, 2s backoff from t=1000 complete
+    expect(calls).toBe(2); // now it saves
+    expect(vi.mocked(t.deps.save).mock.calls[1]).toEqual([mapWith('ab'), '"e0"']);
+  });
 });
