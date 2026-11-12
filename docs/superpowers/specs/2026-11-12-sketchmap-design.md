@@ -328,6 +328,6 @@ Each step ends with something usable in Notion.
 ## 12. Open questions
 
 1. Product name: "Sketchmap" is a placeholder.
-2. Does a `*.workers.dev` embed load in the **Notion desktop app**? To be tested in step 1. If it doesn't, we need a custom domain.
+2. Does a `*.workers.dev` embed load in the **Notion desktop app**? **Answered on 2026-11-12: yes.** It loads in both the Notion web app and the desktop app, so no custom domain is needed.
 3. Should folding in the embed be remembered per viewer (in `localStorage`)? It's currently not.
 4. Would it help to show the map's last-saved time on the embed?
