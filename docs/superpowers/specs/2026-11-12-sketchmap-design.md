@@ -55,7 +55,7 @@ worker/      Cloudflare Worker: API routes, auth, R2 access, security headers
   - rough.js 4.6
   - Vitest for unit tests and Playwright for end-to-end tests
   - wrangler for the Worker
-  - `@cloudflare/vitest-pool-workers` for the Worker tests
+  - `@cloudflare/vitest-plugin` for the Worker tests (the renamed `@cloudflare/vitest-pool-workers`)
 
 ### Pages
 
@@ -246,7 +246,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
 - **Storage:**
   - Maps are stored at `maps/<id>.json` in R2, with title and updatedAt in custom metadata.
   - Saves use R2's conditional `put` (`onlyIf` with the etag) for the 409 check.
-  - Listing uses R2 `list` with metadata. If listing doesn't return custom metadata, keep `maps/index.json` instead; to be confirmed in the first plan task.
+  - Listing uses R2 `list({ include: ['customMetadata'] })`, which returns each map's metadata (confirmed in Miniflare). Because `put` replaces custom metadata, every save resends title, updatedAt and version.
 - **Auth:** `Authorization: Bearer <owner key>`, compared in constant time. Wrong or missing key → 401, with no hint about whether the map exists.
 - **Inputs are validated server-side:**
   - The schema is checked with a small zod schema.
@@ -297,7 +297,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
   - each layout: snapshot of positions plus a no-overlap check across many random trees
   - Markdown round-trip
   - `.xmind` import from fixture files. XMind 2020+ and XMind 8 samples are needed, ideally real ones from you.
-- **Worker:** routes, auth, the 409 conflict, size and type limits, and security headers, tested with `@cloudflare/vitest-pool-workers`.
+- **Worker:** routes, auth, the 409 conflict, size and type limits, and security headers, tested with `@cloudflare/vitest-plugin`.
 - **End-to-end (Playwright):**
   - Create a map; Tab, Enter and typing.
   - Link selected words with ⌘K.
