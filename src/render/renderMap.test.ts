@@ -54,4 +54,18 @@ describe('renderMap', () => {
     expect(hashSeed('abc')).not.toBe(hashSeed('abd'));
     expect(hashSeed('')).toBeGreaterThan(0);
   });
+
+  it('draws org-chart deep topics as unfilled outlines', async () => {
+    const { computeOrgLayout } = await import('../layout/org');
+    const { PALETTE } = await import('../layout/styles');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const world = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svg.appendChild(world);
+    const layout = computeOrgLayout({ id: 'r', text: 'Root', children: [{ id: 'a', text: 'A', children: [{ id: 'a1', text: 'A1', children: [] }] }] }, measure);
+    renderMap(svg, world, layout, { selectedId: null });
+    const small = world.querySelector('g.topic[data-id="a1"]')!;
+    const strokes = [...small.querySelectorAll('path')].map((p) => p.getAttribute('stroke'));
+    expect(strokes.length).toBeGreaterThan(0);
+    expect(strokes).not.toContain(PALETTE[0].fill); // no hachure fill
+  });
 });

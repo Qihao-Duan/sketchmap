@@ -1,5 +1,5 @@
 import rough from 'roughjs';
-import { anchorOut, type MapLayout, type TopicBox } from '../layout/map';
+import type { MapLayout, TopicBox } from '../layout/map';
 import { countDescendants } from '../model/tree';
 import { FONT_STACK } from './fonts';
 
@@ -74,6 +74,8 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
     g.appendChild(rc.path(roundedRect(t.x, t.y, t.w, t.h, r), {
       stroke, strokeWidth: 1.8, roughness: 1, fill, fillStyle: 'hachure', hachureGap: 8, fillWeight: 0.9, hachureAngle: -41, seed,
     }));
+  } else if (t.style.kind === 'small') {
+    g.appendChild(rc.path(roundedRect(t.x, t.y, t.w, t.h, r), { stroke, strokeWidth: 1.4, roughness: 1, seed }));
   } else {
     g.appendChild(rc.line(t.x, t.y + t.h, t.x + t.w, t.y + t.h, { stroke, strokeWidth: 1.6, roughness: 1, seed }));
   }
@@ -93,9 +95,7 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
   });
 
   if (t.depth > 0 && t.node.children.length > 0) {
-    const side = t.side === -1 ? -1 : 1;
-    const [ox, oy] = anchorOut(t, side);
-    const cx = ox + side * 11;
+    const { x: cx, y: oy } = t.fold;
     const folded = !!t.node.collapsed;
     const fg = el(doc, 'g', { class: folded ? 'fold folded' : 'fold', 'data-fold': t.id }, g);
     if (folded) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MapNode } from '../shared/types';
 import { computeLayout } from './map';
+import { layoutMap } from './index';
 import { PALETTE, ROOT_COLOR } from './styles';
 import type { Measure } from './wrap';
 
@@ -84,6 +85,41 @@ describe('computeLayout (balanced map)', () => {
           const b = bs[j];
           const overlap = a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
           expect(overlap, `${a.id} overlaps ${b.id} in tree ${k}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('logic chart: every first-level branch grows to the right, in order', () => {
+    const l = computeLayout(n('r', 'Root', [n('a', 'A'), n('b', 'B'), n('c', 'C')]), measure, 'logic');
+    const [a, b, c] = ['a', 'b', 'c'].map((id) => l.byId.get(id)!);
+    expect([a.side, b.side, c.side]).toEqual([1, 1, 1]);
+    expect(a.y).toBeLessThan(b.y);
+    expect(b.y).toBeLessThan(c.y);
+  });
+
+  it('puts the fold toggle 11 px beyond where the branch leaves the topic', () => {
+    const l = computeLayout(n('r', 'Root', [n('a', 'A', [n('a1', 'A1', [n('x', 'X')])]), n('b', 'B', [n('b1', 'B1')])]), measure);
+    const a = l.byId.get('a')!; // right side, box
+    expect(a.fold).toEqual({ x: a.x + a.w + 11, y: a.y + a.h / 2 });
+    const b = l.byId.get('b')!; // left side, box
+    expect(b.fold).toEqual({ x: b.x - 11, y: b.y + b.h / 2 });
+    const a1 = l.byId.get('a1')!; // underlined topic: toggle sits on the underline
+    expect(a1.fold).toEqual({ x: a1.x + a1.w + 11, y: a1.y + a1.h });
+  });
+});
+
+describe('layoutMap (all layouts)', () => {
+  it.each(['map', 'logic', 'org'] as const)('never overlaps topics in 150 random maps: %s', (kind) => {
+    const rand = mulberry32(7);
+    for (let k = 0; k < 150; k++) {
+      const l = layoutMap(randomTree(rand), kind, measure);
+      expect(l.branches).toHaveLength(l.boxes.length - 1);
+      for (let i = 0; i < l.boxes.length; i++) {
+        for (let j = i + 1; j < l.boxes.length; j++) {
+          const a = l.boxes[i], b = l.boxes[j];
+          const overlap = a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
+          expect(overlap, `${kind}: ${a.id} overlaps ${b.id} in tree ${k}`).toBe(false);
         }
       }
     }

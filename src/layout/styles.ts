@@ -1,4 +1,6 @@
-export type TopicKind = 'root' | 'box' | 'line';
+import type { LayoutKind } from '../shared/types';
+
+export type TopicKind = 'root' | 'box' | 'line' | 'small';
 
 export interface NodeStyle {
   kind: TopicKind;
@@ -14,9 +16,10 @@ export interface BranchColor {
   fill: string;
 }
 
-export function styleFor(depth: number): NodeStyle {
+export function styleFor(depth: number, kind: LayoutKind = 'map'): NodeStyle {
   if (depth === 0) return { kind: 'root', fontSize: 28, padX: 26, padY: 15, maxW: 300, lineHeight: 36 };
   if (depth === 1) return { kind: 'box', fontSize: 20, padX: 16, padY: 9, maxW: 230, lineHeight: 26 };
+  if (kind === 'org') return { kind: 'small', fontSize: 17, padX: 11, padY: 7, maxW: 200, lineHeight: 22 };
   return { kind: 'line', fontSize: 17, padX: 5, padY: 4, maxW: 250, lineHeight: 22 };
 }
 
@@ -32,3 +35,6 @@ export const PALETTE: BranchColor[] = [
 ];
 
 export const GAP = { hRoot: 70, hDeep: 36, vRoot: 26, vDeep: 10 } as const;
+
+/** Org chart spacing: root → first row, between columns, per-level indent, between stacked rows. */
+export const ORG = { rootGap: 56, colGap: 40, indent: 28, rowGap: 10 } as const;

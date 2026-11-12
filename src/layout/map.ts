@@ -1,4 +1,4 @@
-import type { MapNode } from '../shared/types';
+import type { LayoutKind, MapNode } from '../shared/types';
 import { visibleChildren } from '../model/tree';
 import { GAP, PALETTE, ROOT_COLOR, styleFor, type BranchColor, type NodeStyle } from './styles';
 import { wrapText, type Measure } from './wrap';
@@ -18,6 +18,8 @@ export interface TopicBox {
   style: NodeStyle;
   lines: string[];
   color: BranchColor;
+  /** Centre of the fold toggle: just beyond where branches leave this topic. */
+  fold: { x: number; y: number };
 }
 
 export interface BranchPath {
@@ -42,7 +44,7 @@ export interface MapLayout {
   bounds: Bounds;
 }
 
-interface Measured {
+export interface Measured {
   style: NodeStyle;
   lines: string[];
   w: number;
@@ -51,8 +53,8 @@ interface Measured {
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
-function measureTopic(node: MapNode, depth: number, measure: Measure): Measured {
-  const style = styleFor(depth);
+export function measureTopic(node: MapNode, depth: number, measure: Measure, kind: LayoutKind = 'map'): Measured {
+  const style = styleFor(depth, kind);
   const lines = wrapText(node.text || ' ', style.fontSize, style.maxW, measure);
   const textW = Math.max(style.fontSize * 1.6, ...lines.map((l) => measure(l, style.fontSize)));
   return {
@@ -61,6 +63,17 @@ function measureTopic(node: MapNode, depth: number, measure: Measure): Measured 
     w: Math.ceil(textW + style.padX * 2),
     h: Math.ceil(lines.length * style.lineHeight + style.padY * 2),
   };
+}
+
+export function boundsOf(boxes: TopicBox[]): Bounds {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const b of boxes) {
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.w);
+    maxY = Math.max(maxY, b.y + b.h);
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
 /** Where a branch leaves a topic towards `side`; underlined topics connect at the underline. */
@@ -79,14 +92,14 @@ function branchPath([x1, y1]: [number, number], [x2, y2]: [number, number]): str
   return `M${r1(x1)} ${r1(y1)} C${r1(x1 + mx)} ${r1(y1)} ${r1(x2 - mx)} ${r1(y2)} ${r1(x2)} ${r1(y2)}`;
 }
 
-export function computeLayout(root: MapNode, measure: Measure): MapLayout {
+export function computeLayout(root: MapNode, measure: Measure, kind: 'map' | 'logic' = 'map'): MapLayout {
   const measured = new Map<string, Measured>();
   const blockH = new Map<string, number>();
   const vGap = (depth: number) => (depth === 0 ? GAP.vRoot : GAP.vDeep);
   const hGap = (depth: number) => (depth === 0 ? GAP.hRoot : GAP.hDeep);
 
   const measureAll = (n: MapNode, depth: number) => {
-    measured.set(n.id, measureTopic(n, depth, measure));
+    measured.set(n.id, measureTopic(n, depth, measure, kind));
     visibleChildren(n).forEach((c) => measureAll(c, depth + 1));
   };
   measureAll(root, 0);
@@ -106,7 +119,13 @@ export function computeLayout(root: MapNode, measure: Measure): MapLayout {
   const branches: BranchPath[] = [];
   const add = (n: MapNode, depth: number, x: number, y: number, side: Side, color: BranchColor, parentId: string | null) => {
     const m = measured.get(n.id)!;
-    const box: TopicBox = { id: n.id, node: n, parentId, depth, side, x, y, w: m.w, h: m.h, style: m.style, lines: m.lines, color };
+    const fs: 1 | -1 = side === -1 ? -1 : 1;
+    const box: TopicBox = {
+      id: n.id, node: n, parentId, depth, side, x, y, w: m.w, h: m.h, style: m.style, lines: m.lines, color,
+      fold: { x: 0, y: 0 },
+    };
+    const [ox, oy] = anchorOut(box, fs);
+    box.fold = { x: ox + fs * 11, y: oy };
     boxes.push(box);
     byId.set(n.id, box);
     return box;
@@ -135,16 +154,20 @@ export function computeLayout(root: MapNode, measure: Measure): MapLayout {
   const total = kids.reduce((s, c) => s + blockH.get(c.id)!, 0);
   const right: MapNode[] = [];
   const left: MapNode[] = [];
-  let acc = 0;
-  for (const c of kids) {
-    if (right.length === 0 || acc < total / 2) {
-      right.push(c);
-      acc += blockH.get(c.id)!;
-    } else {
-      left.push(c);
+  if (kind === 'logic') {
+    right.push(...kids);
+  } else {
+    let acc = 0;
+    for (const c of kids) {
+      if (right.length === 0 || acc < total / 2) {
+        right.push(c);
+        acc += blockH.get(c.id)!;
+      } else {
+        left.push(c);
+      }
     }
+    left.reverse(); // clockwise reading order, as in XMind
   }
-  left.reverse(); // clockwise reading order, as in XMind
 
   const column = (list: MapNode[], side: 1 | -1) => {
     const colH = list.reduce((s, c) => s + blockH.get(c.id)!, 0) + GAP.vRoot * Math.max(0, list.length - 1);
@@ -159,12 +182,5 @@ export function computeLayout(root: MapNode, measure: Measure): MapLayout {
   column(right, 1);
   column(left, -1);
 
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const b of boxes) {
-    minX = Math.min(minX, b.x);
-    minY = Math.min(minY, b.y);
-    maxX = Math.max(maxX, b.x + b.w);
-    maxY = Math.max(maxY, b.y + b.h);
-  }
-  return { boxes, byId, branches, bounds: { x: minX, y: minY, w: maxX - minX, h: maxY - minY } };
+  return { boxes, byId, branches, bounds: boundsOf(boxes) };
 }
