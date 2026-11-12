@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 // The same sandbox Notion puts on a generic /embed iframe (observed on a public notion.site page, 2026-11-12).
 const NOTION_SANDBOX =
@@ -55,4 +55,36 @@ test('PNG export draws with the embedded hand-drawn fonts', async ({ page }) => 
     return a !== b;
   })()`);
   expect(differ).toBe(true);
+});
+
+async function openNewMap(page: Page): Promise<string> {
+  await page.goto('/');
+  await page.getByLabel('Owner key').fill('dev-owner-key');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'New map' }).click();
+  await page.waitForURL(/\/e\/[A-Za-z0-9_-]{21}$/);
+  await expect(page.locator('g.topic')).toHaveCount(1);
+  return page.url().split('/e/')[1];
+}
+
+test('the org chart and a pasted outline survive a reload and show in the view', async ({ page }) => {
+  const id = await openNewMap(page);
+  await page.getByRole('button', { name: 'Org chart' }).click();
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData('text/plain', '- Alpha\n  - Alpha 1\n- Beta');
+    window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator('g.topic')).toHaveCount(4);
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Org chart' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('g.topic')).toHaveCount(4);
+
+  await page.goto(`/m/${id}`);
+  await expect(page.locator('g.topic')).toHaveCount(4);
+  const top = async (label: RegExp) => (await page.locator('svg text', { hasText: label }).boundingBox())!.y;
+  expect(await top(/^Alpha 1$/)).toBeGreaterThan(await top(/^Alpha$/)); // stacked under its parent
+  expect(Math.abs((await top(/^Alpha$/)) - (await top(/^Beta$/)))).toBeLessThan(2); // first level shares a row
 });
