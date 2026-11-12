@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeZip } from '../test/zipFixture';
 import { ListPage } from './ListPage';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -58,5 +59,47 @@ describe('ListPage', () => {
     expect(calls.some(([m]) => m === 'DELETE')).toBe(false);
     await click('Delete');
     expect(calls).toContainEqual(['DELETE', `/api/maps/${id}`]);
+  });
+
+  it('imports an .xmind file as a new map and says what it left out', async () => {
+    localStorage.setItem('sketchmap:owner-key', 'k');
+    const calls = stubApi();
+    const saved: unknown[] = [];
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init = {}) => {
+      if (init.method === 'PUT') {
+        saved.push(JSON.parse(String(init.body)));
+        return Response.json(JSON.parse(String(init.body)), { headers: { ETag: '"e2"' } });
+      }
+      return base(url, init);
+    });
+    await render();
+    const xmind = await makeZip([{ name: 'content.json', deflate: false, data: JSON.stringify([
+      {
+        id: 's',
+        class: 'sheet',
+        title: 'S',
+        rootTopic: {
+          id: 'r',
+          title: 'Trip',
+          children: { attached: [{ id: 'a', title: 'Pack' }], detached: [{ id: 'f', title: 'Loose' }] },
+        },
+        relationships: [{ id: 'x' }],
+      },
+    ]) }]);
+    const input = container.querySelector('input[aria-label="XMind file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File([xmind] as BlobPart[], 'trip.xmind')] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => {});
+    expect(calls.map(([m]) => m)).toContain('POST');
+    expect(saved[0]).toMatchObject({
+      root: { text: 'Trip', children: [{ text: 'Pack' }, { text: 'Loose' }] },
+      layout: 'map',
+    });
+    const status = container.querySelector('.import-result')!;
+    expect(status.textContent).toContain('3 topics');
+    expect(status.textContent).toContain('1 relationship');
+    expect(status.textContent).toContain('Changed: 1 floating topic attached to the root');
+    expect(status.querySelector('a')!.getAttribute('href')).toBe(`/e/${id}`);
   });
 });

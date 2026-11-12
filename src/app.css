@@ -127,3 +127,6 @@ svg.mini { display: block; filter: var(--canvas-filter); }
 .details-tab { right: 12px; top: 12px; width: 32px; box-sizing: border-box; padding: 10px 0; display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 3; cursor: pointer; color: var(--ink-2); font: 600 12px/1 var(--ui); }
 .details-tab:hover { color: var(--ink); background: var(--surface-2); }
 .details-tab-label { writing-mode: vertical-rl; letter-spacing: 0.06em; }
+
+.import-result { margin: 12px 0 0; padding: 10px 12px; background: var(--accent-soft); border-radius: 10px; }
+.import-result a { color: var(--accent); font-weight: 600; }

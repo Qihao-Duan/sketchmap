@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, createApi } from '../api/client';
 import { KeyPrompt } from '../auth/KeyPrompt';
 import { clearOwnerKey, getOwnerKey, setOwnerKey } from '../auth/ownerKey';
+import { importXmind, XmindError } from '../io/xmind';
+import { parseRich } from '../shared/rich';
 import type { MapSummary } from '../shared/types';
 
 export function ListPage({ go = (url: string) => location.assign(url) }: { go?: (url: string) => void }) {
@@ -11,6 +13,9 @@ export function ListPage({ go = (url: string) => location.assign(url) }: { go?: 
   const [error, setError] = useState<string>();
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState<{ id: string; title: string; topics: number; dropped: string[]; changed: string[] } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const fail = useCallback((e: unknown) => {
     if (e instanceof ApiError && e.status === 401) {
@@ -70,13 +75,60 @@ export function ListPage({ go = (url: string) => location.assign(url) }: { go?: 
     navigator.clipboard?.writeText(`${location.origin}/m/${id}`).then(() => setCopiedId(id), () => setError('Copy was blocked by the browser.'));
   };
 
+  const importFile = async (file: File) => {
+    setImporting(true);
+    setError(undefined);
+    setImported(null);
+    let createdId: string | null = null;
+    try {
+      const result = await importXmind(new Uint8Array(await file.arrayBuffer()));
+      const { map, etag } = await api.createMap();
+      createdId = map.id;
+      await api.saveMap({ ...map, root: result.root, layout: result.layout }, etag);
+      setImported({
+        id: map.id,
+        title: parseRich(result.root.text).plain.split('\n')[0] || 'Untitled map',
+        topics: result.topics,
+        dropped: result.dropped,
+        changed: result.changed,
+      });
+      refresh();
+    } catch (e) {
+      if (createdId) void api.deleteMap(createdId).catch(() => {});
+      if (e instanceof XmindError) setError(e.message);
+      else fail(e);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="list">
       <header>
         <h1>Your maps</h1>
         <button type="button" className="primary" onClick={create}>New map</button>
+        <button type="button" disabled={importing} onClick={() => fileRef.current?.click()}>{importing ? 'Importing…' : 'Import .xmind'}</button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xmind"
+          aria-label="XMind file"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) void importFile(file);
+          }}
+        />
       </header>
       {error && <p role="alert" className="error">{error}</p>}
+      {imported && (
+        <p role="status" className="import-result">
+          Imported “{imported.title}”: {imported.topics} topics.
+          {imported.changed.length > 0 && <> Changed: {imported.changed.join(', ')}.</>}
+          {imported.dropped.length > 0 && <> Not brought over: {imported.dropped.join(', ')}.</>} <a href={`/e/${imported.id}`}>Open it</a>
+        </p>
+      )}
       {maps === null ? (
         <p className="muted">Loading…</p>
       ) : maps.length === 0 ? (
