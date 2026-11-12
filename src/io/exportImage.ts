@@ -21,7 +21,11 @@ export async function fontCssFor(
     facesFor(text).map(async (f) => {
       const res = await fetchImpl(base + f.file);
       if (!res.ok) throw new Error(`Font ${f.file} could not be loaded (HTTP ${res.status})`);
-      const b64 = bytesToBase64(new Uint8Array(await res.arrayBuffer()));
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (bytes[0] !== 0x77 || bytes[1] !== 0x4f || bytes[2] !== 0x46 || bytes[3] !== 0x32) {
+        throw new Error(`Font ${f.file} is not a woff2 font`);
+      }
+      const b64 = bytesToBase64(bytes);
       return `@font-face{font-family:"${f.family}";src:url(data:font/woff2;base64,${b64}) format("woff2");unicode-range:${f.unicodeRange}}`;
     }),
   );

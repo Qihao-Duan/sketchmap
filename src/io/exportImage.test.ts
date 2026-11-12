@@ -16,14 +16,16 @@ const foldedLayout = computeLayout(
   (t, s) => t.length * s * 0.5,
 );
 
+const woff2Bytes = (...rest: number[]) => new Uint8Array([0x77, 0x4f, 0x46, 0x32, ...rest]); // "wOF2" magic
+
 describe('export', () => {
   it('builds a standalone SVG with only the needed font subset embedded', async () => {
-    const fetchImpl = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(async () => new Response(woff2Bytes(1, 2, 3))) as unknown as typeof fetch;
     const svg = await buildSvg(layout, 'Root\nA\nA1', { fetchImpl });
     expect(vi.mocked(fetchImpl)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(fetchImpl).mock.calls[0][0]).toMatch(/^\/fonts\/Excalifont\//);
     expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"');
-    expect(svg).toContain('src:url(data:font/woff2;base64,AQID)');
+    expect(svg).toContain('src:url(data:font/woff2;base64,d09GMgECAw==)');
     expect(svg.match(/class="topic"/g)).toHaveLength(3);
     expect(svg).not.toContain('class="hit"');
     const { x, y } = layout.bounds;
@@ -35,6 +37,11 @@ describe('export', () => {
     await expect(buildSvg(layout, 'Root', { fetchImpl })).rejects.toThrow(/Font .*404/);
   });
 
+  it('fails clearly when the fetched bytes are not actually woff2 (e.g. an HTML error page served with 200)', async () => {
+    const fetchImpl = (async () => new Response('<html>not a font</html>', { status: 200 })) as unknown as typeof fetch;
+    await expect(buildSvg(layout, 'Root', { fetchImpl })).rejects.toThrow(/not a woff2 font/);
+  });
+
   it('encodes bytes and makes safe file names', () => {
     expect(bytesToBase64(new Uint8Array([0, 1, 2]))).toBe('AAEC');
     expect(fileName('  Plan: Q4/Q1?  ', 'png')).toBe('Plan- Q4-Q1-.png');
@@ -44,7 +51,7 @@ describe('export', () => {
   it('visibleText excludes folded branches, so buildSvg only fetches the fonts the visible text needs', async () => {
     const text = visibleText(foldedLayout);
     expect(text).not.toContain('中文');
-    const fetchImpl = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(async () => new Response(woff2Bytes(1, 2, 3))) as unknown as typeof fetch;
     await buildSvg(foldedLayout, text, { fetchImpl });
     for (const [url] of vi.mocked(fetchImpl).mock.calls) expect(String(url)).not.toContain('/Xiaolai/');
   });
