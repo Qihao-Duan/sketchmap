@@ -51,7 +51,7 @@ Only someone with the owner key can change it.
 
 ## Step 3: topic details
 
-- The **Details** button shows or hides the sidebar for the selected topic.
+- The **Details** button shows or hides the sidebar for the selected topic. The ▸ on the sidebar folds it into a slim **◂ Details** tab at the right edge; click the tab to open it again.
 - **Importance:** Key, Highlight, Normal and Aside, with Alt ↑ / Alt ↓.
 - **Priority:** ①②③, with Alt 1–3, and Alt 0 to clear.
 - **Marker:** the ten markers. Clicking the active marker removes it.

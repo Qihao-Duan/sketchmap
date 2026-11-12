@@ -403,7 +403,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           onMove={(id, targetId) => dispatch({ type: 'move', id, targetId })}
           onToggleFold={(id) => dispatch({ type: 'toggleFold', id })}
           onViewChange={setView}
-          rightInset={detailsOpen ? 296 : 0}
+          rightInset={detailsOpen ? 296 : 44}
         />
         {editing && editBox && (
           <InlineEditor
@@ -416,6 +416,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             onCancel={cancel}
             onTab={tab}
           />
+        )}
+        {!detailsOpen && (
+          <button type="button" className="float details-tab" aria-label="Show topic details" title="Show topic details" onMouseDown={(e) => e.preventDefault()} onClick={toggleDetails}>
+            <span aria-hidden="true">◂</span>
+            <span className="details-tab-label">Details</span>
+          </button>
         )}
         {detailsOpen && selectedNode && (
           <DetailsPanel
@@ -441,6 +447,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             }}
             onNote={(id, note) => dispatch({ type: 'setNote', id, note })}
             newTopicOpen={!!state.editing?.isNew}
+            onFold={toggleDetails}
           />
         )}
         {outlineOpen && (

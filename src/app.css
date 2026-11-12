@@ -121,3 +121,9 @@ svg.mini { display: block; filter: var(--canvas-filter); }
 .link-prompt .row { display: flex; flex-wrap: wrap; gap: 6px; }
 .link-prompt button { border: 1px solid var(--line); }
 .link-prompt button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+
+.details-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.details .fold-details { padding: 4px 8px; font-size: 14px; color: var(--ink-2); }
+.details-tab { right: 12px; top: 12px; width: 32px; box-sizing: border-box; padding: 10px 0; display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 3; cursor: pointer; color: var(--ink-2); font: 600 12px/1 var(--ui); }
+.details-tab:hover { color: var(--ink); background: var(--surface-2); }
+.details-tab-label { writing-mode: vertical-rl; letter-spacing: 0.06em; }

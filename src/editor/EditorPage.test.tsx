@@ -415,6 +415,18 @@ describe('Editor', () => {
 });
 
 describe('Details panel', () => {
+  it('the ▸ on the panel folds it into a slim tab; the tab opens it again; the choice is remembered', async () => {
+    mount(fakeApi());
+    await clickLabel('Fold the details panel');
+    expect(container.querySelector('[aria-label="Topic details"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Show topic details"]')!.textContent).toContain('Details');
+    expect(localStorage.getItem('sketchmap:details')).toBe('0');
+    await clickLabel('Show topic details');
+    expect(container.querySelector('[aria-label="Topic details"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Show topic details"]')).toBeNull();
+    expect(localStorage.getItem('sketchmap:details')).toBe('1');
+  });
+
   it('sets importance, priority and marker on the selected topic, each one undo step', async () => {
     mount(fakeApi());
     expect(pressedIn('Importance')).toEqual(['Normal']);

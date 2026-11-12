@@ -76,10 +76,12 @@ export interface DetailsPanelProps {
   onNote(id: string, note: string): void;
   /** A new topic is open for typing: finish it before writing a note. */
   newTopicOpen?: boolean;
+  /** Folds the panel into a slim tab at the right edge. */
+  onFold(): void;
 }
 
 /** The selected topic's importance, priority, marker and note. Mount it with `key={node.id}`. */
-export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, newTopicOpen }: DetailsPanelProps) {
+export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, newTopicOpen, onFold }: DetailsPanelProps) {
   const [note, setNote] = useState(node.note ?? '');
   const noteBox = useRef<HTMLTextAreaElement>(null);
   const pending = useRef<string | null>(null);
@@ -123,7 +125,12 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, n
   const title = (node.emoji ? `${node.emoji} ` : '') + (rich.plain.split('\n')[0].trim() || 'Untitled topic');
   return (
     <aside className="float details" aria-label="Topic details">
-      <h2>Topic details</h2>
+      <div className="details-head">
+        <h2>Topic details</h2>
+        <button type="button" className="fold-details" aria-label="Fold the details panel" title="Fold into a tab" onMouseDown={noFocus} onClick={onFold}>
+          ▸
+        </button>
+      </div>
       <div className="topic-title">{title}</div>
       <div className="field">
         <span className="flabel">Importance</span>
