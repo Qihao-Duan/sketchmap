@@ -1,0 +1,64 @@
+import { describe, expect, it } from 'vitest';
+import type { MapNode } from '../shared/types';
+import { parseOutline, toMarkdown } from './markdown';
+
+const n = (text: string, children: MapNode[] = []): MapNode => ({ id: text, text, children });
+const shape = (node: MapNode): unknown => ({ t: node.text, c: node.children.map(shape) });
+
+describe('toMarkdown', () => {
+  it('writes the root as a heading and topics as nested bullets, 2 spaces per level', () => {
+    const md = toMarkdown(n('Plan', [n('A', [n('A1')]), n('B')]));
+    expect(md).toBe('# Plan\n- A\n  - A1\n- B\n');
+  });
+  it('joins multi-line topic text into one line', () => {
+    expect(toMarkdown(n('Root', [n('two\n lines')]))).toBe('# Root\n- two lines\n');
+  });
+});
+
+describe('parseOutline', () => {
+  it('round-trips toMarkdown', () => {
+    const tree = n('Plan', [n('A', [n('A1'), n('A2', [n('Deep')])]), n('B')]);
+    const parsed = parseOutline(toMarkdown(tree))!;
+    expect(parsed.synthetic).toBe(false);
+    expect(shape(parsed.root)).toEqual(shape(tree));
+    expect(parsed.root.id).toMatch(/^[A-Za-z0-9_-]{10}$/);
+  });
+
+  it('accepts any indent width, tabs, numbers, other bullet marks and checkboxes', () => {
+    const text = '- A\n    - A1\n\t\t- A1a\n* B\n1. C\n2) D\n+ E\n• F\n- [ ] todo\n- [x] done';
+    const parsed = parseOutline(text)!;
+    expect(parsed.synthetic).toBe(true);
+    expect(parsed.root.text).toBe('Outline');
+    expect(shape(parsed.root)).toEqual({
+      t: 'Outline',
+      c: [
+        { t: 'A', c: [{ t: 'A1', c: [{ t: 'A1a', c: [] }] }] },
+        { t: 'B', c: [] }, { t: 'C', c: [] }, { t: 'D', c: [] }, { t: 'E', c: [] }, { t: 'F', c: [] },
+        { t: 'todo', c: [] }, { t: 'done', c: [] },
+      ],
+    });
+  });
+
+  it('nests bullets under headings and headings by level', () => {
+    const parsed = parseOutline('# Root\n## Section\n- point\n  - detail\n## Other')!;
+    expect(shape(parsed.root)).toEqual({
+      t: 'Root',
+      c: [{ t: 'Section', c: [{ t: 'point', c: [{ t: 'detail', c: [] }] }] }, { t: 'Other', c: [] }],
+    });
+  });
+
+  it('treats one plain line as a single topic and ignores blank lines and empty bullets', () => {
+    expect(shape(parseOutline('\n  Hello world  \n\n')!.root)).toEqual({ t: 'Hello world', c: [] });
+    expect(shape(parseOutline('- A\n- \n- B')!.root)).toEqual({ t: 'Outline', c: [{ t: 'A', c: [] }, { t: 'B', c: [] }] });
+  });
+
+  it('clamps skipped levels and cuts topic text to 5000 characters', () => {
+    const parsed = parseOutline(`- A\n        - jumped\n- ${'x'.repeat(6000)}`)!;
+    expect(parsed.root.children[0].children[0].text).toBe('jumped');
+    expect(parsed.root.children[1].text).toHaveLength(5000);
+  });
+
+  it('returns null for empty input', () => {
+    expect(parseOutline('   \n\n')).toBeNull();
+  });
+});
