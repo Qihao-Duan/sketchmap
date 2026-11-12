@@ -27,9 +27,9 @@ interface Props {
 }
 
 type Gesture =
-  | { kind: 'pan'; x: number; y: number; tx: number; ty: number; link: string | null }
+  | { kind: 'pan'; x: number; y: number; tx: number; ty: number; link: string | null; moved: boolean }
   | { kind: 'topic'; id: string; x: number; y: number; moved: boolean; dbl: boolean; ghost: SVGGElement | null }
-  | { kind: 'link'; x: number; y: number; href: string };
+  | { kind: 'link'; x: number; y: number; href: string; moved: boolean };
 
 /** Opens a topic's link in a new tab, without giving that page a handle on this one. */
 function openLink(href: string) {
@@ -138,13 +138,13 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     }
     const href = target.closest('a')?.getAttribute('href') ?? null;
     if (href && interactive && (e.metaKey || e.ctrlKey)) {
-      gesture.current = { kind: 'link', x: e.clientX, y: e.clientY, href };
+      gesture.current = { kind: 'link', x: e.clientX, y: e.clientY, href, moved: false };
       return;
     }
     svgRef.current?.setPointerCapture?.(e.pointerId);
     const topic = interactive ? target.closest('g.topic') : null;
     if (!topic) {
-      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, link: interactive ? null : href };
+      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, link: interactive ? null : href, moved: false };
       return;
     }
     const id = topic.getAttribute('data-id')!;
@@ -164,10 +164,14 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
       gesture.current = null;
       return;
     }
-    if (g.kind === 'link') return;
     const dx = e.clientX - g.x;
     const dy = e.clientY - g.y;
+    if (g.kind === 'link') {
+      if (!g.moved && Math.hypot(dx, dy) >= 6) g.moved = true;
+      return;
+    }
     if (g.kind === 'pan') {
+      if (!g.moved && Math.hypot(dx, dy) >= 6) g.moved = true;
       applyView({ ...viewRef.current, tx: g.tx + dx, ty: g.ty + dy });
       return;
     }
@@ -179,6 +183,8 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
         g.ghost = source.cloneNode(true) as SVGGElement;
         g.ghost.setAttribute('opacity', '0.55');
         g.ghost.style.pointerEvents = 'none';
+        g.ghost.querySelectorAll('[pointer-events]').forEach((n) => n.setAttribute('pointer-events', 'none'));
+        g.ghost.setAttribute('pointer-events', 'none');
         overlayRef.current?.appendChild(g.ghost);
       }
     }
@@ -195,11 +201,11 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     if (!g) return;
     const still = Math.hypot(e.clientX - g.x, e.clientY - g.y) < 6;
     if (g.kind === 'link') {
-      if (still && !cancelled) openLink(g.href);
+      if (still && !g.moved && !cancelled) openLink(g.href);
       return;
     }
     if (g.kind === 'pan') {
-      if (g.link && still && !cancelled) openLink(g.link);
+      if (g.link && still && !g.moved && !cancelled) openLink(g.link);
       return;
     }
     if (g.moved) {

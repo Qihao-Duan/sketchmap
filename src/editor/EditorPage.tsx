@@ -308,6 +308,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const copyMarkdown = () => {
     if (!navigator.clipboard) {
       setOutlineOpen(true);
+      setLinkFor(null);
       return;
     }
     const lost = markdownLosses(state.map.root);
@@ -316,7 +317,10 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         setMdCopied(true);
         setMdNotice(lost.length ? `Copied. Not kept in Markdown: ${lost.join(', ')}.` : null);
       },
-      () => setOutlineOpen(true),
+      () => {
+        setOutlineOpen(true);
+        setLinkFor(null);
+      },
     );
   };
   const applyOutline = (text: string): string | null => {
@@ -360,7 +364,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           ))}
         </div>
         <button type="button" aria-pressed={detailsOpen} onClick={toggleDetails}>Details</button>
-        <button type="button" onClick={() => setOutlineOpen(true)}>Outline</button>
+        <button type="button" onClick={() => { setOutlineOpen(true); setLinkFor(null); }}>Outline</button>
         <button type="button" onClick={copyMarkdown}>{mdCopied ? 'Markdown copied' : 'Copy as Markdown'}</button>
         <button type="button" onClick={copyLink}>{copied ? 'Link copied' : 'Copy Notion embed link'}</button>
         <a href={`/m/${initial.id}`} target="_blank" rel="noopener">Open view ↗</a>

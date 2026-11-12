@@ -403,6 +403,15 @@ describe('Editor', () => {
     expect(container.querySelector('textarea.inline-editor')).not.toBeNull();
     expect(container.querySelector('[aria-label="Link"]')).toBeNull();
   });
+
+  it('⌘K opens the prompt; clicking Outline closes it, and the Outline panel is open', async () => {
+    mount(fakeApi());
+    keydown({ key: 'k', metaKey: true });
+    expect(container.querySelector('[aria-label="Link"]')).not.toBeNull();
+    await click('Outline');
+    expect(container.querySelector('[aria-label="Link"]')).toBeNull();
+    expect(container.querySelector('textarea[aria-label="Outline text"]')).not.toBeNull();
+  });
 });
 
 describe('Details panel', () => {
@@ -512,5 +521,13 @@ describe('Details panel', () => {
     await click('Details');
     expect(container.querySelector('[aria-label="Topic details"]')).toBeNull();
     expect(localStorage.getItem('sketchmap:details')).toBe('0');
+  });
+
+  it('a listed link keeps keyboard focus off itself on a mouse click, so shortcuts keep working', () => {
+    mount(fakeApi(), { ...map, root: { ...map.root, text: '[Plan](https://a.com) ahead' } });
+    const a = container.querySelector('[aria-label="Topic details"] .links a') as HTMLAnchorElement;
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    act(() => void a.dispatchEvent(down));
+    expect(down.defaultPrevented).toBe(true);
   });
 });

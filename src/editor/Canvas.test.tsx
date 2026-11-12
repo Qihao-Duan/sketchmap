@@ -183,6 +183,26 @@ describe('Canvas', () => {
       expect(open).toHaveBeenCalledTimes(1);
       open.mockRestore();
     });
+
+    it('a pan that wanders and comes back does not open the link', () => {
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      mountLinked(false);
+      at(link(), 'pointerdown', 10, 10);
+      at(link(), 'pointermove', 130, 10, { buttons: 1 });
+      at(link(), 'pointerup', 12, 10);
+      expect(open).not.toHaveBeenCalled();
+      open.mockRestore();
+    });
+  });
+
+  it('[O1 regression guard] makes every element in the drag ghost unclickable, so elementFromPoint finds the topic underneath it', () => {
+    mount();
+    const overlay = container.querySelector('g.overlay')!;
+    press(hit('a1'), 'pointerdown');
+    press(hit('a1'), 'pointermove', 20, 20, 1);
+    const withPointerEvents = [...overlay.querySelectorAll('[pointer-events]')];
+    expect(withPointerEvents.length).toBeGreaterThan(0);
+    for (const n of withPointerEvents) expect(n.getAttribute('pointer-events')).toBe('none');
   });
 
   it('ensureVisible keeps the topic clear of a right-hand panel (rightInset)', () => {

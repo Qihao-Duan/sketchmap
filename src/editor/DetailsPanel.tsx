@@ -207,7 +207,7 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, n
           <ul className="links">
             {rich.links.map((l, i) => (
               <li key={`${i}-${l.href}`}>
-                <a href={l.href} target="_blank" rel="noopener noreferrer">{l.label} ↗</a>
+                <a href={l.href} target="_blank" rel="noopener noreferrer" onMouseDown={noFocus}>{l.label} ↗</a>
                 <span>{l.href}</span>
               </li>
             ))}
