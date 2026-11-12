@@ -5,9 +5,10 @@ interface Props {
   /** Returns an error message to show, or null when the outline was applied. */
   onApply(text: string): string | null;
   onClose(): void;
+  lost?: string[];
 }
 
-export function OutlinePanel({ initialText, onApply, onClose }: Props) {
+export function OutlinePanel({ initialText, onApply, onClose, lost }: Props) {
   const [text, setText] = useState(initialText);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -22,6 +23,7 @@ export function OutlinePanel({ initialText, onApply, onClose }: Props) {
     >
       <h2>Map as a Markdown outline</h2>
       <p className="muted">Edit the text and apply it, or paste an outline copied from Notion. Headings and indented lists both work.</p>
+      {lost && lost.length > 0 && <p className="muted">Not kept in Markdown: {lost.join(', ')}.</p>}
       <textarea
         autoFocus
         aria-label="Outline text"

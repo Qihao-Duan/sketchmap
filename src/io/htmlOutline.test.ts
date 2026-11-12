@@ -7,6 +7,11 @@ import { parseHtmlOutline } from './htmlOutline';
 const shape = (n: MapNode): unknown => ({ t: n.text, c: n.children.map(shape) });
 
 describe('parseHtmlOutline', () => {
+  it('reads priority emoji, markers and whole-item bold from list items too', () => {
+    const parsed = parseHtmlOutline('<ul><li>🔴 💡 **Ship**</li></ul>')!;
+    expect(parsed.root).toMatchObject({ text: 'Ship', priority: 1, emoji: '💡', emphasis: 'key' });
+  });
+
   it('reads an XMind-style fragment, keeping multi-line topics', () => {
     const html = `<meta charset='utf-8'><html><head></head><body><div xmind-vk-document-fragment-id="1-2"><ul><li><p>Topic</p><ul>` +
       `<li><p>Child A</p><ul><li><p>Grandchild</p></li></ul></li><li><p>Line one</p><p>Line two</p></li></ul></li></ul></div></body></html>`;

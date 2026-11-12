@@ -1,6 +1,6 @@
 import type { MapNode } from '../shared/types';
 import { newNodeId } from '../model/ids';
-import { MAX_OUTLINE_DEPTH, type ParsedOutline } from './markdown';
+import { MAX_OUTLINE_DEPTH, readDecorations, type ParsedOutline } from './markdown';
 
 const MAX_TEXT = 5000;
 const LIST = /^(UL|OL)$/;
@@ -57,7 +57,10 @@ export function parseHtmlOutline(html: string): ParsedOutline | null {
       .flatMap(items)
       .flatMap((c) => toNode(c, depth + 1));
     const text = textLines(own).join('\n').slice(0, MAX_TEXT);
-    if (text) return [{ id: newNodeId(), text, children }];
+    if (text) {
+      const { text: body, ...rest } = readDecorations(text);
+      return [{ id: newNodeId(), text: body, children, ...rest }];
+    }
     return children.length ? children : [];
   };
 

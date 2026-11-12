@@ -1,4 +1,4 @@
-import type { MapNode } from '../shared/types';
+import { MARKERS, type MapNode } from '../shared/types';
 import { newNodeId } from '../model/ids';
 
 const MAX_TEXT = 5000; // schema limit for topic text
@@ -7,12 +7,60 @@ export const MAX_OUTLINE_DEPTH = 64;
 const BULLET = /^(?:[-*+•]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/;
 const oneLine = (t: string) => t.replace(/\s*\n\s*/g, ' ').trim();
 
+const PRIORITY_MARK = { 1: '🔴', 2: '🟠', 3: '🔵' } as const;
+const PRIORITY_FROM_MARK: Record<string, 1 | 2 | 3> = { '🔴': 1, '🟠': 2, '🔵': 3 };
+
+/** One topic as one Markdown line: priority emoji, marker, then the text, bold for Key (spec §9). */
+function topicLine(n: MapNode): string {
+  let t = oneLine(n.text);
+  if (n.emphasis === 'key' && t) t = `**${t}**`;
+  if (n.emoji) t = `${n.emoji} ${t}`;
+  if (n.priority) t = `${PRIORITY_MARK[n.priority]} ${t}`;
+  return t.trimEnd();
+}
+
+/** Reads back what `topicLine` writes: a leading 🔴/🟠/🔵, a leading marker and a space, and a whole item in **…** (spec §9). */
+export function readDecorations(raw: string): Pick<MapNode, 'text' | 'priority' | 'emoji' | 'emphasis'> {
+  let text = raw;
+  const out: Pick<MapNode, 'priority' | 'emoji' | 'emphasis'> = {};
+  const p = /^(🔴|🟠|🔵)\s*/u.exec(text);
+  if (p) {
+    out.priority = PRIORITY_FROM_MARK[p[1]];
+    text = text.slice(p[0].length);
+  }
+  const marker = MARKERS.find((m) => text.startsWith(`${m} `));
+  if (marker) {
+    out.emoji = marker;
+    text = text.slice(marker.length + 1);
+  }
+  const bold = /^\*\*([\s\S]+)\*\*$/.exec(text);
+  if (bold && bold[1].trim() && !bold[1].includes('**')) {
+    out.emphasis = 'key';
+    text = bold[1];
+  }
+  return { text, ...out };
+}
+
+/** What Markdown can't carry, for the "not kept" notice (spec §9): Highlight, Aside and notes. */
+export function markdownLosses(root: MapNode): string[] {
+  const found = new Set<string>();
+  const stack = [root];
+  while (stack.length) {
+    const n = stack.pop()!;
+    if (n.emphasis === 'highlight') found.add('Highlight');
+    if (n.emphasis === 'aside') found.add('Aside');
+    if (n.note?.trim()) found.add('notes');
+    stack.push(...n.children);
+  }
+  return ['Highlight', 'Aside', 'notes'].filter((x) => found.has(x));
+}
+
 /** `# Root`, then nested `- ` bullets, 2 spaces per level. Pastes into Notion as a nested list. */
 export function toMarkdown(root: MapNode): string {
-  const out = [`# ${oneLine(root.text)}`];
+  const out = [`# ${topicLine(root)}`];
   const walk = (node: MapNode, depth: number) => {
     for (const c of node.children) {
-      out.push(`${'  '.repeat(depth)}- ${oneLine(c.text)}`);
+      out.push(`${'  '.repeat(depth)}- ${topicLine(c)}`);
       walk(c, depth + 1);
     }
   };
@@ -53,7 +101,10 @@ export function parseOutline(text: string): ParsedOutline | null {
   const base = items.reduce((m, i) => Math.min(m, i.depth), Infinity);
   for (const i of items) i.depth -= base;
   const synthetic = !(items[0].depth === 0 && items.filter((i) => i.depth === 0).length === 1);
-  const make = (t: string): MapNode => ({ id: newNodeId(), text: t.slice(0, MAX_TEXT), children: [] });
+  const make = (t: string): MapNode => {
+    const { text: body, ...rest } = readDecorations(t);
+    return { id: newNodeId(), text: body.slice(0, MAX_TEXT), children: [], ...rest };
+  };
   const root = synthetic ? make('Outline') : make(items.shift()!.text);
 
   const chain: MapNode[] = [root];

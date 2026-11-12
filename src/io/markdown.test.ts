@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MapNode } from '../shared/types';
-import { MAX_OUTLINE_DEPTH, parseOutline, toMarkdown } from './markdown';
+import { MAX_OUTLINE_DEPTH, markdownLosses, parseOutline, readDecorations, toMarkdown } from './markdown';
 
 const n = (text: string, children: MapNode[] = []): MapNode => ({ id: text, text, children });
 const shape = (node: MapNode): unknown => ({ t: node.text, c: node.children.map(shape) });
@@ -16,6 +16,35 @@ describe('toMarkdown', () => {
 });
 
 describe('parseOutline', () => {
+  it('writes Key as bold and priority and marker as leading emoji, and reads them back', () => {
+    const tree = n('Plan', [
+      { ...n('Ship'), emphasis: 'key', priority: 1 },
+      { ...n('Idea'), emoji: '💡', priority: 3 },
+      { ...n('Later'), emphasis: 'aside' },
+    ]);
+    const md = toMarkdown(tree);
+    expect(md).toBe('# Plan\n- 🔴 **Ship**\n- 🔵 💡 Idea\n- Later\n');
+    const pick = ({ text, emphasis, priority, emoji }: MapNode) => ({ text, emphasis, priority, emoji });
+    expect(parseOutline(md)!.root.children.map(pick)).toEqual([
+      { text: 'Ship', emphasis: 'key', priority: 1, emoji: undefined },
+      { text: 'Idea', emphasis: undefined, priority: 3, emoji: '💡' },
+      { text: 'Later', emphasis: undefined, priority: undefined, emoji: undefined },
+    ]);
+  });
+
+  it('reads priority emoji, markers and whole-item bold; partial bold stays text', () => {
+    expect(readDecorations('🟠 ✅ **Done**')).toEqual({ text: 'Done', priority: 2, emoji: '✅', emphasis: 'key' });
+    expect(readDecorations('Not **all** bold')).toEqual({ text: 'Not **all** bold' });
+    expect(readDecorations('💡idea')).toEqual({ text: '💡idea' });
+  });
+
+  it('lists what Markdown cannot keep', () => {
+    const tree = n('R', [{ ...n('a'), emphasis: 'highlight' }, { ...n('b'), note: 'x' }, { ...n('c'), emphasis: 'key' }]);
+    expect(markdownLosses(tree)).toEqual(['Highlight', 'notes']);
+    expect(markdownLosses(n('R', [{ ...n('a'), emphasis: 'aside' }]))).toEqual(['Aside']);
+    expect(markdownLosses(n('R'))).toEqual([]);
+  });
+
   it('round-trips toMarkdown', () => {
     const tree = n('Plan', [n('A', [n('A1'), n('A2', [n('Deep')])]), n('B')]);
     const parsed = parseOutline(toMarkdown(tree))!;

@@ -320,6 +320,20 @@ describe('Editor', () => {
     const saved = vi.mocked(api.saveMap).mock.calls.at(-1)![0];
     expect(saved.root).toMatchObject({ emphasis: 'highlight', priority: 2 });
   });
+
+  it('says what Copy as Markdown leaves out, and the Outline panel says it too', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      mount(fakeApi(), { ...map, root: { ...map.root, emphasis: 'highlight', note: 'n' } });
+      await click('Copy as Markdown');
+      expect(container.textContent).toContain('Not kept in Markdown: Highlight, notes.');
+      await click('Outline');
+      expect(container.querySelector('[aria-label="Markdown outline"]')!.textContent).toContain('Not kept in Markdown: Highlight, notes.');
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
 });
 
 describe('Details panel', () => {

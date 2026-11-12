@@ -4,7 +4,7 @@ import { KeyPrompt } from '../auth/KeyPrompt';
 import { getOwnerKey, setOwnerKey } from '../auth/ownerKey';
 import { buildSvg, download, fileName, svgToPng, visibleText } from '../io/exportImage';
 import { parseHtmlOutline } from '../io/htmlOutline';
-import { parseOutline, toMarkdown } from '../io/markdown';
+import { markdownLosses, parseOutline, toMarkdown } from '../io/markdown';
 import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
 import { allText, findNode } from '../model/tree';
@@ -53,6 +53,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [editInitial, setEditInitial] = useState<string | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [mdCopied, setMdCopied] = useState(false);
+  const [mdNotice, setMdNotice] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(() => {
     try {
       const stored = storage.getItem(DETAILS_KEY);
@@ -285,8 +286,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       setOutlineOpen(true);
       return;
     }
+    const lost = markdownLosses(state.map.root);
     navigator.clipboard.writeText(toMarkdown(state.map.root)).then(
-      () => setMdCopied(true),
+      () => {
+        setMdCopied(true);
+        setMdNotice(lost.length ? `Copied. Not kept in Markdown: ${lost.join(', ')}.` : null);
+      },
       () => setOutlineOpen(true),
     );
   };
@@ -343,6 +348,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           onDiscard={discardDraft}
           olderThanServer={draft.savedAt < Date.parse(initial.updatedAt)}
         />
+      )}
+      {mdNotice && (
+        <div className="banner" role="status">
+          {mdNotice}
+          <button type="button" onClick={() => setMdNotice(null)}>Dismiss</button>
+        </div>
       )}
       {exportError && <div className="banner" role="alert">{exportError}</div>}
       {status === 'rejected' && (
@@ -401,7 +412,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           />
         )}
         {outlineOpen && (
-          <OutlinePanel initialText={toMarkdown(state.map.root)} onApply={applyOutline} onClose={() => setOutlineOpen(false)} />
+          <OutlinePanel initialText={toMarkdown(state.map.root)} onApply={applyOutline} onClose={() => setOutlineOpen(false)} lost={markdownLosses(state.map.root)} />
         )}
         <Toolbar
           zoom={view.k}
