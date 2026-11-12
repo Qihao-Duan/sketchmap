@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { makeZip } from '../src/test/zipFixture';
 import { openNewMap } from './helpers';
 
 // The same sandbox Notion puts on a generic /embed iframe (observed on a public notion.site page, 2026-11-12).
@@ -210,4 +211,28 @@ test('a link opens from inside a Notion-sandboxed iframe (pins allow-popups)', a
   const popup = context.waitForEvent('page');
   await frame.locator('g.topic a', { hasText: 'docs' }).click();
   await (await popup).waitForURL('https://example.com/docs');
+});
+
+test('an .xmind file imports as a new map, with links, notes and priority, and shows in the view', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Owner key').fill('dev-owner-key');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  const xmind = await makeZip([{ name: 'content.json', data: JSON.stringify([{
+    id: 's', class: 'sheet', title: 'S', rootTopic: { id: 'r', title: 'Imported trip', structureClass: 'org.xmind.ui.logic.right', children: { attached: [
+      { id: 'a', title: 'Booking', href: 'https://example.com/book', markers: [{ markerId: 'priority-2' }], notes: { plain: { content: 'Ask about breakfast' } } },
+      { id: 'b', title: 'Packing', branch: 'folded', children: { attached: [{ id: 'b1', title: 'Socks' }] } },
+    ] } },
+  }]) }]);
+  await page.locator('input[aria-label="XMind file"]').setInputFiles({ name: 'trip.xmind', mimeType: 'application/octet-stream', buffer: Buffer.from(xmind) });
+  await expect(page.locator('.import-result')).toContainText('4 topics');
+  await page.locator('.import-result a').click();
+  await page.waitForURL(/\/e\//);
+  await expect(page.getByRole('button', { name: 'Logic chart' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('g.topic')).toHaveCount(3); // Socks is folded away
+  await expect(page.locator('g.topic a', { hasText: 'Booking' })).toHaveAttribute('href', 'https://example.com/book');
+  await expect(page.locator('g.topic g.badge text')).toHaveText('2');
+  await expect(page.locator('g.topic g.note-icon title')).toHaveText('Ask about breakfast');
+  const id = page.url().split('/e/')[1];
+  await page.goto(`/m/${id}`);
+  await expect(page.locator('g.topic')).toHaveCount(3);
 });
