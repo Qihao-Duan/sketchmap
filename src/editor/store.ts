@@ -1,5 +1,5 @@
 import { produce } from 'immer';
-import type { LayoutKind, MapNode, MindMap } from '../shared/types';
+import type { Emphasis, LayoutKind, MapNode, MindMap } from '../shared/types';
 import * as T from '../model/tree';
 
 export const HISTORY_LIMIT = 200;
@@ -12,6 +12,8 @@ export interface EditorState {
   future: MindMap[];
   /** Goes up on every user change to `map`; autosave watches it. */
   revision: number;
+  /** `note:<id>` while consecutive note edits on that topic share one undo step. */
+  lastEdit?: string;
 }
 
 export type EditorAction =
@@ -30,7 +32,12 @@ export type EditorAction =
   | { type: 'replaceMap'; map: MindMap; dirty: boolean }
   | { type: 'setLayout'; layout: LayoutKind }
   | { type: 'pasteNodes'; nodes: MapNode[] }
-  | { type: 'replaceRoot'; root: MapNode };
+  | { type: 'replaceRoot'; root: MapNode }
+  | { type: 'setEmphasis'; emphasis: Emphasis | null }
+  | { type: 'bumpEmphasis'; delta: 1 | -1 }
+  | { type: 'setPriority'; priority: 1 | 2 | 3 | null }
+  | { type: 'setMarker'; emoji: string | null }
+  | { type: 'setNote'; id: string; note: string };
 
 export function initEditor(map: MindMap): EditorState {
   return { map, selectedId: map.root.id, editing: null, past: [], future: [], revision: 0 };
@@ -56,7 +63,25 @@ function keepSelection(map: MindMap, id: string): string {
   return T.findNode(map.root, id) ? id : map.root.id;
 }
 
-export function editorReducer(state: EditorState, action: EditorAction): EditorState {
+/** Importance from lowest to highest; undefined is Normal. */
+const IMPORTANCE: ReadonlyArray<Emphasis | undefined> = ['aside', undefined, 'highlight', 'key'];
+
+type Decoration = 'emphasis' | 'priority' | 'emoji';
+
+/** Sets or clears one decoration on the selected topic, as one undo step. */
+function decorate(state: EditorState, field: Decoration, value: string | number | null): EditorState {
+  if (state.editing) return state;
+  const f = T.findNode(state.map.root, state.selectedId);
+  if (!f || (f.node[field] ?? null) === value) return state;
+  const next = produce(state.map, (d) => {
+    const node = T.findNode(d.root, state.selectedId)!.node as Partial<Record<Decoration, unknown>>;
+    if (value === null) delete node[field];
+    else node[field] = value;
+  });
+  return commit(state, next);
+}
+
+function reduce(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
     case 'select':
       return T.findNode(state.map.root, action.id) ? { ...state, selectedId: action.id } : state;
@@ -146,6 +171,39 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         { selectedId: action.root.id, editing: null },
       );
 
+    case 'setEmphasis':
+      return decorate(state, 'emphasis', action.emphasis);
+
+    case 'bumpEmphasis': {
+      const f = T.findNode(state.map.root, state.selectedId);
+      if (!f) return state;
+      const i = IMPORTANCE.indexOf(f.node.emphasis);
+      const j = Math.max(0, Math.min(IMPORTANCE.length - 1, i + action.delta));
+      return decorate(state, 'emphasis', IMPORTANCE[j] ?? null);
+    }
+
+    case 'setPriority':
+      return decorate(state, 'priority', action.priority);
+
+    case 'setMarker':
+      return decorate(state, 'emoji', action.emoji);
+
+    case 'setNote': {
+      if (state.editing) return state;
+      const note = action.note.replace(/\s+$/, '');
+      const f = T.findNode(state.map.root, action.id);
+      if (!f || (f.node.note ?? '') === note) return state;
+      const next = produce(state.map, (d) => {
+        const node = T.findNode(d.root, action.id)!.node;
+        if (note) node.note = note;
+        else delete node.note;
+      });
+      const session = `note:${action.id}`;
+      // The note box dispatches at every pause in typing; one typing session on one topic is one undo step.
+      if (state.lastEdit === session) return { ...state, map: next, future: [], revision: state.revision + 1 };
+      return { ...commit(state, next), lastEdit: session };
+    }
+
     case 'undo': {
       const prev = state.past[state.past.length - 1];
       if (!prev) return state;
@@ -173,4 +231,11 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'replaceMap':
       return { ...initEditor(action.map), revision: state.revision + (action.dirty ? 1 : 0) };
   }
+}
+
+export function editorReducer(state: EditorState, action: EditorAction): EditorState {
+  const next = reduce(state, action);
+  // Anything except another note edit (or a save echo) ends a note-typing session.
+  if (next.lastEdit === undefined || action.type === 'setNote' || action.type === 'serverSaved') return next;
+  return { ...next, lastEdit: undefined };
 }

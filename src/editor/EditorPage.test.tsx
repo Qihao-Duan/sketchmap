@@ -304,4 +304,14 @@ describe('Editor', () => {
       Reflect.deleteProperty(navigator, 'clipboard');
     }
   });
+
+  it('Alt ↑ raises importance and Alt+2 (read from the key code) sets priority 2', async () => {
+    const api = fakeApi();
+    mount(api);
+    keydown({ key: 'ArrowUp', altKey: true });
+    keydown({ key: '™', code: 'Digit2', altKey: true });
+    await advance(1100);
+    const saved = vi.mocked(api.saveMap).mock.calls.at(-1)![0];
+    expect(saved.root).toMatchObject({ emphasis: 'highlight', priority: 2 });
+  });
 });

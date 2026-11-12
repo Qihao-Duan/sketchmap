@@ -118,3 +118,81 @@ describe('editorReducer', () => {
     expect(s.map.root.text).toBe('Root');
   });
 });
+
+describe('importance, priority, marker and note', () => {
+  const sel = (id: string) => reduce(initEditor(base()), { type: 'select', id });
+  const nodeA = (s: EditorState) => s.map.root.children[0];
+
+  it('setEmphasis, setPriority and setMarker set and clear fields on the selected topic, one undo step each', () => {
+    let s = sel('a');
+    s = reduce(s, { type: 'setEmphasis', emphasis: 'key' });
+    s = reduce(s, { type: 'setPriority', priority: 2 });
+    s = reduce(s, { type: 'setMarker', emoji: '💡' });
+    expect(nodeA(s)).toMatchObject({ emphasis: 'key', priority: 2, emoji: '💡' });
+    expect(s.past).toHaveLength(3);
+    s = reduce(s, { type: 'setPriority', priority: null });
+    expect('priority' in nodeA(s)).toBe(false);
+    s = reduce(s, { type: 'undo' });
+    expect(nodeA(s).priority).toBe(2);
+  });
+
+  it('setting the value a topic already has changes nothing', () => {
+    const s = sel('a');
+    expect(reduce(s, { type: 'setEmphasis', emphasis: null })).toBe(s);
+    expect(reduce(s, { type: 'setMarker', emoji: null })).toBe(s);
+  });
+
+  it('bumpEmphasis steps Aside ↔ Normal ↔ Highlight ↔ Key and stops at both ends', () => {
+    let s = sel('a');
+    const bump = (delta: 1 | -1) => (s = reduce(s, { type: 'bumpEmphasis', delta }));
+    bump(1);
+    expect(nodeA(s).emphasis).toBe('highlight');
+    bump(1);
+    expect(nodeA(s).emphasis).toBe('key');
+    const top = s;
+    bump(1);
+    expect(s).toBe(top);
+    bump(-1);
+    bump(-1);
+    expect('emphasis' in nodeA(s)).toBe(false);
+    bump(-1);
+    expect(nodeA(s).emphasis).toBe('aside');
+    const bottom = s;
+    bump(-1);
+    expect(s).toBe(bottom);
+  });
+
+  it('note edits on one topic share one undo step until anything else happens', () => {
+    let s = sel('a');
+    s = reduce(s, { type: 'setNote', id: 'a', note: 'Re' });
+    s = reduce(s, { type: 'setNote', id: 'a', note: 'Remember  ' });
+    expect(nodeA(s).note).toBe('Remember');
+    expect(s.past).toHaveLength(1);
+    s = reduce(s, { type: 'select', id: 'r' });
+    s = reduce(s, { type: 'setNote', id: 'a', note: 'Remember this' });
+    expect(s.past).toHaveLength(2);
+    s = reduce(s, { type: 'undo' });
+    expect(nodeA(s).note).toBe('Remember');
+    s = reduce(s, { type: 'undo' });
+    expect('note' in nodeA(s)).toBe(false);
+  });
+
+  it('an empty note removes the field', () => {
+    let s = reduce(sel('a'), { type: 'setNote', id: 'a', note: 'x' });
+    s = reduce(s, { type: 'select', id: 'a' });
+    s = reduce(s, { type: 'setNote', id: 'a', note: '  \n' });
+    expect('note' in nodeA(s)).toBe(false);
+  });
+
+  it('does nothing while a topic is being edited', () => {
+    const s = reduce(sel('a'), { type: 'addChild' });
+    const actions = [
+      { type: 'setEmphasis', emphasis: 'key' },
+      { type: 'bumpEmphasis', delta: 1 },
+      { type: 'setPriority', priority: 1 },
+      { type: 'setMarker', emoji: '💡' },
+      { type: 'setNote', id: 'a', note: 'x' },
+    ] as const;
+    for (const action of actions) expect(reduce(s, action)).toBe(s);
+  });
+});

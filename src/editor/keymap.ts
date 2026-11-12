@@ -8,7 +8,9 @@ export type Command =
   | { type: 'fold' }
   | { type: 'undo' }
   | { type: 'redo' }
-  | { type: 'navigate'; dir: Direction };
+  | { type: 'navigate'; dir: Direction }
+  | { type: 'emphasis'; delta: 1 | -1 }
+  | { type: 'priority'; value: 0 | 1 | 2 | 3 };
 
 export interface KeyInput {
   key: string;
@@ -17,6 +19,8 @@ export interface KeyInput {
   shiftKey: boolean;
   altKey: boolean;
   isComposing?: boolean;
+  /** Physical key, such as "Digit2". Option+2 types "™" on macOS, so the priority shortcuts read the code. */
+  code?: string;
 }
 
 const ARROWS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
@@ -31,7 +35,12 @@ export function keyToCommand(e: KeyInput): Command | null {
     if (e.key === '/') return { type: 'fold' };
     return null;
   }
-  if (e.altKey) return null;
+  if (e.altKey) {
+    if (e.key === 'ArrowUp') return { type: 'emphasis', delta: 1 };
+    if (e.key === 'ArrowDown') return { type: 'emphasis', delta: -1 };
+    const digit = /^(?:Digit|Numpad)([0-3])$/.exec(e.code ?? '');
+    return digit ? { type: 'priority', value: Number(digit[1]) as 0 | 1 | 2 | 3 } : null;
+  }
   if (e.key in ARROWS) return { type: 'navigate', dir: ARROWS[e.key] };
   switch (e.key) {
     case 'Tab':

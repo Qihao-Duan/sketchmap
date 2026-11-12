@@ -20,6 +20,11 @@ describe('keyToCommand', () => {
     [k('ArrowLeft'), { type: 'navigate', dir: 'left' }],
     [k('ArrowDown'), { type: 'navigate', dir: 'down' }],
     [k('q'), { type: 'edit', initial: 'q' }],
+    [k('ArrowUp', { altKey: true }), { type: 'emphasis', delta: 1 }],
+    [k('ArrowDown', { altKey: true }), { type: 'emphasis', delta: -1 }],
+    [k('¡', { altKey: true, code: 'Digit1' }), { type: 'priority', value: 1 }],
+    [k('3', { altKey: true, code: 'Numpad3' }), { type: 'priority', value: 3 }],
+    [k('º', { altKey: true, code: 'Digit0' }), { type: 'priority', value: 0 }],
   ])('%o → %o', (input, expected) => {
     expect(keyToCommand(input)).toEqual(expected);
   });
@@ -27,7 +32,9 @@ describe('keyToCommand', () => {
   it('ignores IME composition, Alt combos, Shift+Tab and unknown keys', () => {
     expect(keyToCommand(k('Process', { isComposing: true }))).toBeNull();
     expect(keyToCommand(k('a', { isComposing: true }))).toBeNull();
-    expect(keyToCommand(k('ArrowUp', { altKey: true }))).toBeNull();
+    expect(keyToCommand(k('ArrowLeft', { altKey: true }))).toBeNull();
+    expect(keyToCommand(k('4', { altKey: true, code: 'Digit4' }))).toBeNull();
+    expect(keyToCommand(k('å', { altKey: true, code: 'KeyA' }))).toBeNull();
     expect(keyToCommand(k('Tab', { shiftKey: true }))).toBeNull();
     expect(keyToCommand(k('Escape'))).toBeNull();
     expect(keyToCommand(k('c', { metaKey: true }))).toBeNull();

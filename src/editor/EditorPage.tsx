@@ -183,6 +183,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         if (id) dispatch({ type: 'select', id });
         return;
       }
+      case 'emphasis':
+        dispatch({ type: 'bumpEmphasis', delta: cmd.delta });
+        return;
+      case 'priority':
+        dispatch({ type: 'setPriority', priority: cmd.value === 0 ? null : cmd.value });
+        return;
       default:
         dispatch({ type: cmd.type });
     }
