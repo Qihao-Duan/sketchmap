@@ -195,3 +195,28 @@ describe('topic decorations', () => {
     }
   });
 });
+
+describe('links in topics', () => {
+  const at = (text: string) => layoutMap(n('r', 'Root', [n('a', 'A', [n('x', text)])]), 'map', measure).byId.get('x')!;
+
+  it('lays out the plain text and cuts the line at link boundaries', () => {
+    const t = at('Read [the docs](https://example.com/docs) now');
+    expect(t.lines).toEqual(['Read the docs now']);
+    expect(t.segments[0]).toEqual([
+      { text: 'Read ', x: 0, w: measure('Read ', 17) },
+      { text: 'the docs', x: measure('Read ', 17), w: measure('the docs', 17), href: 'https://example.com/docs' },
+      { text: ' now', x: measure('Read the docs', 17), w: measure(' now', 17) },
+    ]);
+  });
+
+  it('keeps the link on every line it wraps onto, after a marker prefix too', () => {
+    const t = layoutMap(n('r', 'Root', [n('a', 'A', [n('x', `[${'word '.repeat(8)}end](https://x.com/y)`, [], { emoji: '💡' })])]), 'map', measure).byId.get('x')!;
+    expect(t.lines.length).toBeGreaterThan(1);
+    expect(t.segments[0][0]).toEqual({ text: '💡 ', x: 0, w: measure('💡 ', 17) });
+    for (const line of t.segments) expect(line.filter((s) => s.text.trim()).every((s) => s.href === 'https://x.com/y' || s.text === '💡 ')).toBe(true);
+  });
+
+  it('gives a line without links a single plain segment', () => {
+    expect(at('Plain').segments).toEqual([[{ text: 'Plain', x: 0, w: measure('Plain', 17) }]]);
+  });
+});

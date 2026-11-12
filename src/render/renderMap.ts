@@ -2,7 +2,7 @@ import rough from 'roughjs';
 import type { MapLayout, TopicBox } from '../layout/map';
 import { countDescendants } from '../model/tree';
 import { FONT_STACK } from './fonts';
-import { ASIDE_INK, badgeSize, HIGHLIGHTER, INK, PRIORITY_COLORS } from '../layout/styles';
+import { ASIDE_INK, badgeSize, HIGHLIGHTER, INK, LINK_COLOR, PRIORITY_COLORS } from '../layout/styles';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 export const SELECT_COLOR = '#4263eb';
@@ -120,7 +120,24 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
       // Excalifont has one weight: Key text gets a thin outline in its own ink.
       ...(key ? { stroke: ink, 'stroke-width': 0.6, 'paint-order': 'stroke', 'stroke-linejoin': 'round' } : {}),
     }, g);
-    text.textContent = line;
+    const segs = t.segments[i];
+    if (segs.every((s) => !s.href)) {
+      text.textContent = line;
+    } else {
+      for (const s of segs) {
+        if (!s.href) {
+          el(doc, 'tspan', {}, text).textContent = s.text;
+          continue;
+        }
+        const a = el(doc, 'a', { href: s.href, target: '_blank', rel: 'noopener noreferrer' }, text);
+        el(doc, 'tspan', { fill: LINK_COLOR, ...(key ? { stroke: LINK_COLOR } : {}) }, a).textContent = s.text;
+        if (s.text.trim()) {
+          el(doc, 'g', { class: 'link-line' }, g).appendChild(
+            rc.line(lx + s.x + 1, by + 4, lx + s.x + s.w - 1, by + 4, { stroke: LINK_COLOR, strokeWidth: 1.2, roughness: 0.5, seed: seed + 20 + i }),
+          );
+        }
+      }
+    }
   });
 
   if (t.node.priority) {

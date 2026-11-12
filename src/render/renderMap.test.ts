@@ -56,6 +56,23 @@ describe('renderMap', () => {
     expect(hashSeed('')).toBeGreaterThan(0);
   });
 
+  it('draws links as blue <a> elements that open in a new tab, each with a sketchy underline', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const world = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svg.appendChild(world);
+    const linked: MapNode = { id: 'r', text: 'Root', children: [{ id: 'l', text: 'Read [the docs](https://example.com/docs) now', children: [] }] };
+    renderMap(svg, world, computeLayout(linked, measure), { selectedId: null });
+    const topic = world.querySelector('g.topic[data-id="l"]')!;
+    const a = topic.querySelector('text a')!;
+    expect(a.getAttribute('href')).toBe('https://example.com/docs');
+    expect(a.getAttribute('target')).toBe('_blank');
+    expect(a.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(a.querySelector('tspan')!.getAttribute('fill')).toBe('#1971c2');
+    expect(topic.querySelector('text')!.textContent).toBe('Read the docs now');
+    expect(topic.querySelectorAll('g.link-line')).toHaveLength(1);
+    expect(world.querySelector('g.topic[data-id="r"] text a')).toBeNull();
+  });
+
   it('draws org-chart deep topics as unfilled outlines', async () => {
     const { computeOrgLayout } = await import('../layout/org');
     const { PALETTE } = await import('../layout/styles');

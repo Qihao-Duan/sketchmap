@@ -65,3 +65,6 @@ export const GAP = { hRoot: 70, hDeep: 36, vRoot: 26, vDeep: 10 } as const;
 
 /** Org chart spacing: root → first row, between columns, per-level indent, between stacked rows. */
 export const ORG = { rootGap: 56, colGap: 40, indent: 28, rowGap: 10 } as const;
+
+/** Links in topic text (spec §6). */
+export const LINK_COLOR = '#1971c2';

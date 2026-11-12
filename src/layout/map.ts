@@ -1,15 +1,26 @@
 import type { Emphasis, LayoutKind, MapNode } from '../shared/types';
+import { parseRich } from '../shared/rich';
 import { visibleChildren } from '../model/tree';
 import { badgeSize, DECOR, GAP, PALETTE, ROOT_COLOR, styleFor, type BranchColor, type NodeStyle } from './styles';
-import { wrapText, type Measure } from './wrap';
+import { wrapWithOffsets, type Measure } from './wrap';
 
 export type Side = 1 | -1 | 0;
+
+/** A run of one line's text: plain, or part of a link. x and w are measured from the line's left edge. */
+export interface Segment {
+  text: string;
+  x: number;
+  w: number;
+  href?: string;
+}
 
 export interface Measured {
   style: NodeStyle;
   /** Wrapped lines; a marker emoji starts the first one. */
   lines: string[];
   lineWidths: number[];
+  /** Each line cut at link boundaries. */
+  segments: Segment[][];
   /** Width of the text block: the widest line, at least 1.6 em. */
   textW: number;
   /** Space left of the text for the priority badge; 0 without a priority. */
@@ -59,16 +70,46 @@ export interface MapLayout {
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
+type Range = { start: number; end: number; href: string };
+
+/** Cuts one wrapped line at link boundaries. `start` is the line's offset in the displayed text. */
+function splitLine(text: string, start: number, links: Range[], fontSize: number, measure: Measure): Segment[] {
+  const cuts = new Set([0, text.length]);
+  for (const l of links) {
+    const a = l.start - start;
+    const b = l.end - start;
+    if (b > 0 && a < text.length) {
+      cuts.add(Math.max(0, a));
+      cuts.add(Math.min(text.length, b));
+    }
+  }
+  const points = [...cuts].sort((p, q) => p - q);
+  const out: Segment[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const piece = text.slice(points[i], points[i + 1]);
+    if (!piece) continue;
+    const at = start + points[i];
+    const link = links.find((l) => at >= l.start && at < l.end);
+    out.push({ text: piece, x: measure(text.slice(0, points[i]), fontSize), w: measure(piece, fontSize), ...(link && { href: link.href }) });
+  }
+  return out.length ? out : [{ text, x: 0, w: measure(text, fontSize) }];
+}
+
 export function measureTopic(node: MapNode, depth: number, measure: Measure, kind: LayoutKind = 'map'): Measured {
   const style = styleFor(depth, kind, node.emphasis);
-  const display = (node.emoji ? `${node.emoji} ` : '') + node.text;
-  const lines = wrapText(display || ' ', style.fontSize, style.maxW, measure);
+  const rich = parseRich(node.text);
+  const prefix = node.emoji ? `${node.emoji} ` : '';
+  const display = prefix + rich.plain;
+  const wrapped = wrapWithOffsets(display || ' ', style.fontSize, style.maxW, measure);
+  const lines = wrapped.map((l) => l.text);
   const lineWidths = lines.map((l) => measure(l, style.fontSize));
+  const links = rich.links.map((l) => ({ start: l.start + prefix.length, end: l.end + prefix.length, href: l.href }));
+  const segments = wrapped.map((l) => splitLine(l.text, l.start, links, style.fontSize, measure));
   const textW = lineWidths.reduce((m, lw) => Math.max(m, lw), style.fontSize * 1.6);
   const badgeW = node.priority ? badgeSize(style.fontSize) + DECOR.badgeGap : 0;
   const noteW = node.note?.trim() ? DECOR.noteW : 0;
   return {
-    style, lines, lineWidths, textW, badgeW, noteW,
+    style, lines, lineWidths, segments, textW, badgeW, noteW,
     w: Math.ceil(badgeW + textW + noteW + style.padX * 2),
     h: Math.ceil(lines.length * style.lineHeight + style.padY * 2),
   };
