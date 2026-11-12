@@ -44,7 +44,6 @@ Only someone with the owner key can change it.
 
 - Checked on 2026-11-12: the `/m/…` embed loads in Notion in the browser (Chrome) and in the Notion desktop app. Edits made with **Edit in a tab** show up after reloading the Notion page, and a normal mouse wheel over the embed scrolls the page.
 - Not yet checked: Chinese input (IME) and SVG/PNG export in Safari and Firefox.
-- A small map is shown at most at 100% zoom, so it can look small in a large embed frame.
 
 ## Fonts
 

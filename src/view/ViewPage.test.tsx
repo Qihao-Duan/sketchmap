@@ -44,6 +44,13 @@ describe('MapView', () => {
     expect(container.querySelectorAll('g.topic')).toHaveLength(2);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it('draws the map in its saved layout', async () => {
+    await render(<MapView map={{ ...map, layout: 'org' }} measureFactory={measure} />);
+    const hit = (id: string) => container.querySelector(`g.topic[data-id="${id}"] rect.hit`)!;
+    const rootBottom = Number(hit('r').getAttribute('y')) + Number(hit('r').getAttribute('height'));
+    expect(Number(hit('a').getAttribute('y'))).toBeGreaterThan(rootBottom); // org chart: first level sits below the root
+  });
 });
 
 describe('ViewPage', () => {

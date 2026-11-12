@@ -2,7 +2,7 @@ import { produce } from 'immer';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, createApi } from '../api/client';
 import { Canvas, type CanvasHandle } from '../editor/Canvas';
-import { computeLayout } from '../layout/map';
+import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
 import { allText, toggleCollapsed } from '../model/tree';
 import { canvasMeasure, ensureFonts } from '../render/fonts';
@@ -15,7 +15,7 @@ export function MapView({ map, measureFactory = canvasMeasure }: { map: MindMap;
   const [measure, setMeasure] = useState<Measure>(() => factory.current());
   const [fontsReady, setFontsReady] = useState(false);
   const canvas = useRef<CanvasHandle>(null);
-  const layout = useMemo(() => computeLayout(local.root, measure), [local.root, measure]);
+  const layout = useMemo(() => layoutMap(local.root, local.layout, measure), [local.root, local.layout, measure]);
 
   useEffect(() => {
     let alive = true;
@@ -48,7 +48,7 @@ export function MapView({ map, measureFactory = canvasMeasure }: { map: MindMap;
 
   return (
     <div className="view">
-      <Canvas ref={canvas} layout={layout} selectedId={null} interactive={false} onToggleFold={toggle} fitMaxK={1} />
+      <Canvas ref={canvas} layout={layout} selectedId={null} interactive={false} onToggleFold={toggle} fitMaxK={1.5} />
       <div className="view-bar">
         <span className="pill">View only</span>
         <a className="edit-link" href={`/e/${map.id}`} target="_blank" rel="noopener">Edit in a tab ↗</a>
