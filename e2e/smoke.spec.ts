@@ -1,0 +1,58 @@
+import { expect, test } from '@playwright/test';
+
+// The same sandbox Notion puts on a generic /embed iframe (observed on a public notion.site page, 2026-11-12).
+const NOTION_SANDBOX =
+  'allow-scripts allow-popups allow-top-navigation-by-user-activation allow-forms allow-same-origin allow-storage-access-by-user-activation allow-popups-to-escape-sandbox';
+
+test('create a map, edit it, reload it, and see it inside a Notion-like embed', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Owner key').fill('dev-owner-key');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'New map' }).click();
+  await page.waitForURL(/\/e\/[A-Za-z0-9_-]{21}$/);
+  const id = page.url().split('/e/')[1];
+  await expect(page.locator('g.topic')).toHaveCount(1);
+
+  await page.locator('svg[aria-label="Mind map"]').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('First idea');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('中文也可以');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('g.topic')).toHaveCount(3);
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  await page.reload();
+  await expect(page.locator('g.topic')).toHaveCount(3);
+  await expect(page.locator('g.topic text', { hasText: '中文也可以' })).toBeVisible();
+
+  await page.setContent(
+    `<iframe src="http://localhost:5173/m/${id}" sandbox="${NOTION_SANDBOX}" style="width:900px;height:500px;border:0"></iframe>`,
+  );
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('g.topic')).toHaveCount(3);
+  await expect(frame.getByText('View only')).toBeVisible();
+  await expect(frame.getByRole('link', { name: 'Edit in a tab ↗' })).toHaveAttribute('target', '_blank');
+});
+
+test('PNG export draws with the embedded hand-drawn fonts', async ({ page }) => {
+  await page.goto('/');
+  const differ = await page.evaluate(`(async () => {
+    const io = await import('/src/io/exportImage.ts');
+    const { computeLayout } = await import('/src/layout/map.ts');
+    const measure = (t, s) => t.length * s * 0.6;
+    const layout = computeLayout({ id: 'r', text: 'Handwriting 中文', children: [] }, measure);
+    const withFonts = await io.buildSvg(layout, io.visibleText(layout));
+    const withoutFonts = withFonts.replace(/<style>[\\s\\S]*?<\\/style>/, '<style></style>');
+    const toDataUrl = (blob) => new Promise((resolve) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.readAsDataURL(blob);
+    });
+    const a = await toDataUrl(await io.svgToPng(withFonts));
+    const b = await toDataUrl(await io.svgToPng(withoutFonts));
+    return a !== b;
+  })()`);
+  expect(differ).toBe(true);
+});
