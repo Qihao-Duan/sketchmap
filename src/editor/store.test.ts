@@ -105,6 +105,7 @@ describe('editorReducer', () => {
   it('replaceRoot swaps the whole tree as one undo step', () => {
     let s = reduce(initEditor(base()), { type: 'replaceRoot', root: { id: 'nr', text: 'New', children: [] } });
     expect([s.map.root.text, s.selectedId, s.revision]).toEqual(['New', 'nr', 1]);
+    expect(Object.isFrozen(s.map.root)).toBe(true);
     s = reduce(s, { type: 'undo' });
     expect(s.map.root.text).toBe('Root');
   });

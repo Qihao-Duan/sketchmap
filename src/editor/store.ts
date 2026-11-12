@@ -135,7 +135,13 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
 
     case 'replaceRoot':
-      return commit(state, { ...state.map, root: action.root }, { selectedId: action.root.id, editing: null });
+      return commit(
+        state,
+        produce(state.map, (d) => {
+          d.root = action.root;
+        }),
+        { selectedId: action.root.id, editing: null },
+      );
 
     case 'undo': {
       const prev = state.past[state.past.length - 1];
