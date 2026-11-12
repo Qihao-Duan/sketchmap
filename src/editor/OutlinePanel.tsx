@@ -15,10 +15,15 @@ export function OutlinePanel({ initialText, onApply, onClose }: Props) {
     navigator.clipboard?.writeText(text).then(() => setCopied(true), () => setCopied(false));
   };
   return (
-    <aside className="float outline-panel" aria-label="Markdown outline">
+    <aside
+      className="float outline-panel"
+      aria-label="Markdown outline"
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }}
+    >
       <h2>Map as a Markdown outline</h2>
       <p className="muted">Edit the text and apply it, or paste an outline copied from Notion. Headings and indented lists both work.</p>
       <textarea
+        autoFocus
         aria-label="Outline text"
         spellCheck={false}
         value={text}

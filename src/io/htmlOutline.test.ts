@@ -49,4 +49,10 @@ describe('parseHtmlOutline', () => {
   it('cuts topic text to 5000 characters', () => {
     expect(parseHtmlOutline(`<ul><li>${'x'.repeat(6000)}</li></ul>`)!.root.text).toHaveLength(5000);
   });
+
+  it('lifts the children of an <li> that holds only a nested list, instead of an empty topic', () => {
+    const parsed = parseHtmlOutline('<ul><li><ul><li>A</li></ul></li><li>B</li></ul>')!;
+    expect(parsed.synthetic).toBe(true);
+    expect(shape(parsed.root)).toEqual({ t: 'Outline', c: [{ t: 'A', c: [] }, { t: 'B', c: [] }] });
+  });
 });

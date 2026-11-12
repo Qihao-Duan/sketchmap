@@ -50,7 +50,7 @@ export function parseOutline(text: string): ParsedOutline | null {
   }
   if (!items.length) return null;
 
-  const base = Math.min(...items.map((i) => i.depth));
+  const base = items.reduce((m, i) => Math.min(m, i.depth), Infinity);
   for (const i of items) i.depth -= base;
   const synthetic = !(items[0].depth === 0 && items.filter((i) => i.depth === 0).length === 1);
   const make = (t: string): MapNode => ({ id: newNodeId(), text: t.slice(0, MAX_TEXT), children: [] });

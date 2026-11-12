@@ -102,6 +102,14 @@ describe('editorReducer', () => {
     expect(reduce(s, { type: 'pasteNodes', nodes: [] })).toBe(s);
   });
 
+  it('setLayout, pasteNodes and replaceRoot do nothing while a topic is being edited', () => {
+    const s = reduce(initEditor(base()), { type: 'addChild' });
+    expect(s.editing).not.toBeNull();
+    expect(reduce(s, { type: 'setLayout', layout: 'org' })).toBe(s);
+    expect(reduce(s, { type: 'pasteNodes', nodes: [{ id: 'p1', text: 'P1', children: [] }] })).toBe(s);
+    expect(reduce(s, { type: 'replaceRoot', root: { id: 'nr', text: 'New', children: [] } })).toBe(s);
+  });
+
   it('replaceRoot swaps the whole tree as one undo step', () => {
     let s = reduce(initEditor(base()), { type: 'replaceRoot', root: { id: 'nr', text: 'New', children: [] } });
     expect([s.map.root.text, s.selectedId, s.revision]).toEqual(['New', 'nr', 1]);

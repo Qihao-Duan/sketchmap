@@ -182,6 +182,15 @@ describe('Editor', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('offers a draft that differs from the server copy only in its layout', async () => {
+    const draftMap = { ...map, layout: 'org' as const };
+    localStorage.setItem(draftKey(map.id), JSON.stringify({ map: draftMap, etag: '"old"', savedAt: 1 }));
+    mount(fakeApi());
+    expect(container.textContent).toContain('unsaved changes');
+    await click('Restore');
+    expect(pressed()).toBe('Org chart');
+  });
+
   it('warns that the draft is older than the saved map when its timestamp precedes updatedAt', async () => {
     const draftMap = { ...map, root: { ...map.root, children: [{ id: 'draft00001', text: 'From draft', children: [] }] } };
     localStorage.setItem(draftKey(map.id), JSON.stringify({ map: draftMap, etag: '"old"', savedAt: 1000 }));
@@ -200,6 +209,33 @@ describe('Editor', () => {
     expect(vi.mocked(api.saveMap).mock.calls[0][0].layout).toBe('org');
     keydown({ key: 'z', metaKey: true });
     expect(pressed()).toBe('Mind map');
+  });
+
+  it('ends an empty new-topic edit before switching layout, so the layout switch is not reverted by Esc', async () => {
+    mount(fakeApi());
+    keydown({ key: 'Tab' });
+    expect(topics()).toBe(2);
+    await click('Org chart');
+    expect(topics()).toBe(1);
+    expect(pressed()).toBe('Org chart');
+    keydown({ key: 'Escape' });
+    expect(pressed()).toBe('Org chart');
+  });
+
+  it('ends a named new-topic edit before switching layout, so undo steps through the edit and then the add', async () => {
+    mount(fakeApi());
+    keydown({ key: 'Tab' });
+    const ta = container.querySelector('textarea.inline-editor') as HTMLTextAreaElement;
+    type(ta, 'Hello');
+    await click('Org chart');
+    expect(topics()).toBe(2);
+    expect(container.textContent).toContain('Hello');
+    expect(pressed()).toBe('Org chart');
+    keydown({ key: 'z', metaKey: true });
+    expect(pressed()).toBe('Mind map');
+    expect(topics()).toBe(2);
+    keydown({ key: 'z', metaKey: true });
+    expect(topics()).toBe(1);
   });
 
   it('pasting an outline adds topics under the selection as one undo step', () => {
@@ -245,6 +281,15 @@ describe('Editor', () => {
     await click('Replace map with this');
     expect(container.querySelector('[role="alert"]')!.textContent).toBe('The outline is empty.');
     expect(topics()).toBe(1);
+  });
+
+  it('focuses the Outline textarea on open, and Escape closes the panel', async () => {
+    mount(fakeApi());
+    await click('Outline');
+    const ta = container.querySelector('textarea[aria-label="Outline text"]') as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(ta);
+    keydown({ key: 'Escape' }, ta);
+    expect(container.querySelector('textarea[aria-label="Outline text"]')).toBeNull();
   });
 
   it('copies the map as Markdown', async () => {

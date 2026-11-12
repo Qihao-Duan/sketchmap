@@ -40,7 +40,7 @@ export function computeOrgLayout(root: MapNode, measure: Measure): MapLayout {
       visibleChildren(n).forEach((c) => walk(c, depth + 1, n.id));
     };
     walk(first, 1, root.id);
-    const width = Math.max(...rows.map((r) => (r.depth - 1) * ORG.indent + measureTopic(r.node, r.depth, measure, 'org').w));
+    const width = rows.reduce((m, r) => Math.max(m, (r.depth - 1) * ORG.indent + measureTopic(r.node, r.depth, measure, 'org').w), 0);
     return { rows, width };
   });
 

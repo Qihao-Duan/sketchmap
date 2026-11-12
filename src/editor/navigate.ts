@@ -1,14 +1,23 @@
 import type { MapLayout } from '../layout/map';
+import type { LayoutKind } from '../shared/types';
 import type { Direction } from './keymap';
 
-/** Nearest topic in a direction, by position, so it behaves the same in every layout. */
-export function navigate(layout: MapLayout, fromId: string, dir: Direction): string | null {
+/**
+ * Nearest topic in a direction, by position, so it behaves the same in every layout.
+ * Logic and org charts first try topics in line with the current one (their extent across the
+ * direction of travel overlaps it), so Right in an org chart stays on the row and Down stays in the column.
+ */
+export function navigate(layout: MapLayout, fromId: string, dir: Direction, kind: LayoutKind = 'map'): string | null {
   const cur = layout.byId.get(fromId);
   if (!cur) return null;
   const cx = cur.x + cur.w / 2;
   const cy = cur.y + cur.h / 2;
+  const horizontal = dir === 'left' || dir === 'right';
   let best: string | null = null;
   let bestScore = Infinity;
+  let inline: string | null = null;
+  let inlineMain = Infinity; // smallest edge-to-edge gap so far
+  let inlineSide = Infinity;
   for (const b of layout.boxes) {
     if (b.id === fromId) continue;
     const dx = b.x + b.w / 2 - cx;
@@ -20,6 +29,17 @@ export function navigate(layout: MapLayout, fromId: string, dir: Direction): str
       bestScore = score;
       best = b.id;
     }
+    if (kind === 'map') continue;
+    const overlaps = horizontal ? b.y < cur.y + cur.h && b.y + b.h > cur.y : b.x < cur.x + cur.w && b.x + b.w > cur.x;
+    if (!overlaps) continue;
+    // Edge-to-edge gap, so a wide neighbour is not penalised for its far-away centre.
+    const gap =
+      dir === 'right' ? b.x - (cur.x + cur.w) : dir === 'left' ? cur.x - (b.x + b.w) : dir === 'down' ? b.y - (cur.y + cur.h) : cur.y - (b.y + b.h);
+    if (gap < inlineMain || (gap === inlineMain && Math.abs(side) < inlineSide)) {
+      inline = b.id;
+      inlineMain = gap;
+      inlineSide = Math.abs(side);
+    }
   }
-  return best;
+  return inline ?? best;
 }

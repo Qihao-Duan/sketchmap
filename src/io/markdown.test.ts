@@ -80,6 +80,14 @@ describe('parseOutline', () => {
     expect(parseOutline('   \n\n')).toBeNull();
   });
 
+  it('does not throw on 200,000 flat items (no Math.min spread over an unbounded array)', () => {
+    const text = Array.from({ length: 200_000 }, (_, i) => `- item ${i}`).join('\n');
+    let parsed: ReturnType<typeof parseOutline>;
+    expect(() => { parsed = parseOutline(text); }).not.toThrow();
+    expect(parsed!.synthetic).toBe(true);
+    expect(parsed!.root.children).toHaveLength(200_000);
+  });
+
   it('reads XMind-style plain text: one topic per line, one tab per level, trailing spaces', () => {
     const parsed = parseOutline('Topic\n\tChild A \n\t\tGrandchild\n\tChild B ≥90%\n')!;
     expect(shape(parsed.root)).toEqual({

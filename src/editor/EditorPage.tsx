@@ -53,7 +53,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [mdCopied, setMdCopied] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(() => {
     const d = readDraft(storage, initial.id);
-    return d && JSON.stringify(d.map.root) !== JSON.stringify(initial.root) ? d : null;
+    return d && JSON.stringify([d.map.root, d.map.layout]) !== JSON.stringify([initial.root, initial.layout]) ? d : null;
   });
 
   const stateRef = useRef(state);
@@ -163,6 +163,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     document.title = `${state.map.title || 'Untitled map'} · Sketchmap`;
   }, [state.map.title]);
 
+  /** Header and toolbar buttons keep focus where it is, so close an open inline edit first: its blur commits the text, or drops a new empty topic. */
+  const endEdit = () => {
+    if (stateRef.current.editing) (document.activeElement as HTMLElement | null)?.blur();
+  };
+
   const run = useCallback((cmd: Command) => {
     const s = stateRef.current;
     switch (cmd.type) {
@@ -174,7 +179,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         dispatch({ type: 'toggleFold' });
         return;
       case 'navigate': {
-        const id = navigate(layoutRef.current, s.selectedId, cmd.dir);
+        const id = navigate(layoutRef.current, s.selectedId, cmd.dir, s.map.layout);
         if (id) dispatch({ type: 'select', id });
         return;
       }
@@ -292,7 +297,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
               type="button"
               aria-pressed={state.map.layout === kind}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => dispatch({ type: 'setLayout', layout: kind })}
+              onClick={() => { endEdit(); dispatch({ type: 'setLayout', layout: kind }); }}
             >
               {label}
             </button>
@@ -352,11 +357,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           canUndo={state.past.length > 0}
           canRedo={state.future.length > 0}
           canDelete={state.selectedId !== state.map.root.id}
-          onAddChild={() => dispatch({ type: 'addChild' })}
-          onAddSibling={() => dispatch({ type: 'addSibling' })}
-          onDelete={() => dispatch({ type: 'delete' })}
-          onUndo={() => dispatch({ type: 'undo' })}
-          onRedo={() => dispatch({ type: 'redo' })}
+          onAddChild={() => { endEdit(); dispatch({ type: 'addChild' }); }}
+          onAddSibling={() => { endEdit(); dispatch({ type: 'addSibling' }); }}
+          onDelete={() => { endEdit(); dispatch({ type: 'delete' }); }}
+          onUndo={() => { endEdit(); dispatch({ type: 'undo' }); }}
+          onRedo={() => { endEdit(); dispatch({ type: 'redo' }); }}
           onZoomIn={() => canvas.current?.zoomBy(1.2)}
           onZoomOut={() => canvas.current?.zoomBy(1 / 1.2)}
           onFit={() => canvas.current?.fit()}

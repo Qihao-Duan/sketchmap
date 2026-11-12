@@ -122,9 +122,11 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
 
     case 'setLayout':
+      if (state.editing) return state;
       return state.map.layout === action.layout ? state : commit(state, { ...state.map, layout: action.layout });
 
     case 'pasteNodes': {
+      if (state.editing) return state;
       if (!action.nodes.length || !T.findNode(state.map.root, state.selectedId)) return state;
       const next = produce(state.map, (d) => {
         const f = T.findNode(d.root, state.selectedId)!;
@@ -135,6 +137,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
 
     case 'replaceRoot':
+      if (state.editing) return state;
       return commit(
         state,
         produce(state.map, (d) => {

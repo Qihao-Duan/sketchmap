@@ -40,10 +40,19 @@ curl -s -o /dev/null -w '%{http_code}\n' https://sketchmap.<account>.workers.dev
 The embed is view-only by design. Anyone who can see the Notion page, or who has the link, can view the map.
 Only someone with the owner key can change it.
 
+## Step 2: layouts, outline and paste
+
+- **Layout switch.** Pick **Mind map**, **Logic chart** or **Org chart** from the header; the choice is saved with the map.
+- **Outline.** The **Outline** button opens the map as a Markdown outline: edit the text (or paste one from elsewhere) and **Replace map with this**, or close without applying.
+- **Copy as Markdown** puts the whole map on the clipboard as a Markdown outline, which pastes into Notion as a nested list.
+- **Paste.** An outline or list copied from XMind, Notion or a text editor, pasted anywhere outside a text field, is added under the selected topic. ⌘Z undoes it.
+
 ## Known limitations
 
 - Checked on 2026-11-12: the `/m/…` embed loads in Notion in the browser (Chrome) and in the Notion desktop app. Edits made with **Edit in a tab** show up after reloading the Notion page, and a normal mouse wheel over the embed scrolls the page.
 - Not yet checked: Chinese input (IME) and SVG/PNG export in Safari and Firefox.
+- The Markdown outline keeps topic text and nesting only: line breaks inside a topic, folded state and topic identity are not kept when you replace the map from it.
+- Pasting a very large outline (thousands of topics) is slow, and a map over 2 MB cannot be saved; undo the paste if that happens.
 
 ## Fonts
 
