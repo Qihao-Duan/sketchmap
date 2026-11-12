@@ -18,8 +18,8 @@ function mount(interactive = true) {
   act(() => createRoot(container).render(<Canvas layout={layout} selectedId={null} interactive={interactive} {...h} />));
   return h;
 }
-const press = (el: Element, type: string, x = 10, y = 10) =>
-  act(() => void el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y })));
+const press = (el: Element, type: string, x = 10, y = 10, buttons = 0) =>
+  act(() => void el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons, clientX: x, clientY: y })));
 const hit = (id: string) => container.querySelector(`g.topic[data-id="${id}"] rect.hit`)!;
 
 afterEach(() => container.remove());
@@ -55,7 +55,7 @@ describe('Canvas', () => {
     const svg = container.querySelector('svg')!;
     const world = container.querySelector('g.world')!;
     press(svg, 'pointerdown', 100, 100);
-    press(svg, 'pointermove', 140, 130);
+    press(svg, 'pointermove', 140, 130, 1);
     press(svg, 'pointerup', 140, 130);
     expect(world.getAttribute('transform')).toBe('translate(40 30) scale(1)');
   });
@@ -66,5 +66,40 @@ describe('Canvas', () => {
     expect(h.onSelect).not.toHaveBeenCalled();
     press(container.querySelector('[data-fold="a"] rect')!, 'pointerdown');
     expect(h.onToggleFold).toHaveBeenCalledWith('a');
+  });
+
+  it('stops a pan if the pointerup is lost', () => {
+    mount();
+    const svg = container.querySelector('svg')!;
+    const world = container.querySelector('g.world')!;
+    press(svg, 'pointerdown', 100, 100);
+    press(svg, 'pointermove', 140, 130, 0);
+    expect(world.getAttribute('transform')).toBe('translate(0 0) scale(1)');
+  });
+
+  it('removes a drag ghost if the pointerup is lost', () => {
+    mount();
+    const overlay = container.querySelector('g.overlay')!;
+    press(hit('a1'), 'pointerdown');
+    press(hit('a1'), 'pointermove', 20, 20, 1);
+    expect(overlay.children.length).toBeGreaterThan(0);
+    press(hit('a1'), 'pointermove', 20, 20, 0);
+    expect(overlay.children.length).toBe(0);
+  });
+
+  it('keeps onViewChange current after a re-render', () => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const a = vi.fn();
+    const b = vi.fn();
+    const base = { layout, selectedId: null, interactive: true, onToggleFold: vi.fn() };
+    act(() => root.render(<Canvas {...base} onViewChange={a} />));
+    act(() => root.render(<Canvas {...base} onViewChange={b} />));
+    a.mockClear(); // mounting legitimately calls onViewChange once; only calls from here on matter
+    const svg = container.querySelector('svg')!;
+    act(() => void svg.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true })));
+    expect(b).toHaveBeenCalledTimes(1);
+    expect(a).not.toHaveBeenCalled();
   });
 });

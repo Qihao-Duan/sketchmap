@@ -40,6 +40,8 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
   const lastDown = useRef({ id: '', t: 0 });
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const dropRef = useRef<string | null>(null);
+  const onViewChangeRef = useRef(onViewChange);
+  onViewChangeRef.current = onViewChange;
 
   const size = (): [number, number] => {
     const r = svgRef.current?.getBoundingClientRect();
@@ -50,7 +52,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     const t = `translate(${v.tx} ${v.ty}) scale(${v.k})`;
     worldRef.current?.setAttribute('transform', t);
     overlayRef.current?.setAttribute('transform', t);
-    onViewChange?.(v);
+    onViewChangeRef.current?.(v);
   };
   const fit = () => {
     const [w, h] = size();
@@ -106,8 +108,21 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     }
   };
 
+  /** Clears a topic gesture's ghost and drop target without firing onMove/onEdit. */
+  const releaseGesture = (g: Gesture) => {
+    if (g.kind === 'topic') {
+      g.ghost?.remove();
+      setDrop(null);
+    }
+  };
+
   const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
+    if (gesture.current) {
+      // A previous pointerup/pointercancel never arrived; clean up before starting a new gesture.
+      releaseGesture(gesture.current);
+      gesture.current = null;
+    }
     const target = e.target as Element;
     const fold = target.closest('[data-fold]');
     if (fold) {
@@ -131,6 +146,12 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
     const g = gesture.current;
     if (!g) return;
+    if (e.buttons === 0) {
+      // The browser never delivered pointerup/pointercancel (e.g. released off-window); recover quietly.
+      releaseGesture(g);
+      gesture.current = null;
+      return;
+    }
     const dx = e.clientX - g.x;
     const dy = e.clientY - g.y;
     if (g.kind === 'pan') {
