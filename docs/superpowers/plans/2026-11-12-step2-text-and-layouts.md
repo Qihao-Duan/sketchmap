@@ -637,7 +637,7 @@ export function parseOutline(text: string): ParsedOutline | null {
 - [ ] **Step 4: Run the tests**
 
 Run: `npx vitest run src/io && npm run typecheck`
-Expected: 7 markdown tests pass, plus the existing export tests, and typecheck is clean.
+Expected: 8 markdown tests pass, plus the existing export tests, and typecheck is clean.
 
 - [ ] **Step 5: Commit**
 
