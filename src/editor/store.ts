@@ -33,10 +33,10 @@ export type EditorAction =
   | { type: 'setLayout'; layout: LayoutKind }
   | { type: 'pasteNodes'; nodes: MapNode[] }
   | { type: 'replaceRoot'; root: MapNode }
-  | { type: 'setEmphasis'; emphasis: Emphasis | null }
+  | { type: 'setEmphasis'; id: string; emphasis: Emphasis | null }
   | { type: 'bumpEmphasis'; delta: 1 | -1 }
-  | { type: 'setPriority'; priority: 1 | 2 | 3 | null }
-  | { type: 'setMarker'; emoji: string | null }
+  | { type: 'setPriority'; id: string; priority: 1 | 2 | 3 | null }
+  | { type: 'setMarker'; id: string; emoji: string | null }
   | { type: 'setNote'; id: string; note: string };
 
 export function initEditor(map: MindMap): EditorState {
@@ -68,15 +68,15 @@ const IMPORTANCE: ReadonlyArray<Emphasis | undefined> = ['aside', undefined, 'hi
 
 type Decoration = 'emphasis' | 'priority' | 'emoji';
 
-/** Sets or clears one decoration on the selected topic, as one undo step. */
-function decorate(state: EditorState, field: Decoration, value: string | number | null): EditorState {
+/** Sets or clears one decoration on one topic, as one undo step. A topic that no longer exists is left alone. */
+function decorate<K extends Decoration>(state: EditorState, id: string, field: K, value: NonNullable<MapNode[K]> | null): EditorState {
   if (state.editing) return state;
-  const f = T.findNode(state.map.root, state.selectedId);
+  const f = T.findNode(state.map.root, id);
   if (!f || (f.node[field] ?? null) === value) return state;
   const next = produce(state.map, (d) => {
-    const node = T.findNode(d.root, state.selectedId)!.node as Partial<Record<Decoration, unknown>>;
+    const node = T.findNode(d.root, id)!.node;
     if (value === null) delete node[field];
-    else node[field] = value;
+    else (node as MapNode)[field] = value as MapNode[K];
   });
   return commit(state, next);
 }
@@ -172,21 +172,21 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       );
 
     case 'setEmphasis':
-      return decorate(state, 'emphasis', action.emphasis);
+      return decorate(state, action.id, 'emphasis', action.emphasis);
 
     case 'bumpEmphasis': {
       const f = T.findNode(state.map.root, state.selectedId);
       if (!f) return state;
       const i = IMPORTANCE.indexOf(f.node.emphasis);
       const j = Math.max(0, Math.min(IMPORTANCE.length - 1, i + action.delta));
-      return decorate(state, 'emphasis', IMPORTANCE[j] ?? null);
+      return decorate(state, state.selectedId, 'emphasis', IMPORTANCE[j] ?? null);
     }
 
     case 'setPriority':
-      return decorate(state, 'priority', action.priority);
+      return decorate(state, action.id, 'priority', action.priority);
 
     case 'setMarker':
-      return decorate(state, 'emoji', action.emoji);
+      return decorate(state, action.id, 'emoji', action.emoji);
 
     case 'setNote': {
       if (state.editing) return state;

@@ -125,12 +125,12 @@ describe('importance, priority, marker and note', () => {
 
   it('setEmphasis, setPriority and setMarker set and clear fields on the selected topic, one undo step each', () => {
     let s = sel('a');
-    s = reduce(s, { type: 'setEmphasis', emphasis: 'key' });
-    s = reduce(s, { type: 'setPriority', priority: 2 });
-    s = reduce(s, { type: 'setMarker', emoji: '💡' });
+    s = reduce(s, { type: 'setEmphasis', id: 'a', emphasis: 'key' });
+    s = reduce(s, { type: 'setPriority', id: 'a', priority: 2 });
+    s = reduce(s, { type: 'setMarker', id: 'a', emoji: '💡' });
     expect(nodeA(s)).toMatchObject({ emphasis: 'key', priority: 2, emoji: '💡' });
     expect(s.past).toHaveLength(3);
-    s = reduce(s, { type: 'setPriority', priority: null });
+    s = reduce(s, { type: 'setPriority', id: 'a', priority: null });
     expect('priority' in nodeA(s)).toBe(false);
     s = reduce(s, { type: 'undo' });
     expect(nodeA(s).priority).toBe(2);
@@ -138,8 +138,8 @@ describe('importance, priority, marker and note', () => {
 
   it('setting the value a topic already has changes nothing', () => {
     const s = sel('a');
-    expect(reduce(s, { type: 'setEmphasis', emphasis: null })).toBe(s);
-    expect(reduce(s, { type: 'setMarker', emoji: null })).toBe(s);
+    expect(reduce(s, { type: 'setEmphasis', id: 'a', emphasis: null })).toBe(s);
+    expect(reduce(s, { type: 'setMarker', id: 'a', emoji: null })).toBe(s);
   });
 
   it('bumpEmphasis steps Aside ↔ Normal ↔ Highlight ↔ Key and stops at both ends', () => {
@@ -184,13 +184,20 @@ describe('importance, priority, marker and note', () => {
     expect('note' in nodeA(s)).toBe(false);
   });
 
+  it('acts on the topic it names, and does nothing once that topic is gone', () => {
+    let s = sel('a');
+    s = reduce(s, { type: 'setMarker', id: 'a1', emoji: '💡' });
+    expect(s.map.root.children[0].children[0].emoji).toBe('💡');
+    expect(reduce(s, { type: 'setEmphasis', id: 'gone', emphasis: 'key' })).toBe(s);
+  });
+
   it('does nothing while a topic is being edited', () => {
     const s = reduce(sel('a'), { type: 'addChild' });
     const actions = [
-      { type: 'setEmphasis', emphasis: 'key' },
+      { type: 'setEmphasis', id: 'a', emphasis: 'key' },
       { type: 'bumpEmphasis', delta: 1 },
-      { type: 'setPriority', priority: 1 },
-      { type: 'setMarker', emoji: '💡' },
+      { type: 'setPriority', id: 'a', priority: 1 },
+      { type: 'setMarker', id: 'a', emoji: '💡' },
       { type: 'setNote', id: 'a', note: 'x' },
     ] as const;
     for (const action of actions) expect(reduce(s, action)).toBe(s);

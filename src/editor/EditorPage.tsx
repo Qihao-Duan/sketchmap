@@ -183,9 +183,13 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     document.title = `${state.map.title || 'Untitled map'} · Sketchmap`;
   }, [state.map.title]);
 
-  /** Header and toolbar buttons keep focus where it is, so close an open inline edit first: its blur commits the text, or drops a new empty topic. */
+  /**
+   * Header, toolbar and sidebar buttons keep focus where it is, so first close what is open there:
+   * an inline edit commits (or a new empty topic is dropped), and a note still waiting for its pause is saved.
+   */
   const endEdit = () => {
-    if (stateRef.current.editing) (document.activeElement as HTMLElement | null)?.blur();
+    const active = document.activeElement as HTMLElement | null;
+    if (stateRef.current.editing || active?.closest('.details')) active?.blur();
   };
   const toggleDetails = () => {
     const next = !detailsOpen;
@@ -217,7 +221,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         dispatch({ type: 'bumpEmphasis', delta: cmd.delta });
         return;
       case 'priority':
-        dispatch({ type: 'setPriority', priority: cmd.value === 0 ? null : cmd.value });
+        dispatch({ type: 'setPriority', id: s.selectedId, priority: cmd.value === 0 ? null : cmd.value });
         return;
       default:
         dispatch({ type: cmd.type });
@@ -405,18 +409,22 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             key={`details-${selectedNode.id}`}
             node={selectedNode}
             onEmphasis={(emphasis) => {
+              const id = selectedNode.id;
               endEdit();
-              dispatch({ type: 'setEmphasis', emphasis });
+              dispatch({ type: 'setEmphasis', id, emphasis });
             }}
             onPriority={(priority) => {
+              const id = selectedNode.id;
               endEdit();
-              dispatch({ type: 'setPriority', priority });
+              dispatch({ type: 'setPriority', id, priority });
             }}
             onMarker={(emoji) => {
+              const id = selectedNode.id;
               endEdit();
-              dispatch({ type: 'setMarker', emoji });
+              dispatch({ type: 'setMarker', id, emoji });
             }}
             onNote={(id, note) => dispatch({ type: 'setNote', id, note })}
+            newTopicOpen={!!state.editing?.isNew}
           />
         )}
         {outlineOpen && (

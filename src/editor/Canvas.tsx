@@ -79,7 +79,8 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     ensureVisible: (id) => {
       const b = layout.byId.get(id);
       const [w, h] = size();
-      if (b && w > 0) applyView(ensureVisible(viewRef.current, b, w, h));
+      // Keep the topic clear of a panel on the right (the Details sidebar).
+      if (b && w > 0) applyView(ensureVisible(viewRef.current, b, w - rightInset, h));
     },
     svg: () => svgRef.current,
   }));

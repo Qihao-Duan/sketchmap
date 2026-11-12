@@ -101,7 +101,7 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
     const lx = lineLeft(i);
     const lw = t.lineWidths[i];
     const by = t.y + padY + i * lineHeight + lineHeight / 2 + fontSize * 0.34;
-    if (em === 'highlight' && line) {
+    if (em === 'highlight' && line.trim()) {
       const top = by - fontSize * 0.8;
       const bot = by + fontSize * 0.28;
       el(doc, 'g', { class: 'swipe' }, g).appendChild(

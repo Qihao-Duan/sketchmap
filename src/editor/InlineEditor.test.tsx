@@ -62,4 +62,10 @@ describe('InlineEditor', () => {
     const t = mount();
     expect(t.ta.maxLength).toBe(5000);
   });
+  it('lines up with a decorated topic: padding leaves room for the badge and the note icon', () => {
+    const decoratedBox = computeLayout({ id: 'r', text: 'Root', priority: 1, note: 'n', children: [] }, (t, s) => t.length * s * 0.5).byId.get('r')!;
+    const t = mount({ box: decoratedBox, view: { tx: 0, ty: 0, k: 1 } });
+    expect(t.ta.style.paddingLeft).toBe(`${decoratedBox.style.padX + decoratedBox.badgeW}px`);
+    expect(t.ta.style.paddingRight).toBe(`${decoratedBox.style.padX + decoratedBox.noteW}px`);
+  });
 });

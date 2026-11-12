@@ -23,7 +23,7 @@ export function OutlinePanel({ initialText, onApply, onClose, lost }: Props) {
     >
       <h2>Map as a Markdown outline</h2>
       <p className="muted">Edit the text and apply it, or paste an outline copied from Notion. Headings and indented lists both work.</p>
-      {lost && lost.length > 0 && <p className="muted">Not kept in Markdown: {lost.join(', ')}.</p>}
+      {lost && lost.length > 0 && <p className="muted">Not kept in Markdown: {lost.join(', ')}. Replace removes them from the map.</p>}
       <textarea
         autoFocus
         aria-label="Outline text"

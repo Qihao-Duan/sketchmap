@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { MapNode, MindMap } from './types';
+import { MARKERS, type MapNode, type MindMap } from './types';
 
 export class MapValidationError extends Error {}
 
@@ -12,7 +12,7 @@ const mapNodeSchema: z.ZodType<MapNode> = z.lazy(() =>
     children: z.array(mapNodeSchema),
     collapsed: z.boolean().optional(),
     note: z.string().max(50_000).optional(),
-    emoji: z.string().max(16).optional(),
+    emoji: z.enum(MARKERS).optional(),
     emphasis: z.enum(['key', 'highlight', 'aside']).optional(),
     priority: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
     image: z

@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MapNode } from '../shared/types';
 import { computeLayout } from '../layout/map';
-import { Canvas } from './Canvas';
+import { Canvas, type CanvasHandle } from './Canvas';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const tree: MapNode = { id: 'r', text: 'Root', children: [{ id: 'a', text: 'A', children: [{ id: 'a1', text: 'A1', children: [] }] }] };
@@ -101,5 +101,32 @@ describe('Canvas', () => {
     act(() => void svg.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true })));
     expect(b).toHaveBeenCalledTimes(1);
     expect(a).not.toHaveBeenCalled();
+  });
+
+  it('ensureVisible keeps the topic clear of a right-hand panel (rightInset)', () => {
+    const spy = vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, width: 1000, height: 600, top: 0, left: 0, right: 1000, bottom: 600, toJSON: () => ({}),
+    } as DOMRect);
+    try {
+      const canvasRef: { current: CanvasHandle | null } = { current: null };
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      act(() =>
+        createRoot(container).render(
+          <Canvas ref={canvasRef} layout={layout} selectedId={null} interactive rightInset={300} onToggleFold={vi.fn()} />,
+        ),
+      );
+      const svg = container.querySelector('svg')!;
+      // Pan the background so topic a1 sits where the 300 px Details sidebar would cover it.
+      press(svg, 'pointerdown', 100, 100);
+      press(svg, 'pointermove', 100 + 268.3, 100, 1);
+      press(svg, 'pointerup', 100 + 268.3, 100);
+      act(() => canvasRef.current!.ensureVisible('a1'));
+      const v = canvasRef.current!.view();
+      const box = layout.byId.get('a1')!;
+      expect(box.x * v.k + v.tx + box.w * v.k).toBeLessThanOrEqual(1000 - 300);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

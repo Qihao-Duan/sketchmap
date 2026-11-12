@@ -73,10 +73,12 @@ export interface DetailsPanelProps {
   onPriority(priority: 1 | 2 | 3 | null): void;
   onMarker(emoji: string | null): void;
   onNote(id: string, note: string): void;
+  /** A new topic is open for typing: finish it before writing a note. */
+  newTopicOpen?: boolean;
 }
 
 /** The selected topic's importance, priority, marker and note. Mount it with `key={node.id}`. */
-export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote }: DetailsPanelProps) {
+export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, newTopicOpen }: DetailsPanelProps) {
   const [note, setNote] = useState(node.note ?? '');
   const noteBox = useRef<HTMLTextAreaElement>(null);
   const pending = useRef<string | null>(null);
@@ -183,7 +185,10 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote }:
           ref={noteBox}
           aria-label="Note"
           rows={4}
-          placeholder="Add a note…"
+          readOnly={newTopicOpen}
+          onMouseDown={newTopicOpen ? noFocus : undefined}
+          placeholder={newTopicOpen ? 'Finish the new topic first (Enter)' : 'Add a note…'}
+          maxLength={50_000}
           value={note}
           onChange={(e) => {
             setNote(e.target.value);

@@ -375,13 +375,56 @@ describe('Details panel', () => {
     expect(ta.value).toBe('');
   });
 
-  it('saves a note still waiting for its pause when the page is about to close, and asks first', () => {
+  it('saves a note still waiting for its pause when a toolbar button adds a topic', async () => {
+    const api = fakeApi();
+    mount(api);
+    const ta = container.querySelector('textarea[aria-label="Note"]') as HTMLTextAreaElement;
+    act(() => ta.focus());
+    type(ta, 'Lost?');
+    await click('+ Child');
+    await advance(1100);
+    expect(vi.mocked(api.saveMap).mock.calls.at(-1)![0].root.note).toBe('Lost?');
+  });
+
+  it('shows the undone note after Undo from the toolbar, even if the note box had focus', async () => {
+    mount(fakeApi());
+    const ta = container.querySelector('textarea[aria-label="Note"]') as HTMLTextAreaElement;
+    act(() => ta.focus());
+    type(ta, 'Remember this');
+    await advance(800);
+    await click('Undo');
+    expect(ta.value).toBe('');
+  });
+
+  it('asks before closing while a note is unsaved, and dispatches it', () => {
     mount(fakeApi());
     type(container.querySelector('textarea[aria-label="Note"]') as HTMLTextAreaElement, 'Quick thought');
     const ev = new Event('beforeunload', { cancelable: true });
     act(() => void window.dispatchEvent(ev));
     expect(ev.defaultPrevented).toBe(true);
     expect(container.querySelector('g.note-icon title')!.textContent).toBe('Quick thought');
+  });
+
+  it('does nothing to the parent when the sidebar is used while a new topic is still empty', async () => {
+    mount(fakeApi());
+    keydown({ key: 'Tab' });
+    await click('Key');
+    expect(topics()).toBe(1);
+    expect(pressedIn('Importance')).toEqual(['Normal']);
+    keydown({ key: 'Tab' });
+    await clickLabel('Priority 1');
+    expect(topics()).toBe(1);
+    expect(pressedIn('Priority')).toEqual(['No priority']);
+  });
+
+  it('keeps the note box out of reach while a new topic is open', () => {
+    mount(fakeApi());
+    keydown({ key: 'Tab' });
+    const note = container.querySelector('textarea[aria-label="Note"]') as HTMLTextAreaElement;
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    act(() => void note.dispatchEvent(down));
+    expect(down.defaultPrevented).toBe(true);
+    expect(note.readOnly).toBe(true);
   });
 
   it('closes an open topic edit first, keeping the typed text', async () => {

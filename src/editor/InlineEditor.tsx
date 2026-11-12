@@ -42,7 +42,7 @@ export function InlineEditor({ box, view, initialText, selectAll, onCommit, onCa
     height: lines * lineHeight * k + padY * 2 * k + 4,
     fontSize: fontSize * k,
     lineHeight: `${lineHeight * k}px`,
-    padding: `${padY * k}px ${padX * k}px`,
+    padding: `${padY * k}px ${(padX + box.noteW) * k}px ${padY * k}px ${(padX + box.badgeW) * k}px`,
     textAlign: kind === 'line' ? 'left' : 'center',
   };
 

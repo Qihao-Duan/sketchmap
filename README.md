@@ -60,7 +60,7 @@ Only someone with the owner key can change it.
 
 - Checked on 2026-11-12: the `/m/…` embed loads in Notion in the browser (Chrome) and in the Notion desktop app. Edits made with **Edit in a tab** show up after reloading the Notion page, and a normal mouse wheel over the embed scrolls the page.
 - Not yet checked: Chinese input (IME) and SVG/PNG export in Safari and Firefox.
-- The Markdown outline keeps topic text and nesting only: line breaks inside a topic, folded state and topic identity are not kept when you replace the map from it.
+- The Markdown outline keeps topic text, nesting, Key, priority and markers. Line breaks inside a topic, folded state, topic identity, Highlight, Aside and notes are not kept, so replacing the map from the outline removes them (undo brings them back).
 - Pasting a very large outline (thousands of topics) is slow, and a map over 2 MB cannot be saved; undo the paste if that happens.
 
 ## Fonts
