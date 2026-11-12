@@ -1,3 +1,4 @@
+import { serveAsset } from './assets';
 import { isOwner } from './auth';
 import { errorResponse } from './http';
 import { createMap, deleteMap, getMap, listMaps, saveMap } from './maps';
@@ -30,6 +31,6 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) return handleApi(request, env);
-    return env.ASSETS.fetch(request);
+    return serveAsset(request, env);
   },
 } satisfies ExportedHandler<Env>;
