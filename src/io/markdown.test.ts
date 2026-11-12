@@ -124,4 +124,21 @@ describe('parseOutline', () => {
       c: [{ t: 'Child A', c: [{ t: 'Grandchild', c: [] }] }, { t: 'Child B ≥90%', c: [] }],
     });
   });
+
+  it('leaves Key text that already contains ** unwrapped, and says Key is not kept for it', () => {
+    const tree = n('R', [{ ...n('a ** b'), emphasis: 'key' }]);
+    expect(toMarkdown(tree)).toBe('# R\n- a ** b\n');
+    expect(parseOutline(toMarkdown(tree))!.root.children[0].text).toBe('a ** b');
+    expect(markdownLosses(tree)).toEqual(['Key on topics whose text contains **']);
+  });
+
+  it('round-trips a topic that has only a priority or only a marker', () => {
+    const tree = n('R', [{ ...n(''), priority: 1 }, { ...n(''), emoji: '💡' }]);
+    expect(toMarkdown(tree)).toBe('# R\n- 🔴\n- 💡\n');
+    const back = parseOutline(toMarkdown(tree))!.root.children;
+    expect(back.map(({ text, priority, emoji }) => ({ text, priority, emoji }))).toEqual([
+      { text: '', priority: 1, emoji: undefined },
+      { text: '', priority: undefined, emoji: '💡' },
+    ]);
+  });
 });

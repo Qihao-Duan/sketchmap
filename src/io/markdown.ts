@@ -9,11 +9,13 @@ const oneLine = (t: string) => t.replace(/\s*\n\s*/g, ' ').trim();
 
 const PRIORITY_MARK = { 1: '🔴', 2: '🟠', 3: '🔵' } as const;
 const PRIORITY_FROM_MARK: Record<string, 1 | 2 | 3> = { '🔴': 1, '🟠': 2, '🔵': 3 };
+const KEY_WITH_STARS = 'Key on topics whose text contains **';
 
 /** One topic as one Markdown line: priority emoji, marker, then the text, bold for Key (spec §9). */
 function topicLine(n: MapNode): string {
   let t = oneLine(n.text);
-  if (n.emphasis === 'key' && t) t = `**${t}**`;
+  // Text that already contains ** can't be wrapped unambiguously: it stays as is, and markdownLosses says so.
+  if (n.emphasis === 'key' && t && !t.includes('**')) t = `**${t}**`;
   if (n.emoji) t = `${n.emoji} ${t}`;
   if (n.priority) t = `${PRIORITY_MARK[n.priority]} ${t}`;
   return t.trimEnd();
@@ -28,10 +30,10 @@ export function readDecorations(raw: string): Pick<MapNode, 'text' | 'priority' 
     out.priority = PRIORITY_FROM_MARK[p[1]];
     text = text.slice(p[0].length);
   }
-  const marker = MARKERS.find((m) => text.startsWith(`${m} `));
+  const marker = MARKERS.find((m) => text === m || text.startsWith(`${m} `));
   if (marker) {
     out.emoji = marker;
-    text = text.slice(marker.length + 1);
+    text = text.slice(marker.length).replace(/^ /, '');
   }
   const bold = /^\*\*([\s\S]+)\*\*$/.exec(text);
   if (bold && bold[1].trim() && !bold[1].includes('**')) {
@@ -50,9 +52,10 @@ export function markdownLosses(root: MapNode): string[] {
     if (n.emphasis === 'highlight') found.add('Highlight');
     if (n.emphasis === 'aside') found.add('Aside');
     if (n.note?.trim()) found.add('notes');
+    if (n.emphasis === 'key' && n.text.includes('**')) found.add(KEY_WITH_STARS);
     stack.push(...n.children);
   }
-  return ['Highlight', 'Aside', 'notes'].filter((x) => found.has(x));
+  return ['Highlight', 'Aside', 'notes', KEY_WITH_STARS].filter((x) => found.has(x));
 }
 
 /** `# Root`, then nested `- ` bullets, 2 spaces per level. Pastes into Notion as a nested list. */
