@@ -160,6 +160,29 @@ describe('Canvas', () => {
       expect(open).toHaveBeenCalledTimes(1);
       open.mockRestore();
     });
+
+    it('a cancelled press never opens a link', () => {
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      mountLinked(false);
+      at(link(), 'pointerdown', 10, 10);
+      at(link(), 'pointercancel', 10, 10);
+      const h = mountLinked(true);
+      at(link(), 'pointerdown', 10, 10, { metaKey: true });
+      at(link(), 'pointercancel', 10, 10, { metaKey: true });
+      expect(open).not.toHaveBeenCalled();
+      expect(h.onMove).not.toHaveBeenCalled();
+      open.mockRestore();
+    });
+
+    it('a real mouse click (press, release, click) opens the link exactly once', () => {
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      mountLinked(false);
+      at(link(), 'pointerdown', 10, 10);
+      at(link(), 'pointerup', 10, 10);
+      act(() => void link().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })));
+      expect(open).toHaveBeenCalledTimes(1);
+      open.mockRestore();
+    });
   });
 
   it('ensureVisible keeps the topic clear of a right-hand panel (rightInset)', () => {
