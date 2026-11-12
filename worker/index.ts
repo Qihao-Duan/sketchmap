@@ -30,7 +30,14 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname.startsWith('/api/')) return handleApi(request, env);
+    if (url.pathname.startsWith('/api/')) {
+      try {
+        return await handleApi(request, env);
+      } catch (e) {
+        console.error(e);
+        return errorResponse(500, 'Internal error');
+      }
+    }
     return serveAsset(request, env);
   },
 } satisfies ExportedHandler<Env>;
