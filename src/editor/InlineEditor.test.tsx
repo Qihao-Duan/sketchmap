@@ -150,6 +150,20 @@ describe('InlineEditor', () => {
     expect(ta.value).toBe('Plan');
   });
 
+  it('refuses a link that would push the topic past 5000 characters', () => {
+    const { ta } = mount({ initialText: 'x'.repeat(4990), selectAll: false });
+    key(ta, { key: 'k', metaKey: true });
+    const url = container.querySelector('input[aria-label="Link URL"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    act(() => {
+      setter.call(url, 'example.com');
+      url.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    key(url, { key: 'Enter' });
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain('5000');
+    expect(ta.value).toHaveLength(4990);
+  });
+
   it('going back to the text closes the link field and keeps editing; Tab stays in the field', () => {
     const { ta, onCommit } = mount({ initialText: 'Plan', selectAll: true });
     key(ta, { key: 'k', metaKey: true });
