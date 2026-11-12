@@ -93,3 +93,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .outline-panel .row { display: flex; flex-wrap: wrap; gap: 6px; }
 .outline-panel button { border: 1px solid var(--line); }
 .outline-panel button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+
+.details { right: 12px; top: 12px; width: 268px; max-width: calc(100% - 24px); max-height: calc(100% - 24px); overflow: auto; box-sizing: border-box; padding: 14px; display: flex; flex-direction: column; gap: 12px; z-index: 3; }
+.details h2 { font: 700 12px/1 var(--ui); letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); margin: 0; }
+.details .topic-title { font-family: var(--hand); font-size: 20px; line-height: 1.2; overflow-wrap: anywhere; }
+.details .field { display: flex; flex-direction: column; gap: 5px; }
+.details .flabel { font: 600 12px/1.2 var(--ui); color: var(--ink-2); }
+.details textarea { font: 400 13.5px/1.4 var(--ui); color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; resize: vertical; }
+.details textarea:focus { border-color: var(--accent); outline: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.details .chip { font-size: 17px; line-height: 1; padding: 5px 6px; border-radius: 7px; border: 1px solid transparent; }
+.details .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.details .chip.tool { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; font: 600 11px/1 var(--ui); color: var(--ink-2); padding: 6px 3px; }
+.details .chip.tool[aria-pressed="true"] { color: var(--accent); }
+.details .importance { flex-wrap: nowrap; gap: 2px; }
+svg.mini { display: block; filter: var(--canvas-filter); }

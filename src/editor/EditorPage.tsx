@@ -7,11 +7,12 @@ import { parseHtmlOutline } from '../io/htmlOutline';
 import { parseOutline, toMarkdown } from '../io/markdown';
 import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
-import { allText } from '../model/tree';
+import { allText, findNode } from '../model/tree';
 import { canvasMeasure, ensureFonts } from '../render/fonts';
 import type { LayoutKind, MindMap } from '../shared/types';
 import { Autosaver, draftKey, readDraft, type Draft, type SaveStatus } from './autosave';
 import { Canvas, type CanvasHandle } from './Canvas';
+import { DetailsPanel } from './DetailsPanel';
 import { ConflictDialog, DraftBanner, SaveBadge, Toolbar } from './EditorChrome';
 import { InlineEditor } from './InlineEditor';
 import { keyToCommand, type Command } from './keymap';
@@ -22,6 +23,7 @@ import type { View } from './viewport';
 
 const IGNORE_KEYS_IN = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A']);
 const LAYOUTS: Array<[LayoutKind, string]> = [['map', 'Mind map'], ['logic', 'Logic chart'], ['org', 'Org chart']];
+const DETAILS_KEY = 'sketchmap:details';
 
 export interface EditorProps {
   initial: MindMap;
@@ -51,6 +53,15 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [editInitial, setEditInitial] = useState<string | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [mdCopied, setMdCopied] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(() => {
+    try {
+      const stored = storage.getItem(DETAILS_KEY);
+      if (stored !== null) return stored === '1';
+    } catch {
+      // Storage blocked: fall back to the default.
+    }
+    return window.innerWidth >= 760;
+  });
   const [draft, setDraft] = useState<Draft | null>(() => {
     const d = readDraft(storage, initial.id);
     return d && JSON.stringify([d.map.root, d.map.layout]) !== JSON.stringify([initial.root, initial.layout]) ? d : null;
@@ -167,6 +178,16 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const endEdit = () => {
     if (stateRef.current.editing) (document.activeElement as HTMLElement | null)?.blur();
   };
+  const toggleDetails = () => {
+    const next = !detailsOpen;
+    setDetailsOpen(next);
+    try {
+      storage.setItem(DETAILS_KEY, next ? '1' : '0');
+    } catch {
+      // Storage blocked: the choice lasts until reload.
+    }
+  };
+  const selectedNode = findNode(state.map.root, state.selectedId)?.node ?? null;
 
   const run = useCallback((cmd: Command) => {
     const s = stateRef.current;
@@ -309,6 +330,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             </button>
           ))}
         </div>
+        <button type="button" aria-pressed={detailsOpen} onClick={toggleDetails}>Details</button>
         <button type="button" onClick={() => setOutlineOpen(true)}>Outline</button>
         <button type="button" onClick={copyMarkdown}>{mdCopied ? 'Markdown copied' : 'Copy as Markdown'}</button>
         <button type="button" onClick={copyLink}>{copied ? 'Link copied' : 'Copy Notion embed link'}</button>
@@ -342,6 +364,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           onMove={(id, targetId) => dispatch({ type: 'move', id, targetId })}
           onToggleFold={(id) => dispatch({ type: 'toggleFold', id })}
           onViewChange={setView}
+          rightInset={detailsOpen ? 296 : 0}
         />
         {editing && editBox && (
           <InlineEditor
@@ -353,6 +376,28 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             onCommit={commit}
             onCancel={cancel}
             onTab={tab}
+          />
+        )}
+        {detailsOpen && selectedNode && (
+          <DetailsPanel
+            // Prefixed so this key never collides with the inline editor's `key={editing.id}` sibling above:
+            // when a topic is both selected and being edited (the common case), the bare ids would match and
+            // React's reconciler would misattribute the two different-typed siblings, leaking a stale <textarea>.
+            key={`details-${selectedNode.id}`}
+            node={selectedNode}
+            onEmphasis={(emphasis) => {
+              endEdit();
+              dispatch({ type: 'setEmphasis', emphasis });
+            }}
+            onPriority={(priority) => {
+              endEdit();
+              dispatch({ type: 'setPriority', priority });
+            }}
+            onMarker={(emoji) => {
+              endEdit();
+              dispatch({ type: 'setMarker', emoji });
+            }}
+            onNote={(id, note) => dispatch({ type: 'setNote', id, note })}
           />
         )}
         {outlineOpen && (

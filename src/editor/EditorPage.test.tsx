@@ -53,6 +53,12 @@ const click = (text: string) => act(async () => {
   [...container.querySelectorAll('button')].find((b) => b.textContent === text)!.click();
   await vi.advanceTimersByTimeAsync(0); // let the async handler finish
 });
+const clickLabel = (label: string) => act(async () => {
+  (container.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement).click();
+  await vi.advanceTimersByTimeAsync(0);
+});
+const pressedIn = (group: string) =>
+  [...container.querySelectorAll(`[aria-label="${group}"] button[aria-pressed="true"]`)].map((b) => b.getAttribute('aria-label') ?? b.textContent);
 
 beforeEach(() => { vi.useFakeTimers(); localStorage.clear(); });
 afterEach(() => { container.remove(); vi.useRealTimers(); });
@@ -313,5 +319,63 @@ describe('Editor', () => {
     await advance(1100);
     const saved = vi.mocked(api.saveMap).mock.calls.at(-1)![0];
     expect(saved.root).toMatchObject({ emphasis: 'highlight', priority: 2 });
+  });
+});
+
+describe('Details panel', () => {
+  it('sets importance, priority and marker on the selected topic, each one undo step', async () => {
+    mount(fakeApi());
+    expect(pressedIn('Importance')).toEqual(['Normal']);
+    expect(pressedIn('Priority')).toEqual(['No priority']);
+    await click('Key');
+    await clickLabel('Priority 2');
+    await clickLabel('Marker 💡');
+    expect(pressedIn('Importance')).toEqual(['Key']);
+    expect(pressedIn('Priority')).toEqual(['Priority 2']);
+    expect(pressedIn('Marker')).toEqual(['Marker 💡']);
+    expect(container.querySelector('g.badge text')!.textContent).toBe('2');
+    keydown({ key: 'z', metaKey: true });
+    expect(pressedIn('Marker')).toEqual([]);
+    expect(pressedIn('Priority')).toEqual(['Priority 2']);
+    await clickLabel('Priority 2'); // pressing the active priority again keeps it
+    expect(pressedIn('Priority')).toEqual(['Priority 2']);
+  });
+
+  it('a second click on the active marker removes it', async () => {
+    mount(fakeApi());
+    await clickLabel('Marker ✅');
+    await clickLabel('Marker ✅');
+    expect(pressedIn('Marker')).toEqual([]);
+  });
+
+  it('saves a note after a pause, as one undo step, and shows the note icon', async () => {
+    mount(fakeApi());
+    const ta = container.querySelector('textarea[aria-label="Note"]') as HTMLTextAreaElement;
+    type(ta, 'Remember');
+    await advance(800);
+    type(ta, 'Remember this');
+    await advance(800);
+    expect(container.querySelector('g.note-icon title')!.textContent).toBe('Remember this');
+    keydown({ key: 'z', metaKey: true });
+    expect(container.querySelector('g.note-icon')).toBeNull();
+    expect(ta.value).toBe('');
+  });
+
+  it('closes an open topic edit first, keeping the typed text', async () => {
+    mount(fakeApi());
+    keydown({ key: 'Tab' });
+    type(container.querySelector('textarea.inline-editor') as HTMLTextAreaElement, 'Hi');
+    await click('Key');
+    expect(container.querySelector('textarea.inline-editor')).toBeNull();
+    expect(topics()).toBe(2);
+    expect(pressedIn('Importance')).toEqual(['Key']);
+    expect(container.querySelector('[aria-label="Topic details"] .topic-title')!.textContent).toBe('Hi');
+  });
+
+  it('the Details button hides the panel and remembers the choice', async () => {
+    mount(fakeApi());
+    await click('Details');
+    expect(container.querySelector('[aria-label="Topic details"]')).toBeNull();
+    expect(localStorage.getItem('sketchmap:details')).toBe('0');
   });
 });
