@@ -79,4 +79,12 @@ describe('parseOutline', () => {
   it('returns null for empty input', () => {
     expect(parseOutline('   \n\n')).toBeNull();
   });
+
+  it('reads XMind-style plain text: one topic per line, one tab per level, trailing spaces', () => {
+    const parsed = parseOutline('Topic\n\tChild A \n\t\tGrandchild\n\tChild B ≥90%\n')!;
+    expect(shape(parsed.root)).toEqual({
+      t: 'Topic',
+      c: [{ t: 'Child A', c: [{ t: 'Grandchild', c: [] }] }, { t: 'Child B ≥90%', c: [] }],
+    });
+  });
 });

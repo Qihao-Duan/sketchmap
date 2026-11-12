@@ -82,3 +82,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .list button.danger { color: var(--warn); }
 .credits { margin-top: 32px; font-size: 12px; }
 .credits a { color: inherit; }
+
+.layout-switch { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; }
+.editor-bar .layout-switch button { padding: 6px 10px; border-radius: 7px; color: var(--ink-2); }
+.editor-bar .layout-switch button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.outline-panel { right: 12px; top: 12px; bottom: 12px; width: min(380px, calc(100% - 24px)); box-sizing: border-box; padding: 14px; display: flex; flex-direction: column; gap: 10px; z-index: 5; }
+.outline-panel h2 { margin: 0; font-size: 15px; }
+.outline-panel p { margin: 0; font-size: 12.5px; }
+.outline-panel textarea { flex: 1; min-height: 140px; resize: none; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.outline-panel .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.outline-panel button { border: 1px solid var(--line); }
+.outline-panel button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }

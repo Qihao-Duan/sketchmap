@@ -41,6 +41,12 @@ function typeInput(input: HTMLInputElement, value: string) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+function paste(text: string, html = '') {
+  const ev = new Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'clipboardData', { value: { getData: (type: string) => (type === 'text/html' ? html : text) } });
+  act(() => void window.dispatchEvent(ev));
+}
+const pressed = () => container.querySelector('[aria-label="Layout"] button[aria-pressed="true"]')!.textContent;
 const topics = () => container.querySelectorAll('g.topic').length;
 const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
 const click = (text: string) => act(async () => {
@@ -182,5 +188,68 @@ describe('Editor', () => {
     const newerInitial = { ...map, updatedAt: new Date(2000).toISOString() };
     mount(fakeApi(), newerInitial);
     expect(container.textContent).toContain('older than the saved map');
+  });
+
+  it('switches to the org chart as an undoable, autosaved change', async () => {
+    const api = fakeApi();
+    mount(api);
+    expect(pressed()).toBe('Mind map');
+    await click('Org chart');
+    expect(pressed()).toBe('Org chart');
+    await advance(1000);
+    expect(vi.mocked(api.saveMap).mock.calls[0][0].layout).toBe('org');
+    keydown({ key: 'z', metaKey: true });
+    expect(pressed()).toBe('Mind map');
+  });
+
+  it('pasting an outline adds topics under the selection as one undo step', () => {
+    mount(fakeApi());
+    paste('- Alpha\n  - Alpha 1\n- Beta');
+    expect(topics()).toBe(4);
+    keydown({ key: 'z', metaKey: true });
+    expect(topics()).toBe(1);
+  });
+
+  it('prefers the HTML list structure when the clipboard has one (XMind, Notion)', () => {
+    mount(fakeApi());
+    paste('flat fallback text', '<ul><li><p>Topic</p><ul><li><p>Line one</p><p>Line two</p></li></ul></li></ul>');
+    expect(topics()).toBe(3);
+    expect(container.textContent).toContain('Line two');
+    expect(container.textContent).not.toContain('flat fallback text');
+  });
+
+  it('replaces the map from the Outline panel; undo brings the old map back', async () => {
+    mount(fakeApi());
+    await click('Outline');
+    const ta = container.querySelector('textarea[aria-label="Outline text"]') as HTMLTextAreaElement;
+    expect(ta.value).toBe('# Root\n');
+    type(ta, '# New root\n- X\n- Y');
+    await click('Replace map with this');
+    expect(container.querySelector('textarea[aria-label="Outline text"]')).toBeNull();
+    expect(topics()).toBe(3);
+    keydown({ key: 'z', metaKey: true });
+    expect(topics()).toBe(1);
+  });
+
+  it('shows an error for an empty outline and keeps the panel open', async () => {
+    mount(fakeApi());
+    await click('Outline');
+    type(container.querySelector('textarea[aria-label="Outline text"]') as HTMLTextAreaElement, '   ');
+    await click('Replace map with this');
+    expect(container.querySelector('[role="alert"]')!.textContent).toBe('The outline is empty.');
+    expect(topics()).toBe(1);
+  });
+
+  it('copies the map as Markdown', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      mount(fakeApi());
+      await click('Copy as Markdown');
+      expect(writeText).toHaveBeenCalledWith('# Root\n');
+      expect(container.textContent).toContain('Markdown copied');
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 });

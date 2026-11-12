@@ -3,21 +3,25 @@ import { ApiError, createApi, type ApiClient } from '../api/client';
 import { KeyPrompt } from '../auth/KeyPrompt';
 import { getOwnerKey, setOwnerKey } from '../auth/ownerKey';
 import { buildSvg, download, fileName, svgToPng, visibleText } from '../io/exportImage';
-import { computeLayout } from '../layout/map';
+import { parseHtmlOutline } from '../io/htmlOutline';
+import { parseOutline, toMarkdown } from '../io/markdown';
+import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
 import { allText } from '../model/tree';
 import { canvasMeasure, ensureFonts } from '../render/fonts';
-import type { MindMap } from '../shared/types';
+import type { LayoutKind, MindMap } from '../shared/types';
 import { Autosaver, draftKey, readDraft, type Draft, type SaveStatus } from './autosave';
 import { Canvas, type CanvasHandle } from './Canvas';
 import { ConflictDialog, DraftBanner, SaveBadge, Toolbar } from './EditorChrome';
 import { InlineEditor } from './InlineEditor';
 import { keyToCommand, type Command } from './keymap';
 import { navigate } from './navigate';
+import { OutlinePanel } from './OutlinePanel';
 import { editorReducer, initEditor } from './store';
 import type { View } from './viewport';
 
 const IGNORE_KEYS_IN = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A']);
+const LAYOUTS: Array<[LayoutKind, string]> = [['map', 'Mind map'], ['logic', 'Logic chart'], ['org', 'Org chart']];
 
 export interface EditorProps {
   initial: MindMap;
@@ -31,7 +35,10 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [state, dispatch] = useReducer(editorReducer, initial, initEditor);
   const factory = useRef(measureFactory);
   const [measure, setMeasure] = useState<Measure>(() => factory.current());
-  const layout = useMemo(() => computeLayout(state.map.root, measure), [state.map.root, measure]);
+  const layout = useMemo(
+    () => layoutMap(state.map.root, state.map.layout, measure),
+    [state.map.root, state.map.layout, measure],
+  );
   const canvas = useRef<CanvasHandle>(null);
   const [view, setView] = useState<View>({ tx: 0, ty: 0, k: 1 });
   const [status, setStatus] = useState<SaveStatus>('saved');
@@ -42,6 +49,8 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [exportError, setExportError] = useState<string>();
   const [rejectedMessage, setRejectedMessage] = useState<string>();
   const [editInitial, setEditInitial] = useState<string | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [mdCopied, setMdCopied] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(() => {
     const d = readDraft(storage, initial.id);
     return d && JSON.stringify(d.map.root) !== JSON.stringify(initial.root) ? d : null;
@@ -123,6 +132,33 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   useEffect(() => {
     canvas.current?.ensureVisible(state.selectedId);
   }, [state.selectedId, layout]);
+
+  // Refit when the layout changes (not on first render, where the canvas fits itself).
+  const firstLayout = useRef(true);
+  useEffect(() => {
+    if (firstLayout.current) {
+      firstLayout.current = false;
+      return;
+    }
+    canvas.current?.fit();
+  }, [state.map.layout]);
+
+  // Paste an outline (or plain lines) anywhere outside a text field: topics go under the selection.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (stateRef.current.editing || modalRef.current) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const html = e.clipboardData?.getData('text/html') ?? '';
+      const text = e.clipboardData?.getData('text/plain') ?? '';
+      const parsed = (html ? parseHtmlOutline(html) : null) ?? (text.trim() ? parseOutline(text) : null);
+      if (!parsed) return;
+      e.preventDefault();
+      dispatch({ type: 'pasteNodes', nodes: parsed.synthetic ? parsed.root.children : [parsed.root] });
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []);
 
   useEffect(() => {
     document.title = `${state.map.title || 'Untitled map'} · Sketchmap`;
@@ -213,6 +249,23 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       () => window.prompt('Copy this link into a Notion /embed block:', url),
     );
   };
+  const copyMarkdown = () => {
+    if (!navigator.clipboard) {
+      setOutlineOpen(true);
+      return;
+    }
+    navigator.clipboard.writeText(toMarkdown(state.map.root)).then(
+      () => setMdCopied(true),
+      () => setOutlineOpen(true),
+    );
+  };
+  const applyOutline = (text: string): string | null => {
+    const parsed = parseOutline(text);
+    if (!parsed) return 'The outline is empty.';
+    dispatch({ type: 'replaceRoot', root: parsed.root });
+    setOutlineOpen(false);
+    return null;
+  };
   const exportAs = async (kind: 'svg' | 'png') => {
     try {
       setExportError(undefined);
@@ -233,6 +286,21 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         <a href="/">All maps</a>
         <h1 className="map-title">{state.map.title || 'Untitled map'}</h1>
         <SaveBadge status={status} />
+        <div className="layout-switch" role="group" aria-label="Layout">
+          {LAYOUTS.map(([kind, label]) => (
+            <button
+              key={kind}
+              type="button"
+              aria-pressed={state.map.layout === kind}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => dispatch({ type: 'setLayout', layout: kind })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={() => setOutlineOpen(true)}>Outline</button>
+        <button type="button" onClick={copyMarkdown}>{mdCopied ? 'Markdown copied' : 'Copy as Markdown'}</button>
         <button type="button" onClick={copyLink}>{copied ? 'Link copied' : 'Copy Notion embed link'}</button>
         <a href={`/m/${initial.id}`} target="_blank" rel="noopener">Open view ↗</a>
       </header>
@@ -276,6 +344,9 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             onCancel={cancel}
             onTab={tab}
           />
+        )}
+        {outlineOpen && (
+          <OutlinePanel initialText={toMarkdown(state.map.root)} onApply={applyOutline} onClose={() => setOutlineOpen(false)} />
         )}
         <Toolbar
           zoom={view.k}
