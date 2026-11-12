@@ -2,6 +2,8 @@ import type { MapNode } from '../shared/types';
 import { newNodeId } from '../model/ids';
 
 const MAX_TEXT = 5000; // schema limit for topic text
+/** Deepest topic level an outline can create (root = 0). Layout, render and schema all recurse per level. */
+export const MAX_OUTLINE_DEPTH = 64;
 const BULLET = /^(?:[-*+•]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/;
 const oneLine = (t: string) => t.replace(/\s*\n\s*/g, ' ').trim();
 
@@ -33,6 +35,7 @@ export function parseOutline(text: string): ParsedOutline | null {
     if (!raw.trim()) continue;
     const heading = /^\s*(#{1,6})\s+(.*)$/.exec(raw);
     if (heading) {
+      if (!heading[2].trim()) continue;
       headingDepth = heading[1].length - 1;
       indents = [];
       items.push({ depth: headingDepth, text: heading[2].trim() });
@@ -42,7 +45,7 @@ export function parseOutline(text: string): ParsedOutline | null {
     if (!body) continue;
     const indent = /^[\t ]*/.exec(raw)![0].replace(/\t/g, '    ').length;
     while (indents.length && indent < indents[indents.length - 1]) indents.pop();
-    if (!indents.length || indent > indents[indents.length - 1]) indents.push(indent);
+    if (!indents.length || indent >= indents[indents.length - 1] + 2) indents.push(indent);
     items.push({ depth: headingDepth + indents.length, text: body });
   }
   if (!items.length) return null;
@@ -55,7 +58,7 @@ export function parseOutline(text: string): ParsedOutline | null {
 
   const chain: MapNode[] = [root];
   for (const it of items) {
-    const depth = Math.max(1, Math.min(it.depth + (synthetic ? 1 : 0), chain.length));
+    const depth = Math.max(1, Math.min(it.depth + (synthetic ? 1 : 0), chain.length, MAX_OUTLINE_DEPTH));
     const node = make(it.text);
     chain.length = depth;
     chain[depth - 1].children.push(node);
