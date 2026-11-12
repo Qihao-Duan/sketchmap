@@ -27,3 +27,17 @@ if (typeof window !== 'undefined') {
     Object.defineProperty(window, 'sessionStorage', { value: createMemoryStorage(), configurable: true });
   }
 }
+
+// jsdom's 2D canvas context needs the optional `@napi-rs/canvas` native backend, which this project
+// does not install. Without it, `HTMLCanvasElement.getContext('2d')` returns null and jsdom logs a
+// "Not implemented" error on every call; real browsers always provide a working context. Production
+// code (`canvasMeasure` in src/render/fonts.ts) assumes one is available, so stand in with just enough
+// of the API (`font`, `measureText`) for jsdom tests that exercise it to get a number back instead of a
+// crash or console noise.
+if (typeof HTMLCanvasElement !== 'undefined') {
+  const fakeContext = {
+    font: '10px sans-serif',
+    measureText: (text: string) => ({ width: text.length * (parseFloat(fakeContext.font) || 10) * 0.6 }) as TextMetrics,
+  };
+  HTMLCanvasElement.prototype.getContext = (() => fakeContext) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+}
