@@ -59,9 +59,10 @@ Only someone with the owner key can change it.
 - **Copy as Markdown** keeps Key (bold), priority (🔴🟠🔵) and markers. It names what it can't keep: Highlight, Aside and notes.
 - **Links.** Write links as `[label](https://…)` in a topic, or paste a bare `https://…` address — a bare URL is always a link (there's no syntax to write one as plain text), shown shortened to its host and path (at most 28 characters) while keeping its full address. Write a literal `[`, `]` or `\` with `\[`, `\]` or `\\`. While editing, select words and press ⌘/Ctrl K, or paste a link over them. On a selected topic, ⌘/Ctrl K links the whole topic, with "Remove link" to take it off (not offered for a topic whose only link is a bare URL, which can't be unlinked). Links open with ⌘/Ctrl-click in the editor and with a plain click in the Notion view. The Details panel lists them.
 - **.xmind import.** **Import .xmind** on the map list turns an XMind file into a new map.
-  - XMind 2020+ keeps titles, attached children, notes, links (`http(s)` hrefs become a link on the whole topic), folded branches, priority markers (3 and above become ③), and star/flag/person/question markers. Floating topics are attached under the root instead (their XMind position isn't kept).
+  - XMind 2020+ keeps titles, attached children, notes, links (`http(s)` hrefs become a link on the whole topic), folded branches, priority markers (3 and above become ③), and star/flag/person/question markers. Floating topics are attached under the root instead (their XMind position isn't kept). Callouts are attached under their own topic, and a done task checkbox becomes ✅; open task checkboxes are left out.
   - XMind 8 keeps titles, children and notes.
-  - Relationships, boundaries, summary topics, labels, other markers, links to files or topics, styles, and other sheets are left out. The summary after import lists them.
+  - Relationships, boundaries, summary topics, labels, other markers, links to files or topics, open task checkboxes, and other sheets are left out. The summary after import lists them.
+  - Styles (colours, fonts, shapes) are not imported.
   - Images are left out until step 4.
 
 ## Known limitations

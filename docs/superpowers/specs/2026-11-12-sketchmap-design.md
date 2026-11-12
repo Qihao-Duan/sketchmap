@@ -270,7 +270,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
 - **`.xmind` in:**
   - XMind 2020+ files (`content.json`): titles, attached children, plain-text notes, `href` (becomes a link on the whole text), folded state, priority markers (`priority-1` … `priority-9`, where 3 and above become ③), and images from `resources/`.
   - XMind 8 files (`content.xml`): titles, children and notes.
-  - Floating topics are attached to the root as extra branches (their XMind position is not kept). Styles, relationships and boundaries are dropped. The import summary says both.
+  - Floating topics and callouts are attached to the map (floating topics under the root, callouts under their topic); their XMind position is not kept. Styles are not imported. Relationships, boundaries, labels, open task checkboxes and other sheets are dropped, and the import summary lists them.
 - **`.excalidraw` out:**
   - Boxes, underlines and branches become rectangles, lines and curved lines; text becomes text elements in Excalifont (fontFamily 5); images become image elements plus `files`.
   - Elements are built through `convertToExcalidrawElements` from `@excalidraw/excalidraw@0.18.1`, loaded only when you export. The arrow-binding format changes after 0.18.1, so this version stays pinned.
