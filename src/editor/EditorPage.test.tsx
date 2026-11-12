@@ -8,27 +8,6 @@ import { draftKey } from './autosave';
 import { Editor } from './EditorPage';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-// This Node runtime defines a built-in global `localStorage` that, without `--localstorage-file`,
-// has no working getItem/setItem/removeItem/clear. Because that global already exists, vitest's
-// jsdom environment setup does not override it with jsdom's real Storage, so `localStorage` and
-// `Editor`'s `storage = localStorage` default would otherwise be unusable here. Swap in a minimal
-// in-memory Storage so both this test file and the component see a working implementation.
-if (typeof localStorage === 'undefined' || typeof localStorage.clear !== 'function') {
-  const backing = new Map<string, string>();
-  const memoryStorage: Storage = {
-    get length() {
-      return backing.size;
-    },
-    clear: () => backing.clear(),
-    getItem: (key) => (backing.has(key) ? backing.get(key)! : null),
-    key: (index) => [...backing.keys()][index] ?? null,
-    removeItem: (key) => void backing.delete(key),
-    setItem: (key, value) => void backing.set(key, String(value)),
-  };
-  Object.defineProperty(globalThis, 'localStorage', { value: memoryStorage, configurable: true });
-}
-
 const map: MindMap = { id: 'abcdefghijklmnopqrstu', title: 'Root', layout: 'map', version: 1, updatedAt: 't', root: { id: 'root000001', text: 'Root', children: [] } };
 const measure = () => (t: string, s: number) => t.length * s * 0.5;
 let container: HTMLDivElement;
