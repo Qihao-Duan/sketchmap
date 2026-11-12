@@ -95,3 +95,29 @@ test('the org chart and a pasted outline survive a reload and show in the view',
   expect(top.alpha1 - top.alpha).toBeGreaterThan(40); // stacked under its parent (org: ~77 px)
   expect(Math.abs(top.alpha - top.beta)).toBeLessThan(2); // first level shares a row
 });
+
+test('importance, priority, marker and note survive a reload and show in the view', async ({ page }) => {
+  const id = await openNewMap(page);
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Alpha');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('g.topic')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Key', exact: true }).click();
+  await page.keyboard.press('Alt+Digit2');
+  await page.getByRole('button', { name: 'Marker 💡' }).click();
+  await page.getByLabel('Note').fill('Remember this');
+  await page.getByLabel('Note').blur();
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  const check = async () => {
+    const alpha = page.locator('g.topic', { has: page.locator('text', { hasText: '💡 Alpha' }) });
+    await expect(alpha).toHaveCount(1);
+    await expect(alpha.locator('g.badge text')).toHaveText('2');
+    await expect(alpha.locator('g.note-icon title')).toHaveText('Remember this');
+    await expect(alpha.locator('text[stroke]').first()).toBeAttached(); // Key text is outlined
+  };
+  await page.reload();
+  await check();
+  await page.goto(`/m/${id}`);
+  await check();
+});

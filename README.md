@@ -47,6 +47,15 @@ Only someone with the owner key can change it.
 - **Copy as Markdown** puts the whole map on the clipboard as a Markdown outline, which pastes into Notion as a nested list.
 - **Paste.** An outline or list copied from XMind, Notion or a text editor, pasted anywhere outside a text field, is added under the selected topic. ⌘Z undoes it.
 
+## Step 3: topic details
+
+- The **Details** button shows or hides the sidebar for the selected topic.
+- **Importance:** Key, Highlight, Normal and Aside, with Alt ↑ / Alt ↓.
+- **Priority:** ①②③, with Alt 1–3, and Alt 0 to clear.
+- **Marker:** the ten markers. Clicking the active marker removes it.
+- **Note:** saved as you type. Hover the little page icon on a topic to read it, in the editor and in the Notion view.
+- **Copy as Markdown** keeps Key (bold), priority (🔴🟠🔵) and markers. It names what it can't keep: Highlight, Aside and notes.
+
 ## Known limitations
 
 - Checked on 2026-11-12: the `/m/…` embed loads in Notion in the browser (Chrome) and in the Notion desktop app. Edits made with **Edit in a tab** show up after reloading the Notion page, and a normal mouse wheel over the embed scrolls the page.
