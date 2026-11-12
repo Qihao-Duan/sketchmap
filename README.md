@@ -30,6 +30,8 @@ curl -sI https://sketchmap.<account>.workers.dev/m/abcdefghijklmnopqrstu | grep 
 curl -s -o /dev/null -w '%{http_code}\n' https://sketchmap.<account>.workers.dev/api/maps   # 401
 ```
 
+Every page is served with a strict Content-Security-Policy (same-origin scripts only); `npx playwright test` checks it against the production build.
+
 ## Put a map in Notion
 
 1. Open the app, enter your owner key once, create a map.
@@ -55,6 +57,7 @@ Only someone with the owner key can change it.
 - **Marker:** the ten markers. Clicking the active marker removes it.
 - **Note:** saved as you type. Hover the little page icon on a topic to read it, in the editor and in the Notion view.
 - **Copy as Markdown** keeps Key (bold), priority (🔴🟠🔵) and markers. It names what it can't keep: Highlight, Aside and notes.
+- **Links.** Write links as `[label](https://…)` in a topic, or paste a bare `https://…` address. While editing, select words and press ⌘/Ctrl K, or paste a link over them. On a selected topic, ⌘/Ctrl K links the whole topic, with "Remove link" to take it off. Links open with ⌘/Ctrl-click in the editor and with a plain click in the Notion view. The Details panel lists them.
 
 ## Known limitations
 

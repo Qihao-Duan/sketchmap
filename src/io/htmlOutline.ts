@@ -1,6 +1,7 @@
 import type { MapNode } from '../shared/types';
 import { newNodeId } from '../model/ids';
 import { MAX_OUTLINE_DEPTH, readDecorations, type ParsedOutline } from './markdown';
+import { escapeLabel, normalizeHref } from '../shared/rich';
 
 const MAX_TEXT = 5000;
 const LIST = /^(UL|OL)$/;
@@ -18,6 +19,14 @@ function textLines(nodes: Node[]): string[] {
       return;
     }
     if (!(n instanceof Element) || SKIP.test(n.tagName)) return;
+    if (n.tagName === 'A') {
+      const href = normalizeHref(n.getAttribute('href') ?? '');
+      const label = (n.textContent ?? '').replace(/\s+/g, ' ').trim();
+      if (href && /^https?:\/\//i.test(n.getAttribute('href') ?? '') && label) {
+        lines[lines.length - 1] += `[${escapeLabel(label)}](${href})`;
+        return;
+      }
+    }
     if (n.tagName === 'BR') {
       lines.push('');
       return;

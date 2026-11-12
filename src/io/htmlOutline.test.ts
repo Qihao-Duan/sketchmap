@@ -60,4 +60,9 @@ describe('parseHtmlOutline', () => {
     expect(parsed.synthetic).toBe(true);
     expect(shape(parsed.root)).toEqual({ t: 'Outline', c: [{ t: 'A', c: [] }, { t: 'B', c: [] }] });
   });
+
+  it('keeps web links from pasted lists as [label](url), and drops other links to their text', () => {
+    const parsed = parseHtmlOutline('<ul><li>Read <a href="https://example.com/docs">the [docs]</a> and <a href="javascript:x()">this</a></li></ul>')!;
+    expect(parsed.root.text).toBe('Read [the \\[docs\\]](https://example.com/docs) and this');
+  });
 });

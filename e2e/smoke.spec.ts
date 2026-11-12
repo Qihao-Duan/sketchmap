@@ -112,3 +112,23 @@ test('importance, priority, marker and note survive a reload and show in the vie
   await page.goto(`/m/${id}`);
   await check();
 });
+
+test('a link made with Cmd/Ctrl K survives a reload and opens from the view', async ({ page, context }) => {
+  await context.route('https://example.com/**', (r) => r.fulfill({ body: 'ok', contentType: 'text/plain' }));
+  const id = await openNewMap(page);
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Read the docs');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Shift+ArrowLeft');
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.keyboard.type('example.com/docs');
+  await page.keyboard.press('Enter'); // applies the link
+  await page.keyboard.press('Enter'); // commits the topic
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  await page.reload();
+  await expect(page.locator('g.topic a', { hasText: 'docs' })).toHaveAttribute('href', 'https://example.com/docs');
+  await page.goto(`/m/${id}`);
+  const popup = context.waitForEvent('page');
+  await page.locator('g.topic a', { hasText: 'docs' }).click();
+  await (await popup).waitForURL('https://example.com/docs');
+});
