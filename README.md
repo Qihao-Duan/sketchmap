@@ -22,6 +22,14 @@ npx wrangler secret put OWNER_KEY      # paste the key; keep it in your password
 npm run deploy                         # prints https://sketchmap.<account>.workers.dev
 ```
 
+### Check the deploy
+
+```bash
+curl -sI https://sketchmap.<account>.workers.dev/e/abcdefghijklmnopqrstu | grep -i content-security-policy   # frame-ancestors 'none'
+curl -sI https://sketchmap.<account>.workers.dev/m/abcdefghijklmnopqrstu | grep -ci "frame-ancestors\|x-frame-options"   # 0
+curl -s -o /dev/null -w '%{http_code}\n' https://sketchmap.<account>.workers.dev/api/maps   # 401
+```
+
 ## Put a map in Notion
 
 1. Open the app, enter your owner key once, create a map.
