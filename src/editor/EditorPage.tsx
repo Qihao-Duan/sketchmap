@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { ApiError, createApi, type ApiClient } from '../api/client';
 import { KeyPrompt } from '../auth/KeyPrompt';
 import { getOwnerKey, setOwnerKey } from '../auth/ownerKey';
+import { buildSvg, download, fileName, svgToPng } from '../io/exportImage';
 import { computeLayout } from '../layout/map';
 import type { Measure } from '../layout/wrap';
 import { allText } from '../model/tree';
@@ -38,6 +39,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [dialogError, setDialogError] = useState<string>();
   const [askKey, setAskKey] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [exportError, setExportError] = useState<string>();
   const [editInitial, setEditInitial] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(() => {
     const d = readDraft(storage, initial.id);
@@ -205,6 +207,16 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       () => window.prompt('Copy this link into a Notion /embed block:', url),
     );
   };
+  const exportAs = async (kind: 'svg' | 'png') => {
+    try {
+      setExportError(undefined);
+      const svg = await buildSvg(layout, allText(state.map.root));
+      const blob = kind === 'svg' ? new Blob([svg], { type: 'image/svg+xml' }) : await svgToPng(svg);
+      download(blob, fileName(state.map.title, kind));
+    } catch (e) {
+      setExportError(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
 
   const editing = state.editing;
   const editBox = editing ? layout.byId.get(editing.id) : undefined;
@@ -219,6 +231,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         <a href={`/m/${initial.id}`} target="_blank" rel="noopener">Open view ↗</a>
       </header>
       {draft && <DraftBanner savedAt={draft.savedAt} onRestore={restoreDraft} onDiscard={discardDraft} />}
+      {exportError && <div className="banner" role="alert">{exportError}</div>}
       <main className="editor-stage">
         <Canvas
           ref={canvas}
@@ -259,6 +272,13 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           onZoomIn={() => canvas.current?.zoomBy(1.2)}
           onZoomOut={() => canvas.current?.zoomBy(1 / 1.2)}
           onFit={() => canvas.current?.fit()}
+          extra={
+            <>
+              <span className="sep" />
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exportAs('svg')}>SVG</button>
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exportAs('png')}>PNG</button>
+            </>
+          }
         />
       </main>
       {conflict && <ConflictDialog onLoadNewer={loadNewer} onKeepMine={keepMine} error={dialogError} />}
