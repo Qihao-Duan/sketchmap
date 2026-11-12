@@ -135,4 +135,30 @@ describe('InlineEditor', () => {
     act(() => ta.setSelectionRange(3, 3));
     expect(paste('https://b.com').defaultPrevented).toBe(false); // no selection: a normal paste (a bare URL)
   });
+
+  it('an Enter that confirms IME composition in the link field does not apply the link', () => {
+    const { ta } = mount({ initialText: 'Plan', selectAll: true });
+    key(ta, { key: 'k', metaKey: true });
+    const url = container.querySelector('input[aria-label="Link URL"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    act(() => {
+      setter.call(url, 'https://a.com');
+      url.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    key(url, { key: 'Enter', isComposing: true });
+    expect(container.querySelector('input[aria-label="Link URL"]')).not.toBeNull();
+    expect(ta.value).toBe('Plan');
+  });
+
+  it('going back to the text closes the link field and keeps editing; Tab stays in the field', () => {
+    const { ta, onCommit } = mount({ initialText: 'Plan', selectAll: true });
+    key(ta, { key: 'k', metaKey: true });
+    const url = container.querySelector('input[aria-label="Link URL"]') as HTMLInputElement;
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    act(() => void url.dispatchEvent(tab));
+    expect(tab.defaultPrevented).toBe(true);
+    act(() => void url.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: ta })));
+    expect(container.querySelector('input[aria-label="Link URL"]')).toBeNull();
+    expect(onCommit).not.toHaveBeenCalled();
+  });
 });

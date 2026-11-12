@@ -138,6 +138,7 @@ export function InlineEditor({ box, view, initialText, selectAll, onCommit, onCa
               setLink({ ...link, error: false });
             }}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
               e.stopPropagation();
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -153,11 +154,15 @@ export function InlineEditor({ box, view, initialText, selectAll, onCommit, onCa
                 e.preventDefault();
                 focusQuietly(ref.current);
                 setLink(null);
+              } else if (e.key === 'Tab') {
+                e.preventDefault();
               }
             }}
             onBlur={(e) => {
-              if (moving.current || e.relatedTarget === ref.current) return;
+              if (moving.current) return;
               setLink(null);
+              // Back into the text: keep editing. Anywhere else: the edit is over.
+              if (e.relatedTarget === ref.current) return;
               finish(() => onCommit(valueRef.current));
             }}
           />
