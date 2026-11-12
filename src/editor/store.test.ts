@@ -79,4 +79,33 @@ describe('editorReducer', () => {
     expect([s.past.length, s.revision]).toEqual([0, before]);
     expect(reduce(s, { type: 'replaceMap', map: base(), dirty: true }).revision).toBe(before + 1);
   });
+
+  it('setLayout changes the layout as one undo step; the same layout is a no-op', () => {
+    const s0 = initEditor(base());
+    expect(reduce(s0, { type: 'setLayout', layout: 'map' })).toBe(s0);
+    let s = reduce(s0, { type: 'setLayout', layout: 'org' });
+    expect([s.map.layout, s.revision, s.past.length]).toEqual(['org', 1, 1]);
+    s = reduce(s, { type: 'undo' });
+    expect(s.map.layout).toBe('map');
+  });
+
+  it('pasteNodes adds topics under the selection, unfolds it, selects the first, one undo step', () => {
+    let s = reduce(reduce(initEditor(base()), { type: 'toggleFold', id: 'a' }), { type: 'select', id: 'a' });
+    const pasted = [{ id: 'p1', text: 'P1', children: [{ id: 'p11', text: 'P11', children: [] }] }, { id: 'p2', text: 'P2', children: [] }];
+    s = reduce(s, { type: 'pasteNodes', nodes: pasted });
+    const a = s.map.root.children[0];
+    expect(a.collapsed).toBeUndefined();
+    expect(a.children.map((c) => c.id)).toEqual(['a1', 'p1', 'p2']);
+    expect(s.selectedId).toBe('p1');
+    s = reduce(s, { type: 'undo' });
+    expect(s.map.root.children[0].children.map((c) => c.id)).toEqual(['a1']);
+    expect(reduce(s, { type: 'pasteNodes', nodes: [] })).toBe(s);
+  });
+
+  it('replaceRoot swaps the whole tree as one undo step', () => {
+    let s = reduce(initEditor(base()), { type: 'replaceRoot', root: { id: 'nr', text: 'New', children: [] } });
+    expect([s.map.root.text, s.selectedId, s.revision]).toEqual(['New', 'nr', 1]);
+    s = reduce(s, { type: 'undo' });
+    expect(s.map.root.text).toBe('Root');
+  });
 });

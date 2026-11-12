@@ -1,5 +1,5 @@
 import { produce } from 'immer';
-import type { MindMap } from '../shared/types';
+import type { LayoutKind, MapNode, MindMap } from '../shared/types';
 import * as T from '../model/tree';
 
 export const HISTORY_LIMIT = 200;
@@ -27,7 +27,10 @@ export type EditorAction =
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'serverSaved'; map: MindMap }
-  | { type: 'replaceMap'; map: MindMap; dirty: boolean };
+  | { type: 'replaceMap'; map: MindMap; dirty: boolean }
+  | { type: 'setLayout'; layout: LayoutKind }
+  | { type: 'pasteNodes'; nodes: MapNode[] }
+  | { type: 'replaceRoot'; root: MapNode };
 
 export function initEditor(map: MindMap): EditorState {
   return { map, selectedId: map.root.id, editing: null, past: [], future: [], revision: 0 };
@@ -117,6 +120,22 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       });
       return ok ? commit(state, next, { selectedId: action.id }) : state;
     }
+
+    case 'setLayout':
+      return state.map.layout === action.layout ? state : commit(state, { ...state.map, layout: action.layout });
+
+    case 'pasteNodes': {
+      if (!action.nodes.length || !T.findNode(state.map.root, state.selectedId)) return state;
+      const next = produce(state.map, (d) => {
+        const f = T.findNode(d.root, state.selectedId)!;
+        delete f.node.collapsed;
+        f.node.children.push(...action.nodes);
+      });
+      return commit(state, next, { selectedId: action.nodes[0].id, editing: null });
+    }
+
+    case 'replaceRoot':
+      return commit(state, { ...state.map, root: action.root }, { selectedId: action.root.id, editing: null });
 
     case 'undo': {
       const prev = state.past[state.past.length - 1];
