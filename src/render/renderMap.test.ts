@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { MapNode } from '../shared/types';
 import { computeLayout } from '../layout/map';
 import { hashSeed, renderMap } from './renderMap';
+import { PALETTE } from '../layout/styles';
 
 const measure = (t: string, size: number) => t.length * size * 0.5;
 const tree: MapNode = {
@@ -67,5 +68,66 @@ describe('renderMap', () => {
     const strokes = [...small.querySelectorAll('path')].map((p) => p.getAttribute('stroke'));
     expect(strokes.length).toBeGreaterThan(0);
     expect(strokes).not.toContain(PALETTE[0].fill); // no hachure fill
+  });
+
+  describe('importance, priority and notes', () => {
+    const decorated: MapNode = {
+      id: 'r', text: 'Root',
+      children: [
+        { id: 'k', text: 'Key', emphasis: 'key', children: [{ id: 'k1', text: 'Under key', children: [] }] },
+        { id: 'h', text: 'Two\nlines', emphasis: 'highlight', children: [] },
+        { id: 's', text: 'Aside', emphasis: 'aside', children: [] },
+        { id: 'p', text: 'Urgent', priority: 2, note: 'Call Ana', children: [] },
+      ],
+    };
+    const drawn = () => {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const world = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      svg.appendChild(world);
+      renderMap(svg, world, computeLayout(decorated, measure), { selectedId: null });
+      return world;
+    };
+    const topic = (w: Element, id: string) => w.querySelector(`g.topic[data-id="${id}"]`)!;
+    const fills = (g: Element) => [...g.querySelectorAll('path')].map((p) => p.getAttribute('fill'));
+
+    it('Key: solid fill, heavier text', () => {
+      const k = topic(drawn(), 'k');
+      expect(fills(k)).toContain(PALETTE[0].fill);
+      expect(k.querySelector('text')!.getAttribute('stroke')).toBe('#1e1e1e');
+    });
+
+    it('Highlight: one highlighter swipe per line', () => {
+      const h = topic(drawn(), 'h');
+      expect(h.querySelectorAll('g.swipe')).toHaveLength(2);
+      expect(fills(h.querySelector('g.swipe')!)).toContain('#ffe066');
+    });
+
+    it('Aside: grey dashed outline, no fill, grey text', () => {
+      const s = topic(drawn(), 's');
+      expect(s.querySelector('text')!.getAttribute('fill')).toBe('#868e96');
+      const outlines = [...s.querySelectorAll('path')].filter((p) => p.getAttribute('stroke') === '#868e96');
+      expect(outlines.length).toBeGreaterThan(0);
+      expect(outlines.every((p) => p.getAttribute('stroke-dasharray'))).toBe(true);
+      expect(fills(s).filter((f) => f && f !== 'none')).toEqual([]);
+    });
+
+    it('Priority: an orange badge with its number; Note: a page icon whose tooltip is the note', () => {
+      const p = topic(drawn(), 'p');
+      expect(p.querySelector('g.badge text')!.textContent).toBe('2');
+      expect(p.querySelector('g.badge title')!.textContent).toBe('Priority 2');
+      expect(fills(p.querySelector('g.badge')!)).toContain('#f08c00');
+      expect(p.querySelector('g.note-icon title')!.textContent).toBe('Call Ana');
+      expect(topic(drawn(), 'k').querySelector('g.badge, g.note-icon')).toBeNull();
+    });
+
+    it('branches into Key topics are 1.45× wider, into Aside topics 0.8× and dashed', () => {
+      const w = drawn();
+      const layout = computeLayout(decorated, measure);
+      const branch = (to: string) => w.querySelector('g.branches')!.children[layout.branches.findIndex((b) => b.to === to)].querySelector('path')!;
+      expect(Number(branch('k').getAttribute('stroke-width'))).toBeCloseTo(2.4 * 1.45);
+      expect(Number(branch('s').getAttribute('stroke-width'))).toBeCloseTo(2.4 * 0.8);
+      expect(branch('s').getAttribute('stroke-dasharray')).toBeTruthy();
+      expect(Number(branch('h').getAttribute('stroke-width'))).toBeCloseTo(2.4);
+    });
   });
 });

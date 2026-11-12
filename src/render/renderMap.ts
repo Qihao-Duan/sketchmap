@@ -2,10 +2,10 @@ import rough from 'roughjs';
 import type { MapLayout, TopicBox } from '../layout/map';
 import { countDescendants } from '../model/tree';
 import { FONT_STACK } from './fonts';
+import { ASIDE_INK, badgeSize, HIGHLIGHTER, INK, PRIORITY_COLORS } from '../layout/styles';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 export const SELECT_COLOR = '#4263eb';
-const INK = '#1e1e1e';
 
 export interface RenderOptions {
   selectedId?: string | null;
@@ -43,8 +43,13 @@ export function renderMap(svg: SVGSVGElement, world: SVGGElement, layout: MapLay
   const branches = el(doc, 'g', { class: 'branches' }, world);
   const topics = el(doc, 'g', { class: 'topics' }, world);
   for (const b of layout.branches) {
+    const em = b.toEmphasis;
+    const width = (b.fromDepth === 0 ? 2.4 : 1.6) * (em === 'key' ? 1.45 : em === 'aside' ? 0.8 : 1);
     branches.appendChild(
-      rc.path(b.d, { stroke: b.color.stroke, strokeWidth: b.fromDepth === 0 ? 2.4 : 1.6, roughness: 1, bowing: 0.8, seed: hashSeed(`${b.to}:branch`) }),
+      rc.path(b.d, {
+        stroke: b.color.stroke, strokeWidth: width, roughness: 1, bowing: 0.8, seed: hashSeed(`${b.to}:branch`),
+        ...(em === 'aside' ? { strokeLineDash: [6, 5] } : {}),
+      }),
     );
   }
   for (const t of layout.boxes) drawTopic(doc, rc, topics, t, opts);
@@ -64,35 +69,86 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
     }));
   }
 
+  const em = t.node.emphasis;
+  const key = em === 'key';
+  const aside = em === 'aside';
   const r = Math.min(26, Math.min(t.w, t.h) * 0.3);
   const { stroke, fill } = t.color;
+  const outline = aside ? ASIDE_INK : stroke;
+  const weight = key ? 1.5 : 1;
+  const dash = aside ? { strokeLineDash: [5, 4] } : {};
+  // Key: solid fill. Aside: no fill. Otherwise hachure, as by depth.
+  const boxFill = (gap: number, fillWeight: number) =>
+    key ? { fill, fillStyle: 'solid' } : aside ? {} : { fill, fillStyle: 'hachure', hachureGap: gap, fillWeight, hachureAngle: -41 };
+  const shape = roundedRect(t.x, t.y, t.w, t.h, r);
   if (t.style.kind === 'root') {
-    g.appendChild(rc.path(roundedRect(t.x, t.y, t.w, t.h, r), {
-      stroke, strokeWidth: 2.2, roughness: 1, fill, fillStyle: 'hachure', hachureGap: 7, fillWeight: 1.1, hachureAngle: -41, seed,
-    }));
+    g.appendChild(rc.path(shape, { stroke: outline, strokeWidth: 2.2 * weight, roughness: 1, ...boxFill(7, 1.1), ...dash, seed }));
   } else if (t.style.kind === 'box') {
-    g.appendChild(rc.path(roundedRect(t.x, t.y, t.w, t.h, r), {
-      stroke, strokeWidth: 1.8, roughness: 1, fill, fillStyle: 'hachure', hachureGap: 8, fillWeight: 0.9, hachureAngle: -41, seed,
-    }));
+    g.appendChild(rc.path(shape, { stroke: outline, strokeWidth: 1.8 * weight, roughness: 1, ...boxFill(8, 0.9), ...dash, seed }));
   } else if (t.style.kind === 'small') {
-    g.appendChild(rc.path(roundedRect(t.x, t.y, t.w, t.h, r), { stroke, strokeWidth: 1.4, roughness: 1, seed }));
+    g.appendChild(rc.path(shape, { stroke: outline, strokeWidth: 1.4 * weight, roughness: 1, ...dash, seed }));
   } else {
-    g.appendChild(rc.line(t.x, t.y + t.h, t.x + t.w, t.y + t.h, { stroke, strokeWidth: 1.6, roughness: 1, seed }));
+    g.appendChild(rc.line(t.x, t.y + t.h, t.x + t.w, t.y + t.h, { stroke: outline, strokeWidth: 1.6 * weight, roughness: 1, ...dash, seed }));
   }
 
   const { fontSize, lineHeight, padX, padY } = t.style;
   const centred = t.style.kind !== 'line';
+  const ink = aside ? ASIDE_INK : INK;
+  const textLeft = t.x + padX + t.badgeW;
+  /** Left edge of line i; centred lines sit in the middle of the text block. */
+  const lineLeft = (i: number) => (centred ? textLeft + (t.textW - t.lineWidths[i]) / 2 : textLeft);
   t.lines.forEach((line, i) => {
+    const lx = lineLeft(i);
+    const lw = t.lineWidths[i];
+    const by = t.y + padY + i * lineHeight + lineHeight / 2 + fontSize * 0.34;
+    if (em === 'highlight' && line) {
+      const top = by - fontSize * 0.8;
+      const bot = by + fontSize * 0.28;
+      el(doc, 'g', { class: 'swipe' }, g).appendChild(
+        rc.polygon([[lx - 5, top + 2], [lx + lw + 5, top - 1], [lx + lw + 3, bot + 1], [lx - 3, bot + 3]], {
+          fill: HIGHLIGHTER, fillStyle: 'solid', stroke: 'none', roughness: 1.4, seed: seed + 40 + i,
+        }),
+      );
+    }
     const text = el(doc, 'text', {
-      x: centred ? t.x + t.w / 2 : t.x + padX,
-      y: t.y + padY + i * lineHeight + lineHeight / 2 + fontSize * 0.34,
+      x: centred ? lx + lw / 2 : lx,
+      y: by,
       'font-size': fontSize,
       'font-family': FONT_STACK,
       'text-anchor': centred ? 'middle' : 'start',
-      fill: INK,
+      fill: ink,
+      // Excalifont has one weight: Key text gets a thin outline in its own ink.
+      ...(key ? { stroke: ink, 'stroke-width': 0.6, 'paint-order': 'stroke', 'stroke-linejoin': 'round' } : {}),
     }, g);
     text.textContent = line;
   });
+
+  if (t.node.priority) {
+    const d = badgeSize(fontSize);
+    const cx = lineLeft(0) - t.badgeW + d / 2;
+    const cy = t.y + padY + lineHeight / 2;
+    const color = PRIORITY_COLORS[t.node.priority];
+    const badge = el(doc, 'g', { class: 'badge' }, g);
+    badge.appendChild(rc.circle(cx, cy, d, { fill: color, fillStyle: 'solid', stroke: color, strokeWidth: 1.2, roughness: 0.8, seed: seed + 50 }));
+    el(doc, 'text', {
+      x: cx, y: cy + d * 0.22, 'font-size': Math.round(d * 0.62), 'font-weight': 800,
+      'font-family': 'system-ui, sans-serif', 'text-anchor': 'middle', fill: '#ffffff',
+    }, badge).textContent = String(t.node.priority);
+    el(doc, 'title', {}, badge).textContent = `Priority ${t.node.priority}`;
+  }
+
+  const note = t.node.note?.trim();
+  if (note) {
+    const ix = textLeft + t.textW + 8;
+    const iy = t.y + padY + (t.lines.length * lineHeight) / 2;
+    const icon = el(doc, 'g', { class: 'note-icon' }, g);
+    // A transparent target, so hovering anywhere on the little page shows the note.
+    el(doc, 'rect', { x: ix - 4, y: iy - 11, width: 20, height: 22, fill: 'transparent', 'pointer-events': 'all' }, icon);
+    icon.appendChild(rc.rectangle(ix, iy - 8, 12, 15, { stroke: INK, strokeWidth: 1, roughness: 0.8, seed: seed + 3 }));
+    icon.appendChild(rc.line(ix + 3, iy - 3, ix + 9, iy - 3, { stroke: INK, strokeWidth: 1, roughness: 0.5, seed: seed + 4 }));
+    icon.appendChild(rc.line(ix + 3, iy + 1, ix + 9, iy + 1, { stroke: INK, strokeWidth: 1, roughness: 0.5, seed: seed + 5 }));
+    el(doc, 'title', {}, icon).textContent = note.length > 1000 ? `${note.slice(0, 1000)}…` : note;
+  }
 
   if (t.depth > 0 && t.node.children.length > 0) {
     const { x: cx, y: oy } = t.fold;
