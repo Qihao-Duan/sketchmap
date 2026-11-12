@@ -445,7 +445,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         {linkFor && linkNode && (
           <LinkPrompt
             key={`link-${linkFor}`}
-            hasLink={parseRich(linkNode.text).links.length > 0}
+            hasLink={parseRich(linkNode.text).links.some((l) => !l.bare)}
             onApply={(href) => {
               if (linkWhole(linkNode.text, href).length > 5000) return 'With this link the topic would be longer than 5000 characters.';
               dispatch({ type: 'setLink', id: linkFor, href });

@@ -5,13 +5,22 @@ describe('parseRich', () => {
   it('reads [label](url) links, with offsets into the plain text', () => {
     expect(parseRich('Read [the docs](https://example.com/docs) now')).toEqual({
       plain: 'Read the docs now',
-      links: [{ start: 5, end: 13, href: 'https://example.com/docs', label: 'the docs' }],
+      links: [{ start: 5, end: 13, href: 'https://example.com/docs', label: 'the docs', src: { start: 5, end: 41 } }],
     });
   });
 
   it('turns bare http(s) URLs into links labelled with the host and path, at most 28 characters', () => {
     const r = parseRich('see https://github.com/excalidraw/excalidraw/issues/123, ok');
-    expect(r.links).toEqual([{ start: 4, end: 32, href: 'https://github.com/excalidraw/excalidraw/issues/123', label: 'github.com/excalidraw/excal…' }]);
+    expect(r.links).toEqual([
+      {
+        start: 4,
+        end: 32,
+        href: 'https://github.com/excalidraw/excalidraw/issues/123',
+        label: 'github.com/excalidraw/excal…',
+        src: { start: 4, end: 55 },
+        bare: true,
+      },
+    ]);
     expect(r.plain).toBe('see github.com/excalidraw/excal…, ok');
   });
 
@@ -75,5 +84,30 @@ describe('link helpers', () => {
 
   it('linkRange wraps a range and puts the caret after the new link', () => {
     expect(linkRange('Read the docs', 9, 13, 'https://a.com')).toEqual({ text: 'Read the [docs](https://a.com)', caret: 30 });
+  });
+});
+
+describe('links keep their source', () => {
+  const bare = 'see https://github.com/excalidraw/excalidraw/issues/123 for details';
+  it('linkWhole keeps a bare URL in full instead of its short label', () => {
+    expect(linkWhole(bare, 'https://e.com/x')).toBe(`[${bare}](https://e.com/x)`);
+    expect(linkWhole(bare, null)).toBe(bare);
+    expect(linkWhole('Read [the spec](https://a.com) today', null)).toBe('Read the spec today');
+  });
+  it('linkRange grows a range that touches a link to the whole link, never escaping its syntax', () => {
+    const t = 'Read [the design spec](https://a.com) today';
+    expect(linkRange(t, 0, t.length, 'https://b.com').text).toBe('[Read the design spec today](https://b.com)');
+    expect(linkRange(t, 10, 13, 'https://b.com').text).toBe('Read [the design spec](https://b.com) today');
+  });
+  it('marks bare links and gives every link its source range', () => {
+    const [l] = parseRich('x https://a.com/p y').links;
+    expect(l).toMatchObject({ bare: true, src: { start: 2, end: 17 } }); // 'https://a.com/p' is 15 chars, starting at index 2
+    expect(parseRich('[a](https://b.com)').links[0].bare).toBeUndefined();
+  });
+  it('labels non-ASCII paths readably and accepts host:port addresses', () => {
+    expect(shortUrl('https://ja.wikipedia.org/wiki/%E6%97%A5%E6%9C%AC%E8%AA%9E')).toBe('ja.wikipedia.org/wiki/日本語');
+    expect(normalizeHref('example.com:8080/x')).toBe('https://example.com:8080/x');
+    expect(normalizeHref('localhost:3000')).toBe('https://localhost:3000');
+    expect(normalizeHref('mailto:a@b.c')).toBeNull();
   });
 });
