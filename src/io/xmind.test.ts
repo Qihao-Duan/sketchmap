@@ -93,6 +93,38 @@ describe('fromXmindJson', () => {
     const got = fromXmindJson([{ id: 's', rootTopic: { id: 'r', title: 'R', children: { attached: [deep], detached: [deep] } } }]);
     expect(got.dropped.some((d) => /nested too deep/.test(d))).toBe(true);
   });
+
+  it('attaches callouts to their topic and maps done tasks to ✅; open tasks are counted', () => {
+    const task = (status: string) => [{ provider: 'org.xmind.ui.task', content: { status } }];
+    const got = fromXmindJson([{ id: 's', rootTopic: { id: 'r', title: 'R', children: { attached: [
+      { id: 'a', title: 'A', extensions: task('done'), children: { callout: [{ id: 'c', title: 'Note this' }] } },
+      { id: 'b', title: 'B', extensions: task('todo') },
+      { id: 'd', title: 'D', extensions: task('todo') },
+    ] } } }]);
+    const a = got.root.children[0];
+    expect(a.emoji).toBe('✅');
+    expect(a.children.map((c) => c.text)).toEqual(['Note this']);
+    expect(got.changed).toEqual(['1 callout attached to its topic']);
+    expect(got.dropped).toEqual(['2 task checkboxes']);
+  });
+
+  it('keeps text within 5000 characters even with a link, and ignores priority-0', () => {
+    const got = fromXmindJson([{ id: 's', rootTopic: { id: 'r', title: 'x'.repeat(4995), href: 'https://example.com/a', markers: [{ markerId: 'priority-0' }] } }]);
+    expect(got.root.text.length).toBeLessThanOrEqual(5000);
+    expect(got.root).not.toHaveProperty('priority');
+    expect(got.dropped).toContain('1 link too long to keep');
+  });
+
+  it('never collapses the root, even when XMind marks it folded', () => {
+    const got = fromXmindJson([{ id: 's', rootTopic: { id: 'r', title: 'R', branch: 'folded', children: { attached: [{ id: 'a', title: 'A' }] } } }]);
+    expect(got.root.collapsed).toBeUndefined();
+  });
+
+  it('normalises CRLF and lone CR to LF in titles and notes', () => {
+    const got = fromXmindJson([{ id: 's', rootTopic: { id: 'r', title: 'Line1\r\nLine2\rLine3', notes: { plain: { content: 'N1\r\nN2\rN3' } } } }]);
+    expect(got.root.text).toBe('Line1\nLine2\nLine3');
+    expect(got.root.note).toBe('N1\nN2\nN3');
+  });
 });
 
 describe('importXmind', () => {

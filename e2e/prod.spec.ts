@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { makeZip } from '../src/test/zipFixture';
 import { openNewMap } from './helpers';
 
 test('the production build works under its strict CSP: editor, PNG export and view', async ({ page }) => {
@@ -24,5 +25,14 @@ test('the production build works under its strict CSP: editor, PNG export and vi
 
   await page.goto(`/m/${id}`);
   await expect(page.locator('g.topic')).toHaveCount(2);
+  expect(violations).toEqual([]);
+
+  // Import a small .xmind through the list page, still under the same strict CSP (the owner key is already set).
+  await page.goto('/');
+  const xmind = await makeZip([{ name: 'content.json', deflate: true, data: JSON.stringify([
+    { id: 's', class: 'sheet', title: 'S', rootTopic: { id: 'r', title: 'Imported', children: { attached: [{ id: 'a', title: 'Child' }] } } },
+  ]) }]);
+  await page.locator('input[aria-label="XMind file"]').setInputFiles({ name: 'small.xmind', mimeType: 'application/octet-stream', buffer: Buffer.from(xmind) });
+  await expect(page.locator('.import-result')).toBeVisible();
   expect(violations).toEqual([]);
 });

@@ -102,4 +102,74 @@ describe('ListPage', () => {
     expect(status.textContent).toContain('Changed: 1 floating topic attached to the root');
     expect(status.querySelector('a')!.getAttribute('href')).toBe(`/e/${id}`);
   });
+
+  it('pluralises the topic count in the import summary, down to one', async () => {
+    localStorage.setItem('sketchmap:owner-key', 'k');
+    stubApi();
+    await render();
+    const xmind = await makeZip([{ name: 'content.json', deflate: false, data: JSON.stringify([
+      { id: 's', class: 'sheet', title: 'S', rootTopic: { id: 'r', title: 'Solo' } },
+    ]) }]);
+    const input = container.querySelector('input[aria-label="XMind file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File([xmind] as BlobPart[], 'solo.xmind')] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => {});
+    const status = container.querySelector('.import-result')!;
+    expect(status.textContent).toContain('1 topic.');
+    expect(status.textContent).not.toContain('1 topics');
+  });
+
+  it('deletes the created map and shows an error when saving the import fails', async () => {
+    localStorage.setItem('sketchmap:owner-key', 'k');
+    const calls = stubApi();
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init = {}) => {
+      if (init.method === 'PUT') return Response.json({ error: 'Nope' }, { status: 500 });
+      return base(url, init);
+    });
+    await render();
+    const xmind = await makeZip([{ name: 'content.json', deflate: false, data: JSON.stringify([
+      { id: 's', class: 'sheet', title: 'S', rootTopic: { id: 'r', title: 'Trip' } },
+    ]) }]);
+    const input = container.querySelector('input[aria-label="XMind file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File([xmind] as BlobPart[], 'trip.xmind')] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => {});
+    expect(calls).toContainEqual(['DELETE', `/api/maps/${id}`]);
+    expect(container.querySelector('[role=alert]')).not.toBeNull();
+    expect(container.querySelector('.import-result')).toBeNull();
+  });
+
+  it('shows a busy, disabled button while an import is in flight, then re-enables it', async () => {
+    localStorage.setItem('sketchmap:owner-key', 'k');
+    stubApi();
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    let releasePost!: (r: Response) => void;
+    const pending = new Promise<Response>((resolve) => { releasePost = resolve; });
+    vi.mocked(fetch).mockImplementation(async (url, init = {}) => {
+      if ((init.method ?? 'GET') === 'POST') return pending;
+      return base(url, init);
+    });
+    await render();
+    const xmind = await makeZip([{ name: 'content.json', deflate: false, data: JSON.stringify([
+      { id: 's', class: 'sheet', title: 'S', rootTopic: { id: 'r', title: 'Trip' } },
+    ]) }]);
+    const input = container.querySelector('input[aria-label="XMind file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File([xmind] as BlobPart[], 'trip.xmind')] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+
+    const busy = button('Importing…');
+    expect(busy).toBeDefined();
+    expect(busy.disabled).toBe(true);
+
+    await act(async () => {
+      releasePost(Response.json({ id, title: 'Central topic', layout: 'map', version: 1, updatedAt: 't', root: { id: 'r', text: 'Central topic', children: [] } }, { status: 201 }));
+      await pending;
+    });
+    await act(async () => {});
+
+    const done = button('Import .xmind');
+    expect(done).toBeDefined();
+    expect(done.disabled).toBe(false);
+  });
 });

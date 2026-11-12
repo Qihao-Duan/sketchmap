@@ -34,8 +34,10 @@ class Dropped {
   boundaries = 0;
   summaryTopics = 0;
   labels = 0;
+  taskCheckboxes = 0;
   markers = 0;
   links = 0;
+  linksTooLong = 0;
   images = 0;
   tooDeep = 0;
 
@@ -47,9 +49,13 @@ class Dropped {
     if (this.boundaries) out.push(`${this.boundaries} ${this.boundaries === 1 ? 'boundary' : 'boundaries'}`);
     if (this.summaryTopics) out.push(`${this.summaryTopics} summary topic${plural(this.summaryTopics)}`);
     if (this.labels) out.push(`${this.labels} label${plural(this.labels)}`);
+    if (this.taskCheckboxes) out.push(`${this.taskCheckboxes} task checkbox${this.taskCheckboxes === 1 ? '' : 'es'}`);
     if (this.markers) out.push(`${this.markers} other marker${plural(this.markers)}`);
     if (this.links) {
       out.push(this.links === 1 ? '1 link to another topic or file' : `${this.links} links to other topics or files`);
+    }
+    if (this.linksTooLong) {
+      out.push(this.linksTooLong === 1 ? '1 link too long to keep' : `${this.linksTooLong} links too long to keep`);
     }
     if (this.images) out.push(`${this.images} image${plural(this.images)} (images arrive in step 4)`);
     if (this.tooDeep) out.push(`${this.tooDeep} topic${plural(this.tooDeep)} nested too deep`);
@@ -57,11 +63,12 @@ class Dropped {
   }
 }
 
-/** Counts what an import changed from its original form (currently just floating topics), then words it. */
+/** Counts what an import changed from its original form, then words it. */
 class Changed {
   floatingAttached = 0;
+  calloutsAttached = 0;
 
-  /** Readable phrases for the import summary; counts top-level floating topics, not their subtrees. */
+  /** Readable phrases for the import summary; counts top-level floating topics and callouts, not their subtrees. */
   list(): string[] {
     const out: string[] = [];
     if (this.floatingAttached) {
@@ -69,6 +76,13 @@ class Changed {
         this.floatingAttached === 1
           ? '1 floating topic attached to the root'
           : `${this.floatingAttached} floating topics attached to the root`,
+      );
+    }
+    if (this.calloutsAttached) {
+      out.push(
+        this.calloutsAttached === 1
+          ? '1 callout attached to its topic'
+          : `${this.calloutsAttached} callouts attached to their topics`,
       );
     }
     return out;
@@ -89,6 +103,9 @@ function layoutFromStructureClass(structureClass: string | undefined): LayoutKin
   return 'map';
 }
 
+/** `\r\n` and a lone `\r` both become `\n`, matching what the textarea does on edit. */
+const toLf = (s: string): string => s.replace(/\r\n?/g, '\n');
+
 /** The fields every topic shares, regardless of format: text (with its link), note and marker-derived priority/emoji. */
 function buildFields(
   title: string,
@@ -97,22 +114,26 @@ function buildFields(
   markerIds: string[],
   dropped: Dropped,
 ): Pick<MapNode, 'text'> & Partial<Pick<MapNode, 'note' | 'priority' | 'emoji'>> {
-  let text = escapeLabel(title).slice(0, MAX_TEXT);
+  const text = escapeLabel(toLf(title)).slice(0, MAX_TEXT);
+  const fields: Pick<MapNode, 'text'> & Partial<Pick<MapNode, 'note' | 'priority' | 'emoji'>> = { text };
   if (href) {
     const normalized = /^https?:\/\//i.test(href) ? normalizeHref(href) : null;
-    if (normalized) text = linkWhole(text, normalized);
-    else dropped.links++;
+    if (normalized) {
+      const linked = linkWhole(text, normalized);
+      if (linked.length <= MAX_TEXT) fields.text = linked;
+      else dropped.linksTooLong++;
+    } else dropped.links++;
   }
 
-  const fields: Pick<MapNode, 'text'> & Partial<Pick<MapNode, 'note' | 'priority' | 'emoji'>> = { text };
-  const note = noteRaw.replace(/\s+$/, '').slice(0, MAX_NOTE);
+  const note = toLf(noteRaw).replace(/\s+$/, '').slice(0, MAX_NOTE);
   if (note) fields.note = note;
 
   let emojiSet = false;
   for (const id of markerIds) {
     const priorityMatch = /^priority-(\d+)$/.exec(id);
     if (priorityMatch) {
-      if (fields.priority === undefined) fields.priority = Math.min(3, Number(priorityMatch[1])) as 1 | 2 | 3;
+      const n = Number(priorityMatch[1]);
+      if (n >= 1 && fields.priority === undefined) fields.priority = Math.min(3, n) as 1 | 2 | 3;
       continue;
     }
     if (!emojiSet) {
@@ -128,6 +149,20 @@ function buildFields(
   return fields;
 }
 
+/** A topic's `org.xmind.ui.task` status, read defensively: arrays and objects only, `status` only when a string. */
+function taskStatus(extensions: unknown): string | undefined {
+  if (!Array.isArray(extensions)) return undefined;
+  let status: string | undefined;
+  for (const ext of extensions) {
+    if (!ext || typeof ext !== 'object' || (ext as { provider?: unknown }).provider !== 'org.xmind.ui.task') continue;
+    const content = (ext as { content?: unknown }).content;
+    if (content && typeof content === 'object' && typeof (content as { status?: unknown }).status === 'string') {
+      status = (content as { status: string }).status;
+    }
+  }
+  return status;
+}
+
 // ---------- XMind 2020+ (content.json) ----------
 
 interface JsonTopic {
@@ -140,7 +175,8 @@ interface JsonTopic {
   image?: unknown;
   boundaries?: unknown[];
   structureClass?: string;
-  children?: { attached?: JsonTopic[]; detached?: JsonTopic[]; summary?: JsonTopic[] };
+  extensions?: unknown[];
+  children?: { attached?: JsonTopic[]; detached?: JsonTopic[]; summary?: JsonTopic[]; callout?: JsonTopic[] };
 }
 
 interface JsonSheet {
@@ -183,8 +219,19 @@ function buildJsonTopic(topic: JsonTopic, depth: number, ctx: BuildCtx): MapNode
   if (topic.image) ctx.dropped.images++;
   ctx.dropped.summaryTopics += Array.isArray(topic.children?.summary) ? topic.children.summary.length : 0;
 
+  // A task checkbox (`extensions: [{ provider: 'org.xmind.ui.task', content: { status } }]`). `done` gives the
+  // marker ✅, unless the topic already has a mapped marker (only one marker is kept per topic). Any other status
+  // (only `todo` is seen in practice) is counted in `dropped`, since it is otherwise lost silently.
+  const status = taskStatus(topic.extensions);
+  if (status === 'done') {
+    if (fields.emoji === undefined) fields.emoji = '✅';
+  } else if (status !== undefined) {
+    ctx.dropped.taskCheckboxes++;
+  }
+
   const attached = Array.isArray(topic.children?.attached) ? topic.children.attached : [];
   const detached = Array.isArray(topic.children?.detached) ? topic.children.detached : [];
+  const callouts = Array.isArray(topic.children?.callout) ? topic.children.callout : [];
 
   const children: MapNode[] = [];
   for (const child of attached) {
@@ -204,9 +251,21 @@ function buildJsonTopic(topic: JsonTopic, depth: number, ctx: BuildCtx): MapNode
       ctx.changed.floatingAttached++;
     }
   }
+  // Callouts (`children.callout`) are attached under the topic that holds them, after attached and floating
+  // children, at the same depth rules; counted in `changed`, after floating topics.
+  for (const callout of callouts) {
+    if (!isTopic(callout)) continue;
+    const childDepth = depth + 1;
+    if (childDepth > MAX_OUTLINE_DEPTH) ctx.dropped.tooDeep += countJsonTopics([callout]);
+    else {
+      children.push(buildJsonTopic(callout, childDepth, ctx));
+      ctx.changed.calloutsAttached++;
+    }
+  }
 
   const node: MapNode = { id: newNodeId(), ...fields, children };
-  if (topic.branch === 'folded' && children.length > 0) node.collapsed = true;
+  // The root never collapses: the editor has no fold control at depth 0, so a folded root would hide the whole map.
+  if (depth > 0 && topic.branch === 'folded' && children.length > 0) node.collapsed = true;
   return node;
 }
 
@@ -235,8 +294,9 @@ export function fromXmindJson(content: unknown): XmindImport {
 }
 
 // ---------- XMind 8 (content.xml) ----------
-// Only titles, children and notes are kept for this format (spec §9); styles, relationships, boundaries,
-// floating topics, priority and markers are dropped the same as any other XMind 8 feature we don't read.
+// Titles, children and notes are kept (spec §9); floating topics are attached the same way as content.json, and
+// priority/other markers and http(s) `xlink:href` links are read the same way too. Styles, boundaries, labels and
+// other sheets are dropped, and counted the same way as content.json; relationships are counted per sheet.
 
 function xmlChildren(el: Element, localName: string): Element[] {
   return Array.from(el.children).filter((c) => c.localName === localName);
@@ -261,7 +321,19 @@ function buildXmlTopic(topicEl: Element, depth: number, ctx: BuildCtx): MapNode 
   const title = xmlChildren(topicEl, 'title')[0]?.textContent ?? '';
   const notesEl = xmlChildren(topicEl, 'notes')[0];
   const noteRaw = (notesEl && xmlChildren(notesEl, 'plain')[0]?.textContent) ?? '';
-  const fields = buildFields(title, undefined, noteRaw, [], ctx.dropped);
+  const href = topicEl.getAttribute('xlink:href') ?? undefined;
+  const markerRefsEl = xmlChildren(topicEl, 'marker-refs')[0];
+  const markerIds = markerRefsEl
+    ? xmlChildren(markerRefsEl, 'marker-ref')
+        .map((m) => m.getAttribute('marker-id'))
+        .filter((id): id is string => typeof id === 'string')
+    : [];
+  const fields = buildFields(title, href, noteRaw, markerIds, ctx.dropped);
+
+  const boundariesEl = xmlChildren(topicEl, 'boundaries')[0];
+  ctx.dropped.boundaries += boundariesEl ? xmlChildren(boundariesEl, 'boundary').length : 0;
+  const labelsEl = xmlChildren(topicEl, 'labels')[0];
+  ctx.dropped.labels += labelsEl ? xmlChildren(labelsEl, 'label').length : 0;
 
   const childrenEl = xmlChildren(topicEl, 'children')[0];
   const topicsEls = childrenEl ? xmlChildren(childrenEl, 'topics') : [];
@@ -285,7 +357,8 @@ function buildXmlTopic(topicEl: Element, depth: number, ctx: BuildCtx): MapNode 
   }
 
   const node: MapNode = { id: newNodeId(), ...fields, children };
-  if (topicEl.getAttribute('branch') === 'folded' && children.length > 0) node.collapsed = true;
+  // The root never collapses: the editor has no fold control at depth 0, so a folded root would hide the whole map.
+  if (depth > 0 && topicEl.getAttribute('branch') === 'folded' && children.length > 0) node.collapsed = true;
   return node;
 }
 
@@ -319,11 +392,14 @@ export function fromXmindXml(xml: string): XmindImport {
 
 // ---------- Container (.xmind zip) ----------
 
-/** Reads a `.xmind` archive: `content.json` when present (the truth, even next to a `content.xml` warning stub), else `content.xml`. */
+/** Reads a `.xmind` archive: `content.json` when present (the truth, even next to a `content.xml` warning stub), else `content.xml`.
+ * `content.xml` is read only when `content.json` is missing, so a hostile `content.xml` can't cost anything on a file
+ * that has a good `content.json`. */
 export async function importXmind(bytes: Uint8Array): Promise<XmindImport> {
   let files: Map<string, Uint8Array>;
   try {
-    files = await readZip(bytes, ['content.json', 'content.xml']);
+    files = await readZip(bytes, ['content.json']);
+    if (!files.has('content.json')) files = await readZip(bytes, ['content.xml']);
   } catch (e) {
     if (e instanceof ZipError) {
       if (/not a zip/i.test(e.message)) throw new XmindError('This is not an XMind file (it is not a zip archive).');

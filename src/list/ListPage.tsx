@@ -124,7 +124,7 @@ export function ListPage({ go = (url: string) => location.assign(url) }: { go?: 
       {error && <p role="alert" className="error">{error}</p>}
       {imported && (
         <p role="status" className="import-result">
-          Imported “{imported.title}”: {imported.topics} topics.
+          Imported “{imported.title}”: {imported.topics} {imported.topics === 1 ? 'topic' : 'topics'}.
           {imported.changed.length > 0 && <> Changed: {imported.changed.join(', ')}.</>}
           {imported.dropped.length > 0 && <> Not brought over: {imported.dropped.join(', ')}.</>} <a href={`/e/${imported.id}`}>Open it</a>
         </p>
