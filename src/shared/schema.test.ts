@@ -1,0 +1,54 @@
+import { describe, expect, it } from 'vitest';
+import { parseMindMap, MapValidationError } from './schema';
+
+const valid = {
+  id: 'abcdefghijklmnopqrstu',
+  title: 'Plan',
+  layout: 'map',
+  version: 3,
+  updatedAt: '2026-11-12T10:00:00.000Z',
+  root: {
+    id: 'root000001',
+    text: 'Plan',
+    children: [
+      {
+        id: 'child00001',
+        text: 'A',
+        children: [],
+        collapsed: true,
+        note: 'n',
+        emoji: '💡',
+        emphasis: 'key',
+        priority: 2,
+        image: { key: 'img/abcdefghijklmnopqrstu/x1.png', w: 200, h: 120 },
+        color: '#e03131',
+      },
+    ],
+  },
+};
+
+describe('parseMindMap', () => {
+  it('accepts a valid map and keeps every optional field', () => {
+    expect(parseMindMap(structuredClone(valid))).toEqual(valid);
+  });
+
+  it('rejects unknown fields on a topic', () => {
+    const bad = structuredClone(valid) as any;
+    bad.root.children[0].script = 'x';
+    expect(() => parseMindMap(bad)).toThrow(MapValidationError);
+  });
+
+  it('rejects a map id that is not 21 url-safe characters', () => {
+    expect(() => parseMindMap({ ...structuredClone(valid), id: 'short' })).toThrow(MapValidationError);
+  });
+
+  it('rejects a priority outside 1..3', () => {
+    const bad = structuredClone(valid) as any;
+    bad.root.children[0].priority = 4;
+    expect(() => parseMindMap(bad)).toThrow(MapValidationError);
+  });
+
+  it('rejects an unknown layout', () => {
+    expect(() => parseMindMap({ ...structuredClone(valid), layout: 'radial' })).toThrow(MapValidationError);
+  });
+});
