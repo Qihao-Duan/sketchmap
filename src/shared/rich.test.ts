@@ -34,6 +34,14 @@ describe('parseRich', () => {
     expect(parseRich('[two\nlines](https://a.com)').links[0]).toMatchObject({ start: 0, end: 9, label: 'two\nlines' });
   });
 
+  it('never lets quotes, angle brackets, backticks, control or bidi characters into an href', () => {
+    for (const text of ['[a](https://x.com"onmouseover=alert(1))', 'https://x.com/<b>', 'https://x.com/a`b', 'https://x.com/\u0000a', 'https://x.com/\u202Egnp.exe']) {
+      for (const l of parseRich(text).links) expect(l.href).toMatch(/^https?:\/\/[^\s"<>`\u0000-\u001f\u202e]*$/);
+    }
+    expect(parseRich('[a](https://x.com"onmouseover=alert(1))').links.map((l) => l.href)).toEqual(['https://x.com']);
+    expect(normalizeHref('https://x.com/"a')).toBeNull();
+  });
+
   it('does not take a URL glued to a word for a bare link', () => {
     expect(parseRich('xhttps://a.com').links).toEqual([]);
   });

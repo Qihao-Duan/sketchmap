@@ -6,7 +6,10 @@ export interface RichLink {
   label: string;
 }
 
-const URL_BODY = String.raw`(?:[^\s()]|\([^\s()]*\))+`;
+// URL characters: no whitespace, parentheses (except one balanced level), quotes, angle brackets, backticks,
+// control characters or bidi/zero-width marks, so an href can never break out of markup or disguise itself.
+const URL_CHAR = String.raw`[^\s()<>"\x60\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]`;
+const URL_BODY = String.raw`(?:${URL_CHAR}|\(${URL_CHAR}*\))+`;
 // [label](http(s)://…): the label may hold escapes and newlines; the URL may hold one level of balanced parentheses.
 const LINK = new RegExp(String.raw`\[((?:\\[\\\[\]]|[^\\\]])*)\]\((https?:\/\/${URL_BODY})\)`, 'iy');
 const BARE = new RegExp(String.raw`https?:\/\/${URL_BODY}`, 'iy');
