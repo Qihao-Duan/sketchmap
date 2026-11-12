@@ -63,7 +63,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const statusRef = useRef(status);
   statusRef.current = status;
   const modalRef = useRef(false);
-  modalRef.current = conflict || askKey;
+  modalRef.current = conflict || askKey || outlineOpen;
 
   const saver = useMemo(
     () =>
@@ -134,12 +134,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   }, [state.selectedId, layout]);
 
   // Refit when the layout changes (not on first render, where the canvas fits itself).
-  const firstLayout = useRef(true);
+  // Compares with the last layout rather than a "first run" flag, which StrictMode's double effect run would defeat.
+  const fittedLayout = useRef(state.map.layout);
   useEffect(() => {
-    if (firstLayout.current) {
-      firstLayout.current = false;
-      return;
-    }
+    if (fittedLayout.current === state.map.layout) return;
+    fittedLayout.current = state.map.layout;
     canvas.current?.fit();
   }, [state.map.layout]);
 

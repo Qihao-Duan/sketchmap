@@ -218,6 +218,13 @@ describe('Editor', () => {
     expect(container.textContent).not.toContain('flat fallback text');
   });
 
+  it('ignores a window paste while the Outline panel is open', async () => {
+    mount(fakeApi());
+    await click('Outline');
+    paste('- Alpha\n- Beta');
+    expect(topics()).toBe(1);
+  });
+
   it('replaces the map from the Outline panel; undo brings the old map back', async () => {
     mount(fakeApi());
     await click('Outline');
