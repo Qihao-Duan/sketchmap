@@ -13,4 +13,7 @@ describe('plainTitle', () => {
   it('caps the title at 120 characters', () => {
     expect(plainTitle(node('x'.repeat(300)))).toHaveLength(120);
   });
+  it('uses the plain text of links', () => {
+    expect(plainTitle({ id: 'r', text: '[Plan](https://a.com) for https://b.com/x', children: [] })).toBe('Plan for b.com/x');
+  });
 });
