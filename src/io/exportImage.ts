@@ -28,6 +28,11 @@ export async function fontCssFor(
   return rules.join('\n');
 }
 
+/** Text of the laid-out (visible) topics only, so a folded branch's hidden text never pulls in font subsets the export doesn't draw. */
+export function visibleText(layout: MapLayout): string {
+  return layout.boxes.map((b) => b.lines.join('\n')).join('\n');
+}
+
 export async function buildSvg(
   layout: MapLayout,
   text: string,
@@ -65,6 +70,7 @@ export async function svgToPng(svgText: string, scale = 2): Promise<Blob> {
       img.onerror = () => reject(new Error('The browser could not draw the SVG.'));
       img.src = url;
     });
+    if (typeof img.decode === 'function') await img.decode().catch(() => undefined);
     const canvas = document.createElement('canvas');
     canvas.width = Math.ceil(img.width * scale);
     canvas.height = Math.ceil(img.height * scale);

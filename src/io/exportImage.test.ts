@@ -1,10 +1,18 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { computeLayout } from '../layout/map';
-import { buildSvg, bytesToBase64, fileName } from './exportImage';
+import { buildSvg, bytesToBase64, fileName, visibleText } from './exportImage';
 
 const layout = computeLayout(
   { id: 'r', text: 'Root', children: [{ id: 'a', text: 'A', children: [{ id: 'a1', text: 'A1', children: [] }] }] },
+  (t, s) => t.length * s * 0.5,
+);
+
+const foldedLayout = computeLayout(
+  {
+    id: 'r', text: 'Root',
+    children: [{ id: 'f', text: 'Folded', collapsed: true, children: [{ id: 'c', text: '中文', children: [] }] }],
+  },
   (t, s) => t.length * s * 0.5,
 );
 
@@ -31,5 +39,13 @@ describe('export', () => {
     expect(bytesToBase64(new Uint8Array([0, 1, 2]))).toBe('AAEC');
     expect(fileName('  Plan: Q4/Q1?  ', 'png')).toBe('Plan- Q4-Q1-.png');
     expect(fileName('   ', 'svg')).toBe('mindmap.svg');
+  });
+
+  it('visibleText excludes folded branches, so buildSvg only fetches the fonts the visible text needs', async () => {
+    const text = visibleText(foldedLayout);
+    expect(text).not.toContain('中文');
+    const fetchImpl = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))) as unknown as typeof fetch;
+    await buildSvg(foldedLayout, text, { fetchImpl });
+    for (const [url] of vi.mocked(fetchImpl).mock.calls) expect(String(url)).not.toContain('/Xiaolai/');
   });
 });

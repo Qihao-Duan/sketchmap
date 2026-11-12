@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { ApiError, createApi, type ApiClient } from '../api/client';
 import { KeyPrompt } from '../auth/KeyPrompt';
 import { getOwnerKey, setOwnerKey } from '../auth/ownerKey';
-import { buildSvg, download, fileName, svgToPng } from '../io/exportImage';
+import { buildSvg, download, fileName, svgToPng, visibleText } from '../io/exportImage';
 import { computeLayout } from '../layout/map';
 import type { Measure } from '../layout/wrap';
 import { allText } from '../model/tree';
@@ -210,7 +210,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const exportAs = async (kind: 'svg' | 'png') => {
     try {
       setExportError(undefined);
-      const svg = await buildSvg(layout, allText(state.map.root));
+      const svg = await buildSvg(layout, visibleText(layout));
       const blob = kind === 'svg' ? new Blob([svg], { type: 'image/svg+xml' }) : await svgToPng(svg);
       download(blob, fileName(state.map.title, kind));
     } catch (e) {
