@@ -93,9 +93,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       if (document.visibilityState === 'hidden') void saver.flush();
     };
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (statusRef.current === 'saved') return;
-      void saver.flush();
+      const unsaved = statusRef.current !== 'saved';
+      const editingOpen = stateRef.current.editing != null;
+      if (!unsaved && !editingOpen) return;
+      if (unsaved) void saver.flush();
       e.preventDefault();
+      e.returnValue = '';
     };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('beforeunload', onBeforeUnload);
