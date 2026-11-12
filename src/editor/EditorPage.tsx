@@ -154,6 +154,14 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     canvas.current?.fit();
   }, [state.map.layout]);
 
+  // Refit when the Details sidebar opens or closes, so it doesn't cover topics (compared with the last state; StrictMode-safe).
+  const fittedDetails = useRef(detailsOpen);
+  useEffect(() => {
+    if (fittedDetails.current === detailsOpen) return;
+    fittedDetails.current = detailsOpen;
+    canvas.current?.fit();
+  }, [detailsOpen]);
+
   // Paste an outline (or plain lines) anywhere outside a text field: topics go under the selection.
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
@@ -188,7 +196,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       // Storage blocked: the choice lasts until reload.
     }
   };
-  const selectedNode = findNode(state.map.root, state.selectedId)?.node ?? null;
+  const selectedNode = layout.byId.get(state.selectedId)?.node ?? findNode(state.map.root, state.selectedId)?.node ?? null;
 
   const run = useCallback((cmd: Command) => {
     const s = stateRef.current;

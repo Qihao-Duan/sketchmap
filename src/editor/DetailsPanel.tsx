@@ -93,6 +93,24 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote }:
   };
   // A note still waiting for its pause is saved when the panel goes away (another topic was selected).
   useEffect(() => () => flush(), []);
+  // Leaving the page: save a note still waiting for its pause, and ask before closing while it is unsaved.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (pending.current === null) return;
+      flush();
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, []);
   // Undo or redo can change the note underneath: show the stored note unless the user is typing here.
   useEffect(() => {
     if (document.activeElement !== noteBox.current) setNote(node.note ?? '');

@@ -375,6 +375,15 @@ describe('Details panel', () => {
     expect(ta.value).toBe('');
   });
 
+  it('saves a note still waiting for its pause when the page is about to close, and asks first', () => {
+    mount(fakeApi());
+    type(container.querySelector('textarea[aria-label="Note"]') as HTMLTextAreaElement, 'Quick thought');
+    const ev = new Event('beforeunload', { cancelable: true });
+    act(() => void window.dispatchEvent(ev));
+    expect(ev.defaultPrevented).toBe(true);
+    expect(container.querySelector('g.note-icon title')!.textContent).toBe('Quick thought');
+  });
+
   it('closes an open topic edit first, keeping the typed text', async () => {
     mount(fakeApi());
     keydown({ key: 'Tab' });
