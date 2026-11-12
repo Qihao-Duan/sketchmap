@@ -84,7 +84,14 @@ test('the org chart and a pasted outline survive a reload and show in the view',
 
   await page.goto(`/m/${id}`);
   await expect(page.locator('g.topic')).toHaveCount(4);
-  const top = async (label: RegExp) => (await page.locator('svg text', { hasText: label }).boundingBox())!.y;
-  expect(await top(/^Alpha 1$/)).toBeGreaterThan(await top(/^Alpha$/)); // stacked under its parent
-  expect(Math.abs((await top(/^Alpha$/)) - (await top(/^Beta$/)))).toBeLessThan(2); // first level shares a row
+  // Read all three positions in one synchronous snapshot: a refit after the fonts load cannot land between them.
+  const top = await page.evaluate(() => {
+    const y = (label: string) =>
+      [...document.querySelectorAll('svg text')].find((e) => e.textContent === label)!.getBoundingClientRect().y;
+    return { root: y('Central topic'), alpha: y('Alpha'), alpha1: y('Alpha 1'), beta: y('Beta') };
+  });
+  // In the mind-map layout all four sit on about one line (Alpha right, Beta left, Alpha 1 beside Alpha).
+  expect(top.alpha - top.root).toBeGreaterThan(40); // first level below the root (org: ~170 px, mind map: ~6 px)
+  expect(top.alpha1 - top.alpha).toBeGreaterThan(40); // stacked under its parent (org: ~77 px)
+  expect(Math.abs(top.alpha - top.beta)).toBeLessThan(2); // first level shares a row
 });
