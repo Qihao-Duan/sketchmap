@@ -847,7 +847,22 @@ describe('Excalidraw export', () => {
     await click('Excalidraw');
     expect(vi.mocked(buildExcalidraw).mock.calls.at(-1)![0].byId.get('root000001')!.lines.join(' ')).toContain('Changed');
     expect(container.querySelector('textarea.inline-editor')).toBeNull();
-    expect(download).toHaveBeenCalledTimes(1); // the file name follows the title, which only the server echo updates
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(download).mock.calls[0][1]).toBe('Changed.excalidraw'); // named from the text on screen, not the last saved title
+  });
+
+  it('includes an image whose upload finished during an edit that changed nothing', async () => {
+    const { uploadImage, releases } = deferredUploads();
+    mount(fakeApi({ uploadImage }));
+    await chooseImage(new File(['x'], 'photo.png', { type: 'image/png' }));
+    keydown({ key: 'F2' });
+    await act(async () => {
+      releases[0]();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(container.querySelector('image.topic-image')).toBeNull();
+    await click('Excalidraw');
+    expect(vi.mocked(buildExcalidraw).mock.calls.at(-1)![0].byId.get('root000001')!.node.image).toBeDefined();
   });
 
   it('includes a note still waiting for its pause', async () => {

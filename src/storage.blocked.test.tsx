@@ -9,6 +9,8 @@ import type { MindMap } from './shared/types';
 // inside the tests, after the block is in place, because `browserStorage()` picks its store once.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+const originalSession = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+const reads = { local: 0, session: 0 };
 let container: HTMLDivElement;
 
 beforeAll(() => {
@@ -16,12 +18,21 @@ beforeAll(() => {
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
     get() {
+      reads.local++;
+      throw new DOMException('The operation is insecure.', 'SecurityError');
+    },
+  });
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    get() {
+      reads.session++;
       throw new DOMException('The operation is insecure.', 'SecurityError');
     },
   });
 });
 afterAll(() => {
   if (original) Object.defineProperty(globalThis, 'localStorage', original);
+  if (originalSession) Object.defineProperty(globalThis, 'sessionStorage', originalSession);
 });
 afterEach(() => container?.remove());
 
@@ -69,5 +80,19 @@ describe('with browser storage blocked', () => {
     expect(fold).not.toBeNull();
     act(() => fold!.click());
     expect(container.querySelector('.details-tab')).not.toBeNull();
+  });
+
+  it('the view-only embed reads no browser storage at all', async () => {
+    const before = { ...reads };
+    const { MapView } = await import('./view/ViewPage');
+    const map: MindMap = {
+      id: 'abcdefghijklmnopqrstu', title: 'Root', layout: 'map', version: 1, updatedAt: 't',
+      root: { id: 'root000001', text: 'Root', children: [{ id: 'kid0000001', text: 'Child', children: [] }] },
+    };
+    act(() => createRoot(mountPoint()).render(<MapView map={map} measureFactory={() => (t, s) => t.length * s * 0.5} />));
+    expect(container.querySelectorAll('g.topic')).toHaveLength(2);
+    const fold = container.querySelector('[data-fold] rect');
+    if (fold) act(() => void fold.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
+    expect(reads).toEqual(before);
   });
 });

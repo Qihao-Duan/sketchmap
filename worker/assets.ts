@@ -28,9 +28,12 @@ export function securityHeaders(pathname: string, contentType: string | null, de
   return headers;
 }
 
-/** A year, and never re-checked: for files whose name changes whenever their content does. */
+/**
+ * A year, and never re-checked. Bundle names are content hashes, so they change with the content. Font names are fixed
+ * by the pinned Excalidraw version, and `scripts/copy-fonts.mjs` fails the build if one ever changes content under the same name.
+ */
 export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
-/** Vite's bundles (`<name>-<8-character hash>.<ext>`) and the font subsets (`<Family>-Regular-<md5>.woff2`). */
+/** Vite's bundles (`<name>-<8-character hash>.<ext>`) and the font subsets (`<Family>-Regular-<32 hex>.woff2`). */
 const CONTENT_HASHED = /^\/(assets\/[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+|fonts\/(Excalifont|Xiaolai)\/\2-Regular-[0-9a-f]{32}\.woff2)$/;
 
 export async function serveAsset(request: Request, env: Pick<Env, 'ASSETS'>): Promise<Response> {
@@ -43,9 +46,10 @@ export async function serveAsset(request: Request, env: Pick<Env, 'ASSETS'>): Pr
   }
   for (const [k, v] of Object.entries(securityHeaders(pathname, upstream.headers.get('Content-Type')))) res.headers.set(k, v);
   // Only real files: a bundle name that no longer exists is answered with the HTML page (single-page
-  // fallback), and that must not be kept for a year.
-  const contentType = upstream.headers.get('Content-Type') ?? '';
-  if (upstream.status === 200 && CONTENT_HASHED.test(pathname) && !contentType.includes('text/html')) {
+  // fallback), and that must not be kept for a year. A 304 answer to a revalidation carries the header too, so
+  // a browser that stored the file earlier switches to the long lifetime; one without a Content-Type is left alone.
+  const contentType = upstream.headers.get('Content-Type');
+  if ((upstream.status === 200 || upstream.status === 304) && CONTENT_HASHED.test(pathname) && contentType && !contentType.includes('text/html')) {
     res.headers.set('Cache-Control', IMMUTABLE_CACHE);
   }
   // Set `data-theme` server-side so there's no flash of the system theme while the module script

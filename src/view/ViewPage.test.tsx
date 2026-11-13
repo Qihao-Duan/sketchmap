@@ -70,4 +70,22 @@ describe('ViewPage', () => {
     await act(async () => {});
     expect(container.textContent).toContain('This map doesn’t exist or was deleted.');
   });
+
+  it('shows "Loading map…" at once when Try again is clicked, not the old error', async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      vi.stubGlobal('fetch', vi.fn(() => (++calls <= 2 ? Promise.reject(new TypeError('offline')) : new Promise<Response>(() => {}))));
+      await render(<ViewPage id={map.id} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); }); // the read is retried once, then fails
+      expect(calls).toBe(2);
+      expect(container.querySelector('[role="alert"]')).not.toBeNull();
+      const again = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again')!;
+      await act(async () => { again.click(); });
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(container.textContent).toContain('Loading map…');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

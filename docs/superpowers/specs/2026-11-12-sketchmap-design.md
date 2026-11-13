@@ -257,7 +257,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
   - Size limits are enforced.
   - Image type is checked from the file's magic bytes, not only from the `Content-Type` header.
 - **Unused images:** deleting an image from a topic does not delete the file right away, because undo may need it. A clean-up task runs on map delete. A periodic sweep is v2.
-- **Static-file caching:** Content-hashed files (`/assets/*-<hash>.*`, the font subsets) are served with `Cache-Control: public, max-age=31536000, immutable`; HTML and `/api/*` are not cached.
+- **Static-file caching:** Vite's hashed bundles (`/assets/*-<hash>.*`) and the font subsets (fixed names from the pinned Excalidraw version; `scripts/copy-fonts.mjs` fails if one changes content) are served with `Cache-Control: public, max-age=31536000, immutable`, and a 304 for those files carries the same header. HTML is revalidated on every load, and `/api/*` answers are never stored (`no-store`).
 
 ## 9. Import and export
 

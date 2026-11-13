@@ -66,6 +66,7 @@ export function ViewPage({ id }: { id: string }) {
 
   useEffect(() => {
     let alive = true;
+    setLoad({ status: 'loading' });
     api.getMap(id).then(
       ({ map }) => {
         if (!alive) return;

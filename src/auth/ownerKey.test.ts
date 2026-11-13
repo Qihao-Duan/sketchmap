@@ -19,7 +19,7 @@ describe('owner key storage', () => {
     const blocked = { getItem: () => { throw new Error('denied'); } };
     expect(getOwnerKey(blocked)).toBeNull();
   });
-  it('uses the browser storage by default', () => {
+  it('works with the default storage (the in-memory stand-in under node)', () => {
     setOwnerKey('k');
     expect(getOwnerKey()).toBe('k');
     clearOwnerKey();

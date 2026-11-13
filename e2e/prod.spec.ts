@@ -61,6 +61,11 @@ test('the production build works under its strict CSP: editor, PNG export and vi
     page.evaluate(() => performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).find((p) => p.startsWith('/fonts/')) ?? null);
   await expect.poll(fontPath).not.toBeNull();
   const font = (await fontPath())!;
-  expect((await page.request.get(font)).headers()['cache-control']).toBe('public, max-age=31536000, immutable');
+  const first = await page.request.get(font);
+  expect(first.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
+  // A browser that stored the font earlier revalidates it: the 304 answer carries the long lifetime too.
+  const again = await page.request.get(font, { headers: { 'If-None-Match': first.headers()['etag'] } });
+  expect(again.status()).toBe(304);
+  expect(again.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
   expect((await page.request.get('/')).headers()['cache-control'] ?? '').not.toContain('immutable');
 });

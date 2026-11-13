@@ -107,6 +107,27 @@ describe('long-lived caching for content-hashed files', () => {
     const res = await get('/assets/index-D4btxGR0.js', { ...(env as unknown as Env), ASSETS });
     expect(res.headers.get('Cache-Control')).toBe(REVALIDATE);
   });
+
+  const notModified = (path: string, headers: Record<string, string>) => {
+    const ASSETS = { fetch: async () => new Response(null, { status: 304, headers: { 'Cache-Control': REVALIDATE, ...headers } }) } as unknown as Fetcher;
+    return get(path, { ...(env as unknown as Env), ASSETS });
+  };
+
+  it('also carries the year-long header on a 304 revalidation answer', async () => {
+    const res = await notModified(FONT, { 'Content-Type': 'font/woff2' });
+    expect(res.status).toBe(304);
+    expect(res.headers.get('Cache-Control')).toBe(IMMUTABLE_CACHE);
+  });
+
+  it('leaves a 304 for the single-page fallback alone', async () => {
+    const res = await notModified('/assets/gone-AAAAAAAA.js', { 'Content-Type': 'text/html; charset=utf-8' });
+    expect(res.headers.get('Cache-Control')).toBe(REVALIDATE);
+  });
+
+  it('leaves a 304 without a Content-Type alone', async () => {
+    const res = await notModified('/assets/index-D4btxGR0.js', {});
+    expect(res.headers.get('Cache-Control')).toBe(REVALIDATE);
+  });
 });
 
 describe('contentSecurityPolicy', () => {

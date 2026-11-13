@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiError, createApi, type ApiClient } from '../api/client';
 import { KeyPrompt } from '../auth/KeyPrompt';
@@ -13,6 +13,7 @@ import type { Measure } from '../layout/wrap';
 import { allText, findNode } from '../model/tree';
 import { canvasMeasure, ensureFonts } from '../render/fonts';
 import { linkWhole, parseRich } from '../shared/rich';
+import { plainTitle } from '../shared/title';
 import type { LayoutKind, MindMap } from '../shared/types';
 import { browserStorage } from '../storage';
 import { Autosaver, draftKey, readDraft, type Draft, type SaveStatus } from './autosave';
@@ -234,18 +235,19 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   // upload never blurs the inline editor or the Note box. If the topic is gone by then, the reducer
   // ignores the dispatch and the banner says why.
   const pendingImages = useRef<Array<{ id: string; image: { key: string; w: number; h: number } }>>([]);
-  const wasEditing = useRef(!!state.editing);
-  useEffect(() => {
-    const isEditing = !!state.editing;
-    if (wasEditing.current && !isEditing && pendingImages.current.length) {
-      const pending = pendingImages.current;
-      pendingImages.current = [];
-      for (const { id, image } of pending) {
-        if (findNode(stateRef.current.map.root, id)) dispatch({ type: 'setImage', id, image });
-        else setImageError('Image not added: the topic was removed before the upload finished.');
-      }
+  const applyPendingImages = () => {
+    if (stateRef.current.editing || !pendingImages.current.length) return;
+    const pending = pendingImages.current;
+    pendingImages.current = [];
+    for (const { id, image } of pending) {
+      if (findNode(stateRef.current.map.root, id)) dispatch({ type: 'setImage', id, image });
+      else setImageError('Image not added: the topic was removed before the upload finished.');
     }
-    wasEditing.current = isEditing;
+  };
+  // A layout effect, not a passive one: its dispatch is then flushed inside the same flushSync that ended the edit
+  // (see exportAs), whereas a passive effect's update would be drawn only after the export had read the layout.
+  useLayoutEffect(() => {
+    if (!state.editing) applyPendingImages();
   }, [state.editing]);
   const attachImage = async (id: string, file: File) => {
     if (stateRef.current.editing?.isNew) {
@@ -408,8 +410,9 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     // An inline edit still open, or a note still waiting for its pause, goes into the map first, so the
     // file shows what is on screen. flushSync makes the refs below reflect that commit before they are read.
     flushSync(endEdit);
+    flushSync(applyPendingImages);
     const current = layoutRef.current;
-    const title = stateRef.current.map.title;
+    const title = plainTitle(stateRef.current.map.root);
     setExporting(true);
     try {
       setExportError(undefined);

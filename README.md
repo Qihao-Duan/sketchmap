@@ -32,7 +32,7 @@ curl -s https://sketchmap.<account>.workers.dev/ | grep -o '/assets/index-[^"]*\
 curl -sI https://sketchmap.<account>.workers.dev/assets/index-XXXXXXXX.js | grep -i cache-control   # public, max-age=31536000, immutable
 ```
 
-Every page is served with a strict Content-Security-Policy (same-origin scripts only); `npx playwright test` checks it against the production build. Scripts, styles and fonts are cached by the browser for a year (their names change when their content does); pages and map data are fetched fresh every time.
+Every page is served with a strict Content-Security-Policy (same-origin scripts only); `npx playwright test` checks it against the production build. Scripts, styles and fonts are cached by the browser for a year: a script or style gets a new name whenever its content changes, and the build fails if a font file ever changes under the same name. Pages and map data are fetched fresh every time.
 
 ## Put a map in Notion
 
@@ -62,7 +62,7 @@ Browsers: the editor and the embed need Chrome/Edge 123+, Firefox 120+ or Safari
 - **Layout switch.** Pick **Mind map**, **Logic chart** or **Org chart** from the header; the choice is saved with the map.
 - **Outline.** The **Outline** button opens the map as a Markdown outline: edit the text (or paste one from elsewhere) and **Replace map with this**, or close without applying.
 - **Paste.** An outline or list copied from XMind, Notion or a text editor, pasted anywhere outside a text field, is added under the selected topic. ⌘Z undoes it.
-- **Saving.** Changes are saved a second after you stop. If a save fails, the map is kept in this browser, the badge reads "Not saved, retrying", and saving resumes by itself, at once when the connection comes back. If the browser blocks site data, the app still works, but it asks for the owner key on every page and keeps no local copy of unsaved changes.
+- **Saving.** Changes are saved a second after you stop. If a save fails, the map is kept in this browser, the badge reads "Not saved, retrying", and the save is retried by itself with growing pauses, and straight away when the browser reports that the connection is back. If the browser blocks site data, the app still works, but it asks for the owner key on every page and keeps no local copy of unsaved changes.
 
 ## Topic details
 
@@ -103,8 +103,8 @@ In dark mode the drawing is inverted the way Excalidraw does it, but images are 
 - Checked on 2026-11-12: the `/m/…` embed loads in Notion in the browser (Chrome) and in the Notion desktop app. Edits made with **Edit in a tab** show up after reloading the Notion page, and a normal mouse wheel over the embed scrolls the page.
 - Checked on 2026-11-13 by the browser tests in Playwright's WebKit (Safari's engine) and Firefox builds, as well as Chromium: creating and editing a map, the embed inside a Notion-like sandboxed frame, links, drag-to-move, images (added from the panel, dropped, pasted, imported from `.xmind`), SVG, PNG and Excalidraw export, dark mode and `?theme=`. Those builds are not Safari itself or iOS, and the tests paste with a scripted event, not the real clipboard.
 - Not yet checked: Safari itself and iOS; Chinese input (IME) and a real clipboard paste in Safari and Firefox; opening a link from the embed in the Notion desktop and mobile apps; opening the `.excalidraw` export in excalidraw.com. XMind notes and XMind 8 files are imported from the documented format; no real sample with notes or from XMind 8 was available.
-- Notes show on hover only, so they can't be read on a touch screen.
-- Large maps get slower to edit, because every change redraws the whole map. Measured in Chrome on the development machine (2026-11-13), the time from an arrow key to the screen updating was about 33 ms up to 300 topics, 68 ms at 1000 and 118 ms at 2000.
+- In the Notion view a note shows only while the pointer is over its icon, so it can't be read on a touch screen. The editor also shows it in the Details panel.
+- Large maps get slower to edit, because every change redraws the whole map. Measured in headless Chromium on the development machine (2026-11-13), the time from an arrow key to the screen updating was 33 ms at 100 and 300 topics (33 ms is the shortest time this measurement can show), about 68 ms at 1000 and about 118 ms at 2000.
 - The Markdown outline keeps topic text, nesting, Key, priority and markers. Line breaks inside a topic, folded state, topic identity, Highlight, Aside, notes and images are not kept, so replacing the map from the outline removes them (undo brings them back).
 - Pasting a very large outline (thousands of topics) is slow, and a map over 2 MB cannot be saved; undo the paste if that happens.
 - An existing map's title where maps are listed keeps raw link syntax (`[label](https://…)`, a bare URL) until that map is next saved.
