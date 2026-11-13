@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
 import { buildExcalidraw } from '../io/excalidraw';
-import { download } from '../io/exportImage';
+import { buildSvg, download } from '../io/exportImage';
 import { ImageError, prepareImage } from '../io/imagePrep';
 import type { MindMap } from '../shared/types';
 import { draftKey } from './autosave';
@@ -25,7 +25,7 @@ vi.mock('../io/excalidraw', async (importOriginal) => {
 });
 vi.mock('../io/exportImage', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../io/exportImage')>();
-  return { ...actual, download: vi.fn() };
+  return { ...actual, download: vi.fn(), buildSvg: vi.fn(actual.buildSvg) };
 });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -838,6 +838,34 @@ describe('Excalidraw export', () => {
     });
     expect(exportButtons().every((b) => b.disabled)).toBe(false);
     expect(download).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits an open inline edit before building the file', async () => {
+    mount(fakeApi());
+    keydown({ key: 'F2' });
+    type(container.querySelector('textarea.inline-editor') as HTMLTextAreaElement, 'Changed');
+    await click('Excalidraw');
+    expect(vi.mocked(buildExcalidraw).mock.calls.at(-1)![0].byId.get('root000001')!.lines.join(' ')).toContain('Changed');
+    expect(container.querySelector('textarea.inline-editor')).toBeNull();
+    expect(download).toHaveBeenCalledTimes(1); // the file name follows the title, which only the server echo updates
+  });
+
+  it('includes a note still waiting for its pause', async () => {
+    mount(fakeApi());
+    const note = container.querySelector('textarea[aria-label="Note"]') as HTMLTextAreaElement;
+    act(() => note.focus());
+    type(note, 'Remember');
+    await click('Excalidraw');
+    const banners = [...container.querySelectorAll('[role="status"]')].map((e) => e.textContent); // the save badge is a status too
+    expect(banners.some((t) => t?.startsWith('Downloaded. Not kept in .excalidraw: notes.'))).toBe(true);
+  });
+
+  it('SVG export takes the same path', async () => {
+    mount(fakeApi());
+    keydown({ key: 'F2' });
+    type(container.querySelector('textarea.inline-editor') as HTMLTextAreaElement, 'Changed');
+    await click('SVG');
+    expect(vi.mocked(buildSvg).mock.calls.at(-1)![0].byId.get('root000001')!.lines.join(' ')).toContain('Changed');
   });
 
   it('shows "Export failed: boom" and re-enables the buttons when buildExcalidraw rejects', async () => {

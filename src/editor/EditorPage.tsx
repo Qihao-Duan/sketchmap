@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { ApiError, createApi, type ApiClient } from '../api/client';
 import { KeyPrompt } from '../auth/KeyPrompt';
 import { getOwnerKey, setOwnerKey } from '../auth/ownerKey';
@@ -404,22 +405,27 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   };
   const exportAs = async (kind: 'svg' | 'png' | 'excalidraw') => {
     if (exporting) return;
+    // An inline edit still open, or a note still waiting for its pause, goes into the map first, so the
+    // file shows what is on screen. flushSync makes the refs below reflect that commit before they are read.
+    flushSync(endEdit);
+    const current = layoutRef.current;
+    const title = stateRef.current.map.title;
     setExporting(true);
     try {
       setExportError(undefined);
       if (kind === 'excalidraw') {
-        const { json, missingImages } = await buildExcalidraw(layout);
-        download(new Blob([json], { type: EXCALIDRAW_MIME }), fileName(state.map.title, 'excalidraw'));
+        const { json, missingImages } = await buildExcalidraw(current);
+        download(new Blob([json], { type: EXCALIDRAW_MIME }), fileName(title, 'excalidraw'));
         const items = [
-          ...excalidrawLosses(layout),
+          ...excalidrawLosses(current),
           ...(missingImages > 0 ? [`${missingImages} image${missingImages === 1 ? '' : 's'} that could not be loaded`] : []),
         ];
         setNotice(items.length ? `Downloaded. Not kept in .excalidraw: ${items.join(', ')}.` : null);
         return;
       }
-      const svg = await buildSvg(layout, visibleText(layout));
+      const svg = await buildSvg(current, visibleText(current));
       const blob = kind === 'svg' ? new Blob([svg], { type: 'image/svg+xml' }) : await svgToPng(svg);
-      download(blob, fileName(state.map.title, kind));
+      download(blob, fileName(title, kind));
     } catch (e) {
       setExportError(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {

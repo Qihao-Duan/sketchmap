@@ -54,7 +54,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
 }
 .editor-bar a:hover, .editor-bar button:hover, .float button:hover:not(:disabled), .banner button:hover { background: var(--surface-2); }
 .save-badge { font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); }
-.save-badge.retrying, .save-badge.conflict, .save-badge.unauthorized { color: var(--warn); }
+.save-badge.retrying, .save-badge.conflict, .save-badge.unauthorized, .save-badge.rejected { color: var(--warn); }
 .editor-stage { position: relative; flex: 1; min-height: 0; }
 .float { position: absolute; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
 .toolbar { left: 12px; bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 5px; max-width: calc(100% - 24px); }
