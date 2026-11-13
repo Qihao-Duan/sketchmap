@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker, { type Env } from '../index';
-import { contentSecurityPolicy } from '../assets';
+import { contentSecurityPolicy, IMMUTABLE_CACHE } from '../assets';
 
 function withAssets(contentType: string, extra: Record<string, string> = {}): Env {
   const ASSETS = {
@@ -62,6 +62,50 @@ describe('?theme= sets data-theme in the served HTML, so there is no flash of th
   it('leaves a non-HTML asset untouched even with ?theme=', async () => {
     const res = await get('/assets/index.js?theme=dark', withHtmlAssets('console.log(1)', 'text/javascript'));
     expect(await res.text()).toBe('console.log(1)');
+  });
+});
+
+describe('long-lived caching for content-hashed files', () => {
+  const REVALIDATE = 'public, max-age=0, must-revalidate';
+  const FONT = '/fonts/Excalifont/Excalifont-Regular-349fac6ca4700ffec595a7150a0d1e1d.woff2';
+
+  it('caches hashed bundles and font subsets for a year', async () => {
+    for (const [path, type] of [
+      ['/assets/index-D4btxGR0.js', 'text/javascript'],
+      ['/assets/index-Bq3_x-9Z.css', 'text/css'],
+      ['/assets/file-open-002ab408-BHUWm0Sh.js', 'text/javascript'],
+      [FONT, 'font/woff2'],
+      ['/fonts/Xiaolai/Xiaolai-Regular-019d66dcad46dc156b162d267f981c20.woff2', 'font/woff2'],
+    ]) {
+      const res = await get(path, withAssets(type, { 'Cache-Control': REVALIDATE }));
+      expect(res.headers.get('Cache-Control'), path).toBe(IMMUTABLE_CACHE);
+      expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    }
+  });
+
+  it('leaves pages, unhashed files and the licence text alone', async () => {
+    for (const [path, type] of [
+      ['/', 'text/html; charset=utf-8'],
+      ['/m/abcdefghijklmnopqrstu', 'text/html'],
+      ['/assets/plain.js', 'text/javascript'],
+      ['/fonts/OFL.txt', 'text/plain'],
+      ['/fonts/Other/Other-Regular-349fac6ca4700ffec595a7150a0d1e1d.woff2', 'font/woff2'],
+    ]) {
+      const res = await get(path, withAssets(type, { 'Cache-Control': REVALIDATE }));
+      expect(res.headers.get('Cache-Control'), path).toBe(REVALIDATE);
+    }
+  });
+
+  it('does not cache the page that answers for a bundle that no longer exists', async () => {
+    // not_found_handling: single-page-application answers a missing file with index.html and status 200.
+    const res = await get('/assets/gone-AAAAAAAA.js', withAssets('text/html; charset=utf-8', { 'Cache-Control': REVALIDATE }));
+    expect(res.headers.get('Cache-Control')).toBe(REVALIDATE);
+  });
+
+  it('does not cache an error answer', async () => {
+    const ASSETS = { fetch: async () => new Response('nope', { status: 404, headers: { 'Content-Type': 'text/javascript', 'Cache-Control': REVALIDATE } }) } as unknown as Fetcher;
+    const res = await get('/assets/index-D4btxGR0.js', { ...(env as unknown as Env), ASSETS });
+    expect(res.headers.get('Cache-Control')).toBe(REVALIDATE);
   });
 });
 

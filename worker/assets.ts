@@ -28,6 +28,11 @@ export function securityHeaders(pathname: string, contentType: string | null, de
   return headers;
 }
 
+/** A year, and never re-checked: for files whose name changes whenever their content does. */
+export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
+/** Vite's bundles (`<name>-<8-character hash>.<ext>`) and the font subsets (`<Family>-Regular-<md5>.woff2`). */
+const CONTENT_HASHED = /^\/(assets\/[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+|fonts\/(Excalifont|Xiaolai)\/\2-Regular-[0-9a-f]{32}\.woff2)$/;
+
 export async function serveAsset(request: Request, env: Pick<Env, 'ASSETS'>): Promise<Response> {
   const upstream = await env.ASSETS.fetch(request);
   const res = new Response(upstream.body, upstream); // copy so headers are mutable
@@ -37,6 +42,12 @@ export async function serveAsset(request: Request, env: Pick<Env, 'ASSETS'>): Pr
     res.headers.delete('Content-Security-Policy');
   }
   for (const [k, v] of Object.entries(securityHeaders(pathname, upstream.headers.get('Content-Type')))) res.headers.set(k, v);
+  // Only real files: a bundle name that no longer exists is answered with the HTML page (single-page
+  // fallback), and that must not be kept for a year.
+  const contentType = upstream.headers.get('Content-Type') ?? '';
+  if (upstream.status === 200 && CONTENT_HASHED.test(pathname) && !contentType.includes('text/html')) {
+    res.headers.set('Cache-Control', IMMUTABLE_CACHE);
+  }
   // Set `data-theme` server-side so there's no flash of the system theme while the module script
   // loads and runs: `main.tsx`'s own `applyTheme` call is harmless and still covers non-Worker hosting.
   const theme = (res.headers.get('Content-Type') ?? '').includes('text/html') ? themeFromSearch(search) : null;

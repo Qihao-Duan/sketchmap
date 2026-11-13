@@ -28,9 +28,11 @@ npm run deploy                         # prints https://sketchmap.<account>.work
 curl -sI https://sketchmap.<account>.workers.dev/e/abcdefghijklmnopqrstu | grep -i content-security-policy   # frame-ancestors 'none'
 curl -sI https://sketchmap.<account>.workers.dev/m/abcdefghijklmnopqrstu | grep -ci "frame-ancestors\|x-frame-options"   # 0
 curl -s -o /dev/null -w '%{http_code}\n' https://sketchmap.<account>.workers.dev/api/maps   # 401
+curl -s https://sketchmap.<account>.workers.dev/ | grep -o '/assets/index-[^"]*\.js' | head -1    # the script's path
+curl -sI https://sketchmap.<account>.workers.dev/assets/index-XXXXXXXX.js | grep -i cache-control   # public, max-age=31536000, immutable
 ```
 
-Every page is served with a strict Content-Security-Policy (same-origin scripts only); `npx playwright test` checks it against the production build.
+Every page is served with a strict Content-Security-Policy (same-origin scripts only); `npx playwright test` checks it against the production build. Scripts, styles and fonts are cached by the browser for a year (their names change when their content does); pages and map data are fetched fresh every time.
 
 ## Put a map in Notion
 

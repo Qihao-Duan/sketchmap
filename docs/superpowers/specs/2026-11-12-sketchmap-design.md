@@ -257,6 +257,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
   - Size limits are enforced.
   - Image type is checked from the file's magic bytes, not only from the `Content-Type` header.
 - **Unused images:** deleting an image from a topic does not delete the file right away, because undo may need it. A clean-up task runs on map delete. A periodic sweep is v2.
+- **Static-file caching:** Content-hashed files (`/assets/*-<hash>.*`, the font subsets) are served with `Cache-Control: public, max-age=31536000, immutable`; HTML and `/api/*` are not cached.
 
 ## 9. Import and export
 

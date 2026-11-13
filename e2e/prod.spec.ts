@@ -50,4 +50,13 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   await page.locator('input[aria-label="XMind file"]').setInputFiles({ name: 'small.xmind', mimeType: 'application/octet-stream', buffer: Buffer.from(xmind) });
   await expect(page.locator('.import-result')).toBeVisible();
   expect(violations).toEqual([]);
+
+  // Hashed bundles and font subsets are kept for a year; pages are always fetched fresh.
+  await page.goto('/');
+  const script = (await page.locator('script[type="module"][src]').first().getAttribute('src'))!;
+  expect((await page.request.get(script)).headers()['cache-control']).toBe('public, max-age=31536000, immutable');
+  const font = await page.evaluate(() => performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).find((p) => p.startsWith('/fonts/')));
+  expect(font).toBeTruthy();
+  expect((await page.request.get(font!)).headers()['cache-control']).toBe('public, max-age=31536000, immutable');
+  expect((await page.request.get('/')).headers()['cache-control'] ?? '').not.toContain('immutable');
 });
