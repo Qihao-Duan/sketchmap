@@ -29,6 +29,13 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'PNG' }).click();
   expect((await download).suggestedFilename()).toMatch(/\.png$/);
+
+  // The pinned Excalidraw library loads as a separate same-origin chunk and runs under script-src 'self'.
+  const excalidraw = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Excalidraw' }).click();
+  expect((await excalidraw).suggestedFilename()).toMatch(/\.excalidraw$/);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(violations).toEqual([]);
   await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
 
   await page.goto(`/m/${id}`);

@@ -292,3 +292,30 @@ test('an SVG image is drawn into a PNG, in the browser, and any script it carrie
 
   expect(await page.title()).not.toBe('pwned'); // drawn through an <img>, so the <script> inside never ran
 });
+
+test('the Excalidraw export downloads a scene with the topics, their text and the image file', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PNG_2x2 });
+  await expect(page.locator('g.topic image.topic-image')).toHaveCount(1);
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Alpha');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('g.topic')).toHaveCount(2);
+
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Excalidraw' }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/\.excalidraw$/);
+  const chunks: Buffer[] = [];
+  for await (const chunk of (await file.createReadStream())!) chunks.push(chunk as Buffer);
+  const scene = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+
+  expect(scene.type).toBe('excalidraw');
+  const texts = scene.elements.filter((e: { type: string }) => e.type === 'text').map((e: { text: string }) => e.text);
+  expect(texts).toContain('Alpha');
+  expect(scene.elements.some((e: { type: string; fontFamily?: number }) => e.type === 'text' && e.fontFamily !== 5)).toBe(false);
+  const image = scene.elements.find((e: { type: string }) => e.type === 'image');
+  expect(scene.files[image.fileId].dataURL).toMatch(/^data:image\/png;base64,/);
+  // Measured with the real Excalifont in a real browser: the text has a real width.
+  expect(scene.elements.find((e: { text?: string }) => e.text === 'Alpha').width).toBeGreaterThan(20);
+});

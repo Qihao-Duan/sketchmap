@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { ApiError, createApi, type ApiClient } from '../api/client';
 import { KeyPrompt } from '../auth/KeyPrompt';
 import { getOwnerKey, setOwnerKey } from '../auth/ownerKey';
+import { buildExcalidraw, EXCALIDRAW_MIME, excalidrawLosses } from '../io/excalidraw';
 import { buildSvg, download, fileName, svgToPng, visibleText } from '../io/exportImage';
 import { parseHtmlOutline } from '../io/htmlOutline';
 import { displaySize, prepareImage } from '../io/imagePrep';
@@ -57,7 +58,8 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [linkFor, setLinkFor] = useState<string | null>(null);
   const [mdCopied, setMdCopied] = useState(false);
-  const [mdNotice, setMdNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [imageUploads, setImageUploads] = useState(0);
   const [imageError, setImageError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(() => {
@@ -377,7 +379,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     navigator.clipboard.writeText(toMarkdown(state.map.root, { imageBase: location.origin })).then(
       () => {
         setMdCopied(true);
-        setMdNotice(lost.length ? `Copied. Not kept in Markdown: ${lost.join(', ')}.` : null);
+        setNotice(lost.length ? `Copied. Not kept in Markdown: ${lost.join(', ')}.` : null);
       },
       () => {
         setOutlineOpen(true);
@@ -392,14 +394,25 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     setOutlineOpen(false);
     return null;
   };
-  const exportAs = async (kind: 'svg' | 'png') => {
+  const exportAs = async (kind: 'svg' | 'png' | 'excalidraw') => {
+    if (exporting) return;
+    setExporting(true);
     try {
       setExportError(undefined);
+      if (kind === 'excalidraw') {
+        const json = await buildExcalidraw(layout);
+        download(new Blob([json], { type: EXCALIDRAW_MIME }), fileName(state.map.title, 'excalidraw'));
+        const lost = excalidrawLosses(layout);
+        setNotice(lost.length ? `Downloaded. Not kept in .excalidraw: ${lost.join(', ')}.` : null);
+        return;
+      }
       const svg = await buildSvg(layout, visibleText(layout));
       const blob = kind === 'svg' ? new Blob([svg], { type: 'image/svg+xml' }) : await svgToPng(svg);
       download(blob, fileName(state.map.title, kind));
     } catch (e) {
       setExportError(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -439,10 +452,10 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           olderThanServer={draft.savedAt < Date.parse(initial.updatedAt)}
         />
       )}
-      {mdNotice && (
+      {notice && (
         <div className="banner" role="status">
-          {mdNotice}
-          <button type="button" onClick={() => setMdNotice(null)}>Dismiss</button>
+          {notice}
+          <button type="button" onClick={() => setNotice(null)}>Dismiss</button>
         </div>
       )}
       {exportError && <div className="banner" role="alert">{exportError}</div>}
@@ -563,8 +576,17 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           extra={
             <>
               <span className="sep" />
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exportAs('svg')}>SVG</button>
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exportAs('png')}>PNG</button>
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exportAs('svg')} disabled={exporting}>SVG</button>
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exportAs('png')} disabled={exporting}>PNG</button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => exportAs('excalidraw')}
+                disabled={exporting}
+                title="Download a .excalidraw file to keep drawing in Excalidraw"
+              >
+                Excalidraw
+              </button>
             </>
           }
         />

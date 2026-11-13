@@ -3,6 +3,8 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
+import { buildExcalidraw } from '../io/excalidraw';
+import { download } from '../io/exportImage';
 import { ImageError, prepareImage } from '../io/imagePrep';
 import type { MindMap } from '../shared/types';
 import { draftKey } from './autosave';
@@ -13,6 +15,17 @@ import { Editor } from './EditorPage';
 vi.mock('../io/imagePrep', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../io/imagePrep')>();
   return { ...actual, prepareImage: vi.fn() };
+});
+
+// buildExcalidraw lazily imports the real @excalidraw/excalidraw library; stub it so unit tests never pull
+// that in, keeping excalidrawLosses and EXCALIDRAW_MIME real.
+vi.mock('../io/excalidraw', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../io/excalidraw')>();
+  return { ...actual, buildExcalidraw: vi.fn(async () => '{"type":"excalidraw"}') };
+});
+vi.mock('../io/exportImage', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../io/exportImage')>();
+  return { ...actual, download: vi.fn() };
 });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -109,6 +122,9 @@ beforeEach(() => {
   localStorage.clear();
   vi.mocked(prepareImage).mockReset();
   vi.mocked(prepareImage).mockResolvedValue({ blob: new Blob(['x'], { type: 'image/png' }), width: 200, height: 100 });
+  vi.mocked(buildExcalidraw).mockReset();
+  vi.mocked(buildExcalidraw).mockResolvedValue('{"type":"excalidraw"}');
+  vi.mocked(download).mockReset();
 });
 afterEach(() => { container.remove(); vi.useRealTimers(); });
 
@@ -759,5 +775,49 @@ describe('Images', () => {
     expect(container.querySelector('[role="alert"]')!.textContent)
       .toContain('Image not added: finish the new topic first (Enter), then add the image.');
     expect(api.uploadImage).not.toHaveBeenCalled();
+  });
+});
+
+describe('Excalidraw export', () => {
+  const exportButtons = () => [...container.querySelectorAll('button')].filter((b) => ['SVG', 'PNG', 'Excalidraw'].includes(b.textContent ?? ''));
+
+  it('clicking Excalidraw downloads a .excalidraw blob and shows what was left out', async () => {
+    mount(fakeApi(), { ...map, root: { ...map.root, note: 'Remember' } });
+    await click('Excalidraw');
+    expect(buildExcalidraw).toHaveBeenCalledTimes(1);
+    expect(download).toHaveBeenCalledTimes(1);
+    const [blob, filename] = vi.mocked(download).mock.calls[0];
+    expect(blob.type).toBe('application/vnd.excalidraw+json');
+    expect(filename).toBe('Root.excalidraw');
+    expect(container.textContent).toContain('Downloaded. Not kept in .excalidraw: notes.');
+  });
+
+  it('disables all three export buttons while the build is pending, and ignores a second click', async () => {
+    let release!: () => void;
+    vi.mocked(buildExcalidraw).mockReturnValue(new Promise((resolve) => { release = () => resolve('{"type":"excalidraw"}'); }));
+    mount(fakeApi());
+    act(() => {
+      [...container.querySelectorAll('button')].find((b) => b.textContent === 'Excalidraw')!.click();
+    });
+    expect(exportButtons().every((b) => b.disabled)).toBe(true);
+    act(() => {
+      [...container.querySelectorAll('button')].find((b) => b.textContent === 'Excalidraw')!.click();
+    });
+    expect(buildExcalidraw).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(exportButtons().every((b) => b.disabled)).toBe(false);
+    expect(download).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows "Export failed: boom" and re-enables the buttons when buildExcalidraw rejects', async () => {
+    vi.mocked(buildExcalidraw).mockRejectedValue(new Error('boom'));
+    mount(fakeApi());
+    await click('Excalidraw');
+    expect(container.querySelector('[role="alert"]')!.textContent).toBe('Export failed: boom');
+    expect(exportButtons().every((b) => b.disabled)).toBe(false);
+    expect(download).not.toHaveBeenCalled();
   });
 });

@@ -274,6 +274,8 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
 - **`.excalidraw` out:**
   - Boxes, underlines and branches become rectangles, lines and curved lines; text becomes text elements in Excalifont (fontFamily 5); images become image elements plus `files`.
   - Elements are built through `convertToExcalidrawElements` from `@excalidraw/excalidraw@0.18.1`, loaded only when you export. The arrow-binding format changes after 0.18.1, so this version stays pinned.
+  - Mirrors what the canvas shows: folded branches stay folded (with their counter). Notes are not carried; a text element keeps the topic's first link. The editor lists what was left out.
+  - Each topic's parts share a group, so a topic moves as one in Excalidraw; branches are unbound lines.
 - **SVG and PNG out:**
   - SVG: the rendered SVG, with only the font subsets it uses embedded as data URIs.
   - PNG: that SVG rasterised on a canvas at 2×.
