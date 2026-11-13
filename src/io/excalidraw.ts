@@ -130,7 +130,7 @@ function topic(t: TopicBox, fileIds: ReadonlyMap<string, string>, out: Skeleton[
     }
     part({
       type: 'rectangle', id: `${t.id}:frame`, ...box, strokeColor: t.color.stroke, backgroundColor: 'transparent',
-      strokeWidth: 1, roundness: null, seed: seed + 6,
+      strokeWidth: 1.2, roundness: null, seed: seed + 6,
     });
   }
 
@@ -154,7 +154,7 @@ function topic(t: TopicBox, fileIds: ReadonlyMap<string, string>, out: Skeleton[
     const color = PRIORITY_COLORS[t.node.priority];
     part({
       type: 'ellipse', id: `${t.id}:badge`, x: cx - d / 2, y: cy - d / 2, width: d, height: d, strokeColor: color,
-      backgroundColor: color, fillStyle: 'solid', strokeWidth: 1, seed: seed + 50,
+      backgroundColor: color, fillStyle: 'solid', strokeWidth: 1.2, seed: seed + 50,
     });
     part({
       type: 'text', id: `${t.id}:badge-text`, x: cx, y: cy, text: String(t.node.priority), fontSize: Math.round(d * 0.62),
@@ -167,7 +167,7 @@ function topic(t: TopicBox, fileIds: ReadonlyMap<string, string>, out: Skeleton[
     const { x: cx, y: cy } = t.fold;
     part({
       type: 'ellipse', id: `${t.id}:fold`, x: cx - 10, y: cy - 10, width: 20, height: 20, strokeColor: t.color.stroke,
-      backgroundColor: t.color.fill, fillStyle: 'solid', strokeWidth: 1, seed: seed + 9,
+      backgroundColor: t.color.fill, fillStyle: 'solid', strokeWidth: 1.3, seed: seed + 9,
     });
     part({
       type: 'text', id: `${t.id}:fold-text`, x: cx, y: cy, text: String(countDescendants(t.node)), fontSize: 12,

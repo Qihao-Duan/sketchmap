@@ -86,7 +86,7 @@ describe('toExcalidrawSkeleton', () => {
 
   it('draws a priority badge as a filled circle with a centred white number', () => {
     const { elements, centres } = scene(n('r', 'Root', [n('p', 'Urgent', [], { priority: 1 })]));
-    expect(byId(elements, 'p:badge')).toMatchObject({ type: 'ellipse', backgroundColor: PRIORITY_COLORS[1], fillStyle: 'solid' });
+    expect(byId(elements, 'p:badge')).toMatchObject({ type: 'ellipse', backgroundColor: PRIORITY_COLORS[1], fillStyle: 'solid', strokeWidth: 1.2 });
     expect(byId(elements, 'p:badge-text')).toMatchObject({ type: 'text', text: '1', strokeColor: '#ffffff', fontFamily: 5 });
     const c = centres.get('p:badge-text')!;
     const badge = byId(elements, 'p:badge');
@@ -96,7 +96,7 @@ describe('toExcalidrawSkeleton', () => {
 
   it('shows a folded branch as a counter circle and leaves its hidden topics out', () => {
     const { elements } = scene(n('r', 'Root', [n('f', 'Folded', [n('x', 'Hidden'), n('y', 'Hidden too')], { collapsed: true })]));
-    expect(byId(elements, 'f:fold')).toMatchObject({ type: 'ellipse', width: 20, height: 20 });
+    expect(byId(elements, 'f:fold')).toMatchObject({ type: 'ellipse', width: 20, height: 20, strokeWidth: 1.3 });
     expect(byId(elements, 'f:fold-text')).toMatchObject({ type: 'text', text: '2' });
     expect(elements.some((e) => e.id.startsWith('x:'))).toBe(false);
   });
@@ -106,7 +106,7 @@ describe('toExcalidrawSkeleton', () => {
     const tree = n('r', 'Root', [n('i', 'Pic', [], { image: img })]);
     const without = scene(tree).elements;
     expect(without.some((e) => e.id === 'i:image')).toBe(false);
-    expect(byId(without, 'i:frame')).toMatchObject({ type: 'rectangle', width: 120, height: 80, backgroundColor: 'transparent' });
+    expect(byId(without, 'i:frame')).toMatchObject({ type: 'rectangle', width: 120, height: 80, backgroundColor: 'transparent', strokeWidth: 1.2 });
     const { layout, elements } = scene(tree, 'map', new Map([[KEY, fileIdFor(KEY)]]));
     const t = layout.byId.get('i')!;
     expect(byId(elements, 'i:image')).toMatchObject({
