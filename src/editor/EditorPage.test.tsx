@@ -71,6 +71,25 @@ async function chooseImage(file: File) {
     await vi.advanceTimersByTimeAsync(0);
   });
 }
+async function dropFile(el: Element, file: File) {
+  const ev = new Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'dataTransfer', { value: { files: [file], types: ['Files'] } });
+  await act(async () => {
+    el.dispatchEvent(ev);
+    await vi.advanceTimersByTimeAsync(0);
+  });
+}
+/** An `uploadImage` that resolves only when the returned `release` is called; one entry in `releases` per call. */
+function deferredUploads() {
+  const releases: Array<() => void> = [];
+  const uploadImage = vi.fn(
+    () =>
+      new Promise<{ key: string }>((resolve) => {
+        releases.push(() => resolve({ key: `img/abcdefghijklmnopqrstu/${releases.length}.png` }));
+      }),
+  );
+  return { uploadImage, releases };
+}
 const pressed = () => container.querySelector('[aria-label="Layout"] button[aria-pressed="true"]')!.textContent;
 const topics = () => container.querySelectorAll('g.topic').length;
 const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
@@ -622,5 +641,120 @@ describe('Images', () => {
     mount(fakeApi());
     await pasteFile(file());
     expect(topicImage()).not.toBeNull();
+  });
+
+  it('an uploadImage rejection (413, too large) shows the banner and adds nothing', async () => {
+    const api = fakeApi({ uploadImage: vi.fn(async () => { throw new ApiError(413, 'Image is larger than 5 MB'); }) });
+    mount(api);
+    await chooseImage(file());
+    expect(topicImage()).toBeNull();
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain('Image not added: Image is larger than 5 MB');
+  });
+
+  it('a non-image dropped on the canvas shows the banner and never calls uploadImage', async () => {
+    const api = fakeApi();
+    vi.mocked(prepareImage).mockRejectedValue(new ImageError('That file isn’t a PNG, JPEG, WebP or GIF image.'));
+    mount(api);
+    const svg = container.querySelector('svg')!;
+    await dropFile(svg, new File(['hello'], 'notes.txt', { type: 'text/plain' }));
+    expect(topicImage()).toBeNull();
+    expect(container.querySelector('[role="alert"]')!.textContent)
+      .toContain('Image not added: That file isn’t a PNG, JPEG, WebP or GIF image.');
+    expect(api.uploadImage).not.toHaveBeenCalled();
+  });
+
+  it('a window drop carrying files is defaultPrevented, so the browser never navigates away from the editor', () => {
+    mount(fakeApi());
+    const ev = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'dataTransfer', { value: { types: ['Files'], files: [] } });
+    act(() => void window.dispatchEvent(ev));
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('a finished upload never blurs the inline editor; the image is added once the edit commits', async () => {
+    const { uploadImage, releases } = deferredUploads();
+    mount(fakeApi({ uploadImage }));
+    await chooseImage(file());
+    keydown({ key: 'F2' });
+    const ta = container.querySelector('textarea.inline-editor') as HTMLTextAreaElement;
+    type(ta, 'Hello');
+    await act(async () => {
+      releases[0]();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.activeElement).toBe(ta);
+    expect(topicImage()).toBeNull();
+    keydown({ key: 'Enter' }, ta);
+    expect(topicImage()).not.toBeNull();
+    expect(container.textContent).toContain('Hello');
+  });
+
+  it('a finished upload while the Note box is focused keeps its focus and draws the image at once', async () => {
+    const { uploadImage, releases } = deferredUploads();
+    mount(fakeApi({ uploadImage }));
+    await chooseImage(file());
+    const note = container.querySelector('textarea[aria-label="Note"]') as HTMLTextAreaElement;
+    act(() => note.focus());
+    type(note, 'A photo of my cat');
+    await act(async () => {
+      releases[0]();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.activeElement).toBe(note);
+    expect(topicImage()).not.toBeNull();
+    expect(note.value).toBe('A photo of my cat');
+  });
+
+  it('two overlapping uploads keep Remove locked until both finish', async () => {
+    const { uploadImage, releases } = deferredUploads();
+    mount(fakeApi({ uploadImage }));
+    await chooseImage(file());
+    await chooseImage(file());
+    expect(releases).toHaveLength(2);
+    const remove = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Remove') as HTMLButtonElement | undefined;
+    await act(async () => {
+      releases[0]();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(remove()?.disabled).toBe(true);
+    await act(async () => {
+      releases[1]();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(remove()?.disabled).toBe(false);
+  });
+
+  it('Copy as Markdown does not claim images are lost, even though the Outline panel leaves them out', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      mount(fakeApi(), { ...map, root: { ...map.root, image: { key: 'img/abcdefghijklmnopqrstu/a.png', w: 200, h: 100 } } });
+      await click('Copy as Markdown');
+      expect(container.textContent).not.toContain('Not kept in Markdown');
+      await click('Outline');
+      expect(container.querySelector('[aria-label="Markdown outline"]')!.textContent).toContain('Not kept in Markdown: images.');
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
+  it('Add image… is disabled with an explanatory title while a new topic is open', async () => {
+    mount(fakeApi());
+    keydown({ key: 'Tab' });
+    const add = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Add image…') as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    expect(add.title).toBe('Finish the new topic first (Enter)');
+  });
+
+  it('dropping an image on the canvas while a new topic is open is refused with a banner, and never uploads', async () => {
+    const api = fakeApi();
+    mount(api);
+    keydown({ key: 'Tab' });
+    const svg = container.querySelector('svg')!;
+    await dropFile(svg, file());
+    expect(topicImage()).toBeNull();
+    expect(container.querySelector('[role="alert"]')!.textContent)
+      .toContain('Image not added: finish the new topic first (Enter), then add the image.');
+    expect(api.uploadImage).not.toHaveBeenCalled();
   });
 });

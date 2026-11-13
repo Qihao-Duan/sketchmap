@@ -58,7 +58,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [linkFor, setLinkFor] = useState<string | null>(null);
   const [mdCopied, setMdCopied] = useState(false);
   const [mdNotice, setMdNotice] = useState<string | null>(null);
-  const [imageBusy, setImageBusy] = useState(false);
+  const [imageUploads, setImageUploads] = useState(0);
   const [imageError, setImageError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(() => {
     try {
@@ -192,6 +192,20 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     return () => window.removeEventListener('paste', onPaste);
   }, []);
 
+  // A file dropped outside the canvas (the header, the toolbar, the Details panel) must not make the
+  // browser navigate away and open it in place of the editor.
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+    const onDragOver = (e: DragEvent) => { if (hasFiles(e)) e.preventDefault(); };
+    const onDrop = (e: DragEvent) => { if (hasFiles(e)) e.preventDefault(); };
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, []);
+
   useEffect(() => {
     document.title = `${state.map.title || 'Untitled map'} · Sketchmap`;
   }, [state.map.title]);
@@ -209,18 +223,42 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     const active = document.activeElement as HTMLElement | null;
     if (stateRef.current.editing || active?.closest('.details')) active?.blur();
   };
+  // Uploads that finished while a topic was being edited: applied once editing ends (I1), so a finished
+  // upload never blurs the inline editor or the Note box. If the topic is gone by then, the reducer
+  // ignores the dispatch and the banner says why.
+  const pendingImages = useRef<Array<{ id: string; image: { key: string; w: number; h: number } }>>([]);
+  const wasEditing = useRef(!!state.editing);
+  useEffect(() => {
+    const isEditing = !!state.editing;
+    if (wasEditing.current && !isEditing && pendingImages.current.length) {
+      const pending = pendingImages.current;
+      pendingImages.current = [];
+      for (const { id, image } of pending) {
+        if (findNode(stateRef.current.map.root, id)) dispatch({ type: 'setImage', id, image });
+        else setImageError('Image not added: the topic was removed before the upload finished.');
+      }
+    }
+    wasEditing.current = isEditing;
+  }, [state.editing]);
   const attachImage = async (id: string, file: File) => {
-    setImageBusy(true);
+    if (stateRef.current.editing?.isNew) {
+      setImageError('Image not added: finish the new topic first (Enter), then add the image.');
+      return;
+    }
+    setImageUploads((n) => n + 1);
     setImageError(null);
     try {
       const prepared = await prepareImage(file);
       const { key } = await api.uploadImage(initial.id, prepared.blob);
-      endEdit();
-      dispatch({ type: 'setImage', id, image: { key, ...displaySize(prepared.width, prepared.height) } });
+      const image = { key, ...displaySize(prepared.width, prepared.height) };
+      // Never blur to apply the result: a focused Note box is fine (setImage doesn't touch notes), and a
+      // focused inline editor keeps the keys it's given until the edit commits or cancels.
+      if (stateRef.current.editing) pendingImages.current.push({ id, image });
+      else dispatch({ type: 'setImage', id, image });
     } catch (e) {
       setImageError(`Image not added: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setImageBusy(false);
+      setImageUploads((n) => n - 1);
     }
   };
   const toggleDetails = () => {
@@ -334,7 +372,8 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       setLinkFor(null);
       return;
     }
-    const lost = markdownLosses(state.map.root);
+    // Unlike the Outline panel, Copy writes images as `![](…)`, so they aren't lost here.
+    const lost = markdownLosses(state.map.root).filter((l) => l !== 'images');
     navigator.clipboard.writeText(toMarkdown(state.map.root, { imageBase: location.origin })).then(
       () => {
         setMdCopied(true);
@@ -487,7 +526,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
               endEdit();
               dispatch({ type: 'setImage', id, image: null });
             }}
-            uploading={imageBusy}
+            uploading={imageUploads > 0}
             newTopicOpen={!!state.editing?.isNew}
             onFold={toggleDetails}
           />

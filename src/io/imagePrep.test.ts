@@ -28,8 +28,8 @@ describe('image preparation', () => {
   it('accepts only bytes that really are PNG, JPEG, WebP or GIF, whatever the file claims', async () => {
     const sneaky = new File(['<!-- hi --><svg xmlns="http://www.w3.org/2000/svg"><script>x</script></svg>'], 'x.png', { type: 'image/png' });
     await expect(prepareImage(sneaky)).rejects.toThrow(/SVG images aren’t supported/);
-    await expect(prepareImage(new File(['just text'], 'x.png', { type: 'image/png' }))).rejects.toThrow(/isn’t an image/);
-    await expect(prepareImage(new File([new Uint8Array([0x1f, 0x8b, 8, 0])], 'x.svgz', { type: 'image/png' }))).rejects.toThrow(/isn’t an image/);
+    await expect(prepareImage(new File(['just text'], 'x.png', { type: 'image/png' }))).rejects.toThrow(/isn’t a PNG, JPEG, WebP or GIF image/);
+    await expect(prepareImage(new File([new Uint8Array([0x1f, 0x8b, 8, 0])], 'x.svgz', { type: 'image/png' }))).rejects.toThrow(/isn’t a PNG, JPEG, WebP or GIF image/);
   });
 
   it('refuses files over 30 MB before decoding them', async () => {

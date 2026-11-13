@@ -235,7 +235,9 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
         onDrop={(e) => {
           if (!interactive) return;
           e.preventDefault();
-          const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith('image/'));
+          // Any dropped file goes to onDropFile, whatever its claimed type: image preparation sniffs
+          // the bytes and says why when it refuses one, instead of the drop being ignored silently.
+          const file = e.dataTransfer.files[0];
           if (!file) return;
           const topicId = (e.target as Element).closest('g.topic')?.getAttribute('data-id') ?? null;
           onDropFile?.(topicId, file);

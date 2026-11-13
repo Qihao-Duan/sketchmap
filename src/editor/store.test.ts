@@ -259,4 +259,20 @@ describe('setImage and setImageSize', () => {
     const editing = reduce(s, { type: 'startEdit', id: 'a' });
     expect(reduce(editing, { type: 'setImageSize', id: 'a', size: 'S' })).toBe(editing);
   });
+
+  it('commitEdit with empty text on an existing topic keeps it when it has an image, clearing its text as one undo step; a topic without an image keeps today’s behaviour (ignored)', () => {
+    let s = reduce(initEditor(base()), { type: 'setImage', id: 'a', image });
+    s = reduce(s, { type: 'startEdit', id: 'a' });
+    s = reduce(s, { type: 'commitEdit', text: '  ' });
+    expect(nodeA(s).text).toBe('');
+    expect(nodeA(s).image).toEqual(image);
+    expect(s.past).toHaveLength(2);
+    expect(s.editing).toBeNull();
+
+    let t = reduce(initEditor(base()), { type: 'startEdit', id: 'a' });
+    t = reduce(t, { type: 'commitEdit', text: '  ' });
+    expect(nodeA(t).text).toBe('A');
+    expect(t.past).toHaveLength(0);
+    expect(t.editing).toBeNull();
+  });
 });

@@ -250,14 +250,26 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, o
                 </button>
               ))}
             </div>
-            <button type="button" onMouseDown={noFocus} onClick={pickImage} disabled={uploading}>
+            <button
+              type="button"
+              onMouseDown={noFocus}
+              onClick={pickImage}
+              disabled={uploading || newTopicOpen}
+              title={newTopicOpen ? 'Finish the new topic first (Enter)' : undefined}
+            >
               {uploading ? 'Uploading…' : 'Replace…'}
             </button>
             {/* Locked while a replacement uploads: its late arrival would otherwise undo a Remove or a resize. */}
             <button type="button" onMouseDown={noFocus} onClick={onImageRemove} disabled={uploading}>Remove</button>
           </div>
         ) : (
-          <button type="button" onMouseDown={noFocus} onClick={pickImage} disabled={uploading}>
+          <button
+            type="button"
+            onMouseDown={noFocus}
+            onClick={pickImage}
+            disabled={uploading || newTopicOpen}
+            title={newTopicOpen ? 'Finish the new topic first (Enter)' : undefined}
+          >
             {uploading ? 'Uploading…' : 'Add image…'}
           </button>
         )}

@@ -59,7 +59,7 @@ export async function prepareImage(file: Blob): Promise<{ blob: Blob; width: num
   // Only the bytes decide: a file that claims to be an image but isn't one of the four raster formats is refused.
   const kind = sniffKind(prefix);
   if (!(kind === 'png' || kind === 'jpeg' || kind === 'webp' || kind === 'gif')) {
-    throw new ImageError('That file isn’t an image (PNG, JPEG, WebP or GIF).');
+    throw new ImageError('That file isn’t a PNG, JPEG, WebP or GIF image.');
   }
   if (file.size > MAX_UPLOAD_BYTES) {
     throw new ImageError('That image is too large (over 30 MB).');

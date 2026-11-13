@@ -129,7 +129,17 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const ed = state.editing;
       if (!ed) return state;
       const text = action.text.replace(/\s+$/, '');
-      if (!text.trim()) return ed.isNew ? dropNewTopic(state) : { ...state, editing: null };
+      if (!text.trim()) {
+        if (ed.isNew) return dropNewTopic(state);
+        // An existing topic that carries an image is never empty: clear its text instead of ignoring the commit,
+        // so it becomes an image-only topic. A topic without an image keeps today's behaviour (ignored).
+        const found = T.findNode(state.map.root, ed.id);
+        if (!found?.node.image || found.node.text === '') return { ...state, editing: null };
+        const cleared = produce(state.map, (d) => {
+          T.setText(d.root, ed.id, '');
+        });
+        return commit(state, cleared, { editing: null });
+      }
       const current = T.findNode(state.map.root, ed.id);
       if (!current || current.node.text === text) return { ...state, editing: null };
       const next = produce(state.map, (d) => {
