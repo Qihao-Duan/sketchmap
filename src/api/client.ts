@@ -20,12 +20,15 @@ export interface ApiClient {
   uploadImage(mapId: string, blob: Blob): Promise<{ key: string }>;
 }
 
+export const GET_RETRY_DELAY_MS = 400;
+
 export function createApi(
   getKey: () => string | null,
   fetchImpl: typeof fetch = (input, init) => fetch(input, init),
   base = '',
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 ): ApiClient {
-  async function request(path: string, init: RequestInit = {}, auth = true): Promise<Response> {
+  async function once(path: string, init: RequestInit = {}, auth = true): Promise<Response> {
     const headers = new Headers(init.headers);
     const key = auth ? getKey() : null;
     if (key) headers.set('Authorization', `Bearer ${key}`);
@@ -46,6 +49,17 @@ export function createApi(
       throw new ApiError(res.status, message, res.headers.get('ETag'));
     }
     return res;
+  }
+  /** A read that failed on the network or with a server error is tried once more: reads are safe to repeat, writes are not. */
+  async function request(path: string, init: RequestInit = {}, auth = true): Promise<Response> {
+    const read = !init.method || init.method === 'GET';
+    try {
+      return await once(path, init, auth);
+    } catch (e) {
+      if (!read || !(e instanceof ApiError) || (e.status !== 0 && e.status < 500)) throw e;
+      await sleep(GET_RETRY_DELAY_MS);
+      return once(path, init, auth);
+    }
   }
   const saved = async (res: Response): Promise<Saved> => ({ map: (await res.json()) as MindMap, etag: res.headers.get('ETag') ?? '' });
   const mapPath = (id: string) => `/api/maps/${encodeURIComponent(id)}`;

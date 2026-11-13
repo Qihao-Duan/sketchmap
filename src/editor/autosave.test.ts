@@ -190,4 +190,44 @@ describe('Autosaver', () => {
     expect(calls).toBe(2); // now it saves
     expect(vi.mocked(t.deps.save).mock.calls[1]).toEqual([mapWith('ab'), '"e0"']);
   });
+
+  it('retryNow saves at once when a retry is waiting out its backoff', async () => {
+    let fail = true;
+    const t = setup(async (map) => {
+      if (fail) throw new ApiError(0, 'offline');
+      return { map: { ...map, version: 2 }, etag: '"e2"' };
+    });
+    t.saver.schedule(mapWith('a'));
+    await vi.advanceTimersByTimeAsync(1000); // first try fails; the next is 2 s away
+    expect(t.statuses.at(-1)).toBe('retrying');
+    expect(t.deps.save).toHaveBeenCalledTimes(1);
+    fail = false;
+    t.saver.retryNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.deps.save).toHaveBeenCalledTimes(2);
+    expect(t.statuses.at(-1)).toBe('saved');
+  });
+
+  it('retryNow does nothing unless a retry is waiting', async () => {
+    const t = setup(ok(1));
+    t.saver.retryNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.deps.save).not.toHaveBeenCalled();
+    t.saver.schedule(mapWith('a')); // pending: its own 1 s delay stays
+    t.saver.retryNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.deps.save).not.toHaveBeenCalled();
+  });
+
+  it('retryNow leaves a conflict alone', async () => {
+    const t = setup(async () => {
+      throw new ApiError(409, 'conflict');
+    });
+    t.saver.schedule(mapWith('a'));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(t.statuses.at(-1)).toBe('conflict');
+    t.saver.retryNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.deps.save).toHaveBeenCalledTimes(1);
+  });
 });

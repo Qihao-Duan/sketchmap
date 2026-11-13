@@ -1,6 +1,8 @@
+import { browserStorage } from '../storage';
+
 const STORAGE_KEY = 'sketchmap:owner-key';
 
-export function getOwnerKey(storage: Pick<Storage, 'getItem'> = localStorage): string | null {
+export function getOwnerKey(storage: Pick<Storage, 'getItem'> = browserStorage()): string | null {
   try {
     return storage.getItem(STORAGE_KEY);
   } catch {
@@ -8,7 +10,7 @@ export function getOwnerKey(storage: Pick<Storage, 'getItem'> = localStorage): s
   }
 }
 
-export function setOwnerKey(key: string, storage: Pick<Storage, 'setItem'> = localStorage): void {
+export function setOwnerKey(key: string, storage: Pick<Storage, 'setItem'> = browserStorage()): void {
   try {
     storage.setItem(STORAGE_KEY, key.trim());
   } catch {
@@ -16,7 +18,7 @@ export function setOwnerKey(key: string, storage: Pick<Storage, 'setItem'> = loc
   }
 }
 
-export function clearOwnerKey(storage: Pick<Storage, 'removeItem'> = localStorage): void {
+export function clearOwnerKey(storage: Pick<Storage, 'removeItem'> = browserStorage()): void {
   try {
     storage.removeItem(STORAGE_KEY);
   } catch {

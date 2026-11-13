@@ -24,6 +24,7 @@ import { navigate } from './navigate';
 import { OutlinePanel } from './OutlinePanel';
 import { editorReducer, initEditor } from './store';
 import type { View } from './viewport';
+import { browserStorage } from '../storage';
 
 const IGNORE_KEYS_IN = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A']);
 const LAYOUTS: Array<[LayoutKind, string]> = [['map', 'Mind map'], ['logic', 'Logic chart'], ['org', 'Org chart']];
@@ -37,7 +38,7 @@ export interface EditorProps {
   storage?: Storage;
 }
 
-export function Editor({ initial, etag, api, measureFactory = canvasMeasure, storage = localStorage }: EditorProps) {
+export function Editor({ initial, etag, api, measureFactory = canvasMeasure, storage = browserStorage() }: EditorProps) {
   const [state, dispatch] = useReducer(editorReducer, initial, initEditor);
   const factory = useRef(measureFactory);
   const [measure, setMeasure] = useState<Measure>(() => factory.current());
@@ -117,7 +118,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     saver.schedule(state.map);
   }, [state.revision, state.map, saver]);
 
-  // Try to save when the tab is hidden or closed; warn if something is still unsaved.
+  // Try to save when the tab is hidden or closed, and at once when the connection returns; warn if something is still unsaved.
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') void saver.flush();
@@ -130,10 +131,13 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       e.preventDefault();
       e.returnValue = '';
     };
+    const onOnline = () => saver.retryNow();
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('online', onOnline);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', onOnline);
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
   }, [saver]);
@@ -358,7 +362,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     setDraft(null);
   };
   const discardDraft = () => {
-    storage.removeItem(draftKey(initial.id));
+    try {
+      storage.removeItem(draftKey(initial.id));
+    } catch {
+      // nothing to remove
+    }
     setDraft(null);
   };
   const copyLink = () => {

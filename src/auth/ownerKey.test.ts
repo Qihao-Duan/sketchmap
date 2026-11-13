@@ -19,4 +19,10 @@ describe('owner key storage', () => {
     const blocked = { getItem: () => { throw new Error('denied'); } };
     expect(getOwnerKey(blocked)).toBeNull();
   });
+  it('uses the browser storage by default', () => {
+    setOwnerKey('k');
+    expect(getOwnerKey()).toBe('k');
+    clearOwnerKey();
+    expect(getOwnerKey()).toBeNull();
+  });
 });

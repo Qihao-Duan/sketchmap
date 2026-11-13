@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MindMap } from '../shared/types';
-import { ApiError, createApi } from './client';
+import { ApiError, createApi, GET_RETRY_DELAY_MS } from './client';
 
 const map: MindMap = { id: 'abcdefghijklmnopqrstu', title: 'T', layout: 'map', version: 1, updatedAt: 't', root: { id: 'r', text: 'T', children: [] } };
 
@@ -12,6 +12,7 @@ function fakeFetch(respond: (url: string, init: RequestInit) => Response) {
   }) as unknown as typeof fetch;
   return { impl, calls };
 }
+const noSleep = async () => {};
 const header = (init: RequestInit, name: string) => new Headers(init.headers).get(name);
 
 describe('api client', () => {
@@ -42,7 +43,7 @@ describe('api client', () => {
 
   it('reports network failures as status 0', async () => {
     const impl = (async () => { throw new TypeError('Failed to fetch'); }) as unknown as typeof fetch;
-    const err = await createApi(() => 'k', impl).listMaps().catch((e) => e);
+    const err = await createApi(() => 'k', impl, '', noSleep).listMaps().catch((e) => e);
     expect([err instanceof ApiError, err.status]).toEqual([true, 0]);
   });
 
@@ -64,5 +65,42 @@ describe('api client', () => {
     expect([init.method, header(init, 'Content-Type'), header(init, 'Authorization')]).toEqual(['POST', 'image/png', 'Bearer k']);
     expect(init.body).toBe(blob);
     expect(res).toEqual({ key: `img/${map.id}/abc.png` });
+  });
+
+  it('tries a failed read once more: after a network error, and after a server error', async () => {
+    const body = { id: 'abcdefghijklmnopqrstu' };
+    for (const first of [() => Promise.reject(new TypeError('failed to fetch')), async () => new Response('{"error":"Internal error"}', { status: 500 })]) {
+      let calls = 0;
+      const fetchImpl = (async () => (++calls === 1 ? first() : new Response(JSON.stringify(body), { headers: { ETag: '"e1"' } }))) as typeof fetch;
+      const waits: number[] = [];
+      const api = createApi(() => null, fetchImpl, '', async (ms) => void waits.push(ms));
+      await expect(api.getMap('abcdefghijklmnopqrstu')).resolves.toEqual({ map: body, etag: '"e1"' });
+      expect(calls).toBe(2);
+      expect(waits).toEqual([GET_RETRY_DELAY_MS]);
+    }
+  });
+
+  it('gives up after the second failed read, with the second error', async () => {
+    let calls = 0;
+    const fetchImpl = (async () => new Response(JSON.stringify({ error: `boom ${++calls}` }), { status: 503 })) as typeof fetch;
+    const api = createApi(() => 'k', fetchImpl, '', noSleep);
+    await expect(api.listMaps()).rejects.toMatchObject({ status: 503, message: 'boom 2' });
+    expect(calls).toBe(2);
+  });
+
+  it('does not retry a read the server refused (4xx), nor any write', async () => {
+    let calls = 0;
+    const notFound = (async () => (calls++, new Response('{"error":"Not found"}', { status: 404 }))) as typeof fetch;
+    await expect(createApi(() => null, notFound, '', noSleep).getMap('x')).rejects.toMatchObject({ status: 404 });
+    expect(calls).toBe(1);
+
+    calls = 0;
+    const down = (async () => (calls++, new Response('{"error":"Internal error"}', { status: 500 }))) as typeof fetch;
+    const api = createApi(() => 'k', down, '', noSleep);
+    await expect(api.saveMap(map, '"e"')).rejects.toMatchObject({ status: 500 });
+    await expect(api.createMap()).rejects.toMatchObject({ status: 500 });
+    await expect(api.deleteMap('x')).rejects.toMatchObject({ status: 500 });
+    await expect(api.uploadImage('x', new Blob(['i']))).rejects.toMatchObject({ status: 500 });
+    expect(calls).toBe(4);
   });
 });

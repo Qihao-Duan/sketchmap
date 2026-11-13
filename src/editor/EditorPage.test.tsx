@@ -155,6 +155,27 @@ describe('Editor', () => {
     expect(topics()).toBe(2);
   });
 
+  it('saves at once when the browser reports the connection is back, instead of waiting out the backoff', async () => {
+    let calls = 0;
+    const api = fakeApi({
+      saveMap: vi.fn(async (m: MindMap) => {
+        if (++calls === 1) throw new ApiError(0, 'offline');
+        return { map: { ...m, version: m.version + 1 }, etag: '"e2"' };
+      }),
+    });
+    mount(api);
+    keydown({ key: 'Tab' });
+    const ta = container.querySelector('textarea.inline-editor') as HTMLTextAreaElement;
+    type(ta, 'Child');
+    keydown({ key: 'Enter' }, ta);
+    await advance(1000);
+    expect(container.querySelector('[data-testid="save-status"]')!.textContent).toBe('Not saved, retrying');
+    act(() => void window.dispatchEvent(new Event('online')));
+    await advance(0);
+    expect(api.saveMap).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[data-testid="save-status"]')!.textContent).toBe('Saved');
+  });
+
   it('shows an alert banner with the server message when a save is rejected for good, and stops retrying', async () => {
     const api = fakeApi({ saveMap: vi.fn(async () => { throw new ApiError(400, 'Topic text is too long'); }) });
     mount(api);

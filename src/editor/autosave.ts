@@ -73,6 +73,11 @@ export class Autosaver {
     await this.run();
   }
 
+  /** The connection is back: try now instead of waiting out the backoff. */
+  retryNow(): void {
+    if (this.status === 'retrying' && !this.inFlight) this.arm(0);
+  }
+
   /** Continue after a conflict was resolved or a new key was entered. */
   resume(etag: string, map?: MindMap): void {
     this.epoch++;
