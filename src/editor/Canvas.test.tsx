@@ -294,5 +294,32 @@ describe('Canvas', () => {
       const world = drawing.querySelector('g.world')!;
       expect(photos.querySelector('g.photos-world')!.getAttribute('transform')).toBe(world.getAttribute('transform'));
     });
+
+    it('keeps the dragged photo out of the dark-filtered drawing svg while it follows the pointer', () => {
+      const withImage: MapNode = { id: 'r', text: 'Root', children: [
+        { id: 'p', text: 'Pic', image: { key: 'img/abcdefghijklmnopqrstu/x.png', w: 120, h: 80 }, children: [] },
+      ] };
+      const imgLayout = computeLayout(withImage, (t, s) => t.length * s * 0.5);
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      act(() => createRoot(container).render(
+        <Canvas layout={imgLayout} selectedId={null} interactive onToggleFold={() => {}} />,
+      ));
+      const [drawing, photos] = container.querySelectorAll('.canvas > svg');
+      const hitP = container.querySelector('g.topic[data-id="p"] rect.hit')!;
+      press(hitP, 'pointerdown', 10, 10);
+      press(hitP, 'pointermove', 20, 20, 1); // dx = dy = 10, past the 6 px drag threshold
+
+      // The dragged topic's photo never sits inside the filtered drawing svg...
+      expect(drawing.querySelectorAll('image')).toHaveLength(0);
+      // ...it lives in its own translate group on the unfiltered photo layer, following the pointer.
+      const ghostGroup = photos.querySelector('g.ghost-photo')!;
+      expect(ghostGroup).not.toBeNull();
+      expect(ghostGroup.querySelectorAll('image.topic-image[data-id="p"]')).toHaveLength(1);
+      expect(ghostGroup.getAttribute('transform')).toBe('translate(10 10)');
+
+      press(hitP, 'pointerup', 20, 20);
+      expect(photos.querySelector('g.ghost-photo')).toBeNull();
+    });
   });
 });

@@ -29,7 +29,7 @@ interface Props {
 
 type Gesture =
   | { kind: 'pan'; x: number; y: number; tx: number; ty: number; link: string | null; moved: boolean }
-  | { kind: 'topic'; id: string; x: number; y: number; moved: boolean; dbl: boolean; ghost: SVGGElement | null }
+  | { kind: 'topic'; id: string; x: number; y: number; moved: boolean; dbl: boolean; ghost: SVGGElement | null; ghostPhoto: SVGGElement | null }
   | { kind: 'link'; x: number; y: number; href: string; moved: boolean };
 
 /** Opens a topic's link in a new tab, without giving that page a handle on this one. */
@@ -42,6 +42,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
   const worldRef = useRef<SVGGElement>(null);
   const overlayRef = useRef<SVGGElement>(null);
   const photosRef = useRef<SVGGElement>(null);
+  const photosGhostRef = useRef<SVGGElement>(null);
   const viewRef = useRef<View>({ tx: 0, ty: 0, k: 1 });
   const fitted = useRef(false);
   const gesture = useRef<Gesture | null>(null);
@@ -61,6 +62,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     worldRef.current?.setAttribute('transform', t);
     overlayRef.current?.setAttribute('transform', t);
     photosRef.current?.setAttribute('transform', t);
+    photosGhostRef.current?.setAttribute('transform', t);
     onViewChangeRef.current?.(v);
   };
   const fit = () => {
@@ -122,6 +124,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
   const releaseGesture = (g: Gesture) => {
     if (g.kind === 'topic') {
       g.ghost?.remove();
+      g.ghostPhoto?.remove();
       setDrop(null);
     }
   };
@@ -155,7 +158,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     const dbl = lastDown.current.id === id && now - lastDown.current.t < 420;
     lastDown.current = { id, t: dbl ? 0 : now };
     onSelect?.(id);
-    gesture.current = { kind: 'topic', id, x: e.clientX, y: e.clientY, moved: false, dbl, ghost: null };
+    gesture.current = { kind: 'topic', id, x: e.clientX, y: e.clientY, moved: false, dbl, ghost: null, ghostPhoto: null };
   };
 
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
@@ -188,12 +191,22 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
         g.ghost.style.pointerEvents = 'none';
         g.ghost.querySelectorAll('[pointer-events]').forEach((n) => n.setAttribute('pointer-events', 'none'));
         g.ghost.setAttribute('pointer-events', 'none');
-        const photo = photosRef.current?.querySelector(`image[data-id="${g.id}"]`);
-        if (photo) g.ghost.appendChild(photo.cloneNode(true));
         overlayRef.current?.appendChild(g.ghost);
       }
+      // The photo clone lives on the unfiltered photo layer, not in the drawing's ghost, so it
+      // doesn't get dark-mode-inverted for the length of the drag.
+      const photo = photosRef.current?.querySelector(`image[data-id="${g.id}"]`);
+      if (photo) {
+        g.ghostPhoto = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.ghostPhoto.setAttribute('class', 'ghost-photo');
+        g.ghostPhoto.setAttribute('opacity', '0.55');
+        g.ghostPhoto.appendChild(photo.cloneNode(true));
+        photosGhostRef.current?.appendChild(g.ghostPhoto);
+      }
     }
-    g.ghost?.setAttribute('transform', `translate(${dx / viewRef.current.k} ${dy / viewRef.current.k})`);
+    const dragT = `translate(${dx / viewRef.current.k} ${dy / viewRef.current.k})`;
+    g.ghost?.setAttribute('transform', dragT);
+    g.ghostPhoto?.setAttribute('transform', dragT);
     const under = document.elementFromPoint?.(e.clientX, e.clientY)?.closest('g.topic');
     const tid = under?.getAttribute('data-id') ?? null;
     const moving = layout.byId.get(g.id)!.node;
@@ -215,6 +228,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     }
     if (g.moved) {
       g.ghost?.remove();
+      g.ghostPhoto?.remove();
       const target = dropRef.current;
       setDrop(null);
       if (target) onMove?.(g.id, target);
@@ -260,6 +274,10 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
       {/* Topic images, outside the drawing's dark-mode filter so photos keep their colours; clicks pass through to the drawing. */}
       <svg className="photos" aria-hidden="true">
         <g ref={photosRef} className="photos-world" />
+        {/* The dragged topic's photo, also outside the filter. A sibling of photos-world (not passed
+            to renderMap as `photos`), so a re-render mid-drag (e.g. the drop-target highlight) never
+            wipes it via replaceChildren(). */}
+        <g ref={photosGhostRef} className="photos-ghost" />
       </svg>
     </div>
   );
