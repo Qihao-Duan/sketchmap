@@ -54,4 +54,15 @@ describe('api client', () => {
     expect(JSON.parse(f.calls[0].init.body as string)).toEqual({ title: 'Plan' });
     expect(f.calls.map((c) => [c.init.method, header(c.init, 'Authorization')])).toEqual([['POST', 'Bearer k'], ['DELETE', 'Bearer k']]);
   });
+
+  it('uploads an image, posting the blob with its own Content-Type and the owner key', async () => {
+    const f = fakeFetch(() => Response.json({ key: `img/${map.id}/abc.png` }));
+    const blob = new Blob(['x'], { type: 'image/png' });
+    const res = await createApi(() => 'k', f.impl).uploadImage(map.id, blob);
+    const init = f.calls[0].init;
+    expect(f.calls[0].url).toBe(`/api/maps/${map.id}/images`);
+    expect([init.method, header(init, 'Content-Type'), header(init, 'Authorization')]).toEqual(['POST', 'image/png', 'Bearer k']);
+    expect(init.body).toBe(blob);
+    expect(res).toEqual({ key: `img/${map.id}/abc.png` });
+  });
 });

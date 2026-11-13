@@ -14,7 +14,7 @@ let container: HTMLDivElement;
 
 function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
   return {
-    listMaps: vi.fn(), createMap: vi.fn(), deleteMap: vi.fn(),
+    listMaps: vi.fn(), createMap: vi.fn(), deleteMap: vi.fn(), uploadImage: vi.fn(),
     getMap: vi.fn(async () => ({ map, etag: '"server"' })),
     saveMap: vi.fn(async (m: MindMap) => ({ map: { ...m, version: m.version + 1, title: m.root.text }, etag: '"e2"' })),
     ...overrides,

@@ -17,6 +17,7 @@ export interface ApiClient {
   getMap(id: string): Promise<Saved>;
   saveMap(map: MindMap, etag: string): Promise<Saved>;
   deleteMap(id: string): Promise<void>;
+  uploadImage(mapId: string, blob: Blob): Promise<{ key: string }>;
 }
 
 export function createApi(
@@ -28,7 +29,7 @@ export function createApi(
     const headers = new Headers(init.headers);
     const key = auth ? getKey() : null;
     if (key) headers.set('Authorization', `Bearer ${key}`);
-    if (init.body) headers.set('Content-Type', 'application/json');
+    if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
     let res: Response;
     try {
       res = await fetchImpl(base + path, { ...init, headers });
@@ -58,5 +59,7 @@ export function createApi(
     deleteMap: async (id) => {
       await request(mapPath(id), { method: 'DELETE' });
     },
+    uploadImage: async (mapId, blob) =>
+      (await (await request(`${mapPath(mapId)}/images`, { method: 'POST', body: blob, headers: { 'Content-Type': blob.type || 'application/octet-stream' } })).json()) as { key: string },
   };
 }
