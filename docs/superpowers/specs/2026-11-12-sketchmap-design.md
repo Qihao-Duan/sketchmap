@@ -65,7 +65,7 @@ worker/      Cloudflare Worker: API routes, auth, R2 access, security headers
 | `/e/:id` | The editor. Needs the owner key. |
 | `/m/:id` | The read-only view used as the Notion embed. Public to anyone with the link. |
 
-The owner key is a long random secret, stored as a Worker secret. Each browser asks for it once and then keeps it in `localStorage`.
+The owner key is a long random secret, stored as a Worker secret. Each browser asks for it once and then keeps it in `localStorage`. The one exception is the local dev server on the developer's own machine: it reads its local key from `.dev.vars` and hands it to the page, so the local site never asks. A build never carries a key, and neither does a dev server opened to other machines.
 
 Map IDs are 21-character nanoids, so view links can't be guessed. Without the key, a visitor can only view maps whose link they have.
 

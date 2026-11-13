@@ -10,6 +10,8 @@ echo "OWNER_KEY=dev-owner-key" > .dev.vars   # local-only secret
 npm run dev                                  # opens on http://localhost:5173
 ```
 
+On your own machine the local site signs you in by itself: `npm run dev` reads the key from `.dev.vars` and hands it to the page, so `http://localhost:5173` never asks for it. This applies only to that local server. The deployed site, and `npm run preview`, ask for the owner key once per browser. A dev server opened to other devices with `--host` asks for it too.
+
 Tests: `npm test` (unit), `npm run test:worker` (API on a local R2), `npm run test:e2e` (browser; run `npx playwright install` once first). The browser tests run in Chromium, WebKit and Firefox, and once against the production build. They start their own servers on ports 5183 and 4183 with their own empty storage, so they never touch the maps of a `npm run dev` you have open.
 
 ## Deploy to Cloudflare

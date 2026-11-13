@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clearOwnerKey, getOwnerKey, setOwnerKey } from './ownerKey';
+import { adoptLocalOwnerKey, clearOwnerKey, getOwnerKey, setOwnerKey } from './ownerKey';
 
 function memoryStorage() {
   const m = new Map<string, string>();
@@ -24,5 +24,26 @@ describe('owner key storage', () => {
     expect(getOwnerKey()).toBe('k');
     clearOwnerKey();
     expect(getOwnerKey()).toBeNull();
+  });
+});
+
+describe('the key handed over by the local dev server', () => {
+  it('is remembered as if it had been typed, replacing an older one', () => {
+    const s = memoryStorage();
+    setOwnerKey('old', s);
+    expect(adoptLocalOwnerKey('local', 'localhost', s)).toBe(true);
+    expect(getOwnerKey(s)).toBe('local');
+  });
+  it('is ignored when there is none, which is every build except the local dev server', () => {
+    const s = memoryStorage();
+    expect(adoptLocalOwnerKey(null, 'localhost', s)).toBe(false);
+    expect(adoptLocalOwnerKey('', 'localhost', s)).toBe(false);
+    expect(getOwnerKey(s)).toBeNull();
+  });
+  it('is ignored when the page was not opened on this machine’s own address', () => {
+    const s = memoryStorage();
+    expect(adoptLocalOwnerKey('local', '192.168.1.5', s)).toBe(false);
+    expect(adoptLocalOwnerKey('local', 'sketchmap.example.workers.dev', s)).toBe(false);
+    expect(getOwnerKey(s)).toBeNull();
   });
 });
