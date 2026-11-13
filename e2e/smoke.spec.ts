@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { makeZip } from '../src/test/zipFixture';
+import { PNG_2x2 } from './fixtures/pixel';
 import { openNewMap } from './helpers';
 
 // The same sandbox Notion puts on a generic /embed iframe (observed on a public notion.site page, 2026-11-12).
@@ -235,4 +236,45 @@ test('an .xmind file imports as a new map, with links, notes and priority, and s
   const id = page.url().split('/e/')[1];
   await page.goto(`/m/${id}`);
   await expect(page.locator('g.topic')).toHaveCount(3);
+});
+
+test('an image added from the details panel survives a reload, shows in the view and is inlined in the SVG export; deleting the map deletes it', async ({ page }) => {
+  const id = await openNewMap(page);
+
+  await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PNG_2x2 });
+
+  const image = page.locator('g.topic image.topic-image');
+  await expect(image).toHaveCount(1);
+  const href = (await image.getAttribute('href'))!;
+  expect(href).toMatch(/^\/img\/[A-Za-z0-9_-]{21}\/[A-Za-z0-9_-]{10}\.(png|jpg)$/);
+  expect(href).toMatch(/\.png$/); // the pixel has transparency, so it stays PNG
+
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+  await page.reload();
+  await expect(page.locator('g.topic image.topic-image')).toHaveAttribute('href', href);
+
+  const fetched = await page.request.get(href);
+  expect(fetched.status()).toBe(200);
+  expect(fetched.headers()['content-type']).toBe('image/png');
+
+  await page.goto(`/m/${id}`);
+  await expect(page.locator('g.topic image.topic-image')).toBeVisible();
+
+  await page.goto(`/e/${id}`);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'SVG' }).click();
+  const stream = (await (await download).createReadStream())!;
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(chunk as Buffer);
+  const svg = Buffer.concat(chunks).toString('utf-8');
+  expect(svg).toContain('data:image/png;base64,');
+
+  await page.goto('/');
+  const row = page.locator('li').filter({ has: page.locator(`a[href="/e/${id}"]`) });
+  await row.getByRole('button', { name: 'Delete…' }).click();
+  await row.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(row).toHaveCount(0); // the delete request has finished and the list refreshed
+
+  const afterDelete = await page.request.get(href);
+  expect(afterDelete.status()).toBe(404);
 });

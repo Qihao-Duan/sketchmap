@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { makeZip } from '../src/test/zipFixture';
+import { PNG_2x2 } from './fixtures/pixel';
 import { openNewMap } from './helpers';
 
 test('the production build works under its strict CSP: editor, PNG export and view', async ({ page }) => {
@@ -18,6 +19,13 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   await page.keyboard.type('Alpha');
   await page.keyboard.press('Enter');
   await expect(page.locator('g.topic')).toHaveCount(2);
+
+  // An uploaded image is served from /img/…, drawn with a same-origin <image href>, and inlined for
+  // export by fetching that same path: img-src 'self' data: blob: and connect-src 'self' both cover it.
+  await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PNG_2x2 });
+  await expect(page.locator('g.topic image.topic-image')).toHaveCount(1);
+  expect(violations).toEqual([]);
+
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'PNG' }).click();
   expect((await download).suggestedFilename()).toMatch(/\.png$/);
