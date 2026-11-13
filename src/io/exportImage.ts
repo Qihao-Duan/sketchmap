@@ -8,13 +8,9 @@ const PAD = 40;
 /** How long an image fetch (export or inline) is given before it counts as failed, so a stalled network request can't lock the export buttons forever. */
 export const IMAGE_FETCH_TIMEOUT_MS = 15_000;
 
-/** AbortSignal.timeout, with a tiny fallback for a runtime that lacks the static method. */
+/** A fresh abort signal for one image fetch, firing after IMAGE_FETCH_TIMEOUT_MS. */
 export function imageFetchSignal(): AbortSignal {
-  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
-  controller.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
-  return controller.signal;
+  return AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS);
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {
