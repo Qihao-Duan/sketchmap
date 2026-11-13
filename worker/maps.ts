@@ -4,6 +4,7 @@ import { MapValidationError, parseMindMap } from '../src/shared/schema';
 import { plainTitle } from '../src/shared/title';
 import { LIMITS, type MapSummary, type MindMap } from '../src/shared/types';
 import { newMapId, newNodeId } from '../src/model/ids';
+import { deleteImages } from './images';
 
 const ID_RE = /^[A-Za-z0-9_-]{21}$/;
 const objectKey = (id: string) => `maps/${id}.json`;
@@ -91,6 +92,9 @@ export async function saveMap(id: string, request: Request, env: Env): Promise<R
 }
 
 export async function deleteMap(id: string, env: Env): Promise<Response> {
-  if (ID_RE.test(id)) await env.MAPS.delete(objectKey(id));
+  if (ID_RE.test(id)) {
+    await env.MAPS.delete(objectKey(id));
+    await deleteImages(id, env);
+  }
   return new Response(null, { status: 204, headers: API_HEADERS });
 }
