@@ -82,4 +82,17 @@ describe('export', () => {
     expect(svg).not.toContain('<image');
     expect(svg.match(/class="topic"/g)).toHaveLength(2); // the topics themselves still rendered
   });
+
+  it('gives the topic-image fetch an AbortSignal, so a stalled request times out instead of locking the export', async () => {
+    const inits: (RequestInit | undefined)[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith('/fonts/')) return new Response(woff2Bytes(1, 2, 3));
+      inits.push(init);
+      return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } });
+    }) as unknown as typeof fetch;
+    await buildSvg(imageLayout, 'Root\nCat', { fetchImpl });
+    expect(inits).toHaveLength(1);
+    expect(inits[0]?.signal).toBeInstanceOf(AbortSignal);
+  });
 });

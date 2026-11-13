@@ -400,10 +400,13 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     try {
       setExportError(undefined);
       if (kind === 'excalidraw') {
-        const json = await buildExcalidraw(layout);
+        const { json, missingImages } = await buildExcalidraw(layout);
         download(new Blob([json], { type: EXCALIDRAW_MIME }), fileName(state.map.title, 'excalidraw'));
-        const lost = excalidrawLosses(layout);
-        setNotice(lost.length ? `Downloaded. Not kept in .excalidraw: ${lost.join(', ')}.` : null);
+        const items = [
+          ...excalidrawLosses(layout),
+          ...(missingImages > 0 ? [`${missingImages} image${missingImages === 1 ? '' : 's'} that could not be loaded`] : []),
+        ];
+        setNotice(items.length ? `Downloaded. Not kept in .excalidraw: ${items.join(', ')}.` : null);
         return;
       }
       const svg = await buildSvg(layout, visibleText(layout));

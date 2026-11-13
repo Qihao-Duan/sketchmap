@@ -4,9 +4,9 @@ import { hashSeed, storedImageKey } from '../render/renderMap';
 import {
   ASIDE_INK, DECOR_STROKE, HIGHLIGHTER, INK, LINK_COLOR, PRIORITY_COLORS, badgeSize, branchStrokeWidth, topicStrokeWidth,
 } from '../layout/styles';
-import { bytesToBase64 } from './exportImage';
+import { bytesToBase64, imageFetchSignal } from './exportImage';
 
-/** An element skeleton for `convertToExcalidrawElements` (our own loose type, so the library stays out of the main bundle). */
+/** Our own loose type: the export only needs the fields it sets, and convertToExcalidrawElements fills in the rest. */
 export interface Skeleton {
   type: 'rectangle' | 'ellipse' | 'line' | 'text' | 'image';
   id: string;
@@ -94,20 +94,6 @@ function topic(t: TopicBox, fileIds: ReadonlyMap<string, string>, out: Skeleton[
   const lineLeft = (i: number) => (centred ? textLeft + (t.textW - t.lineWidths[i]) / 2 : textLeft);
   const part = (p: Skeleton) => out.push({ roughness: 1, groupIds, ...p });
 
-  // Highlight swipes sit behind everything else of the topic, as in renderMap.
-  if (em === 'highlight') {
-    t.lines.forEach((line, i) => {
-      if (!line.trim()) return;
-      const by = t.y + t.textTop + i * lineHeight + lineHeight / 2 + fontSize * 0.34;
-      const top = by - fontSize * 0.8;
-      part({
-        type: 'rectangle', id: `${t.id}:highlight${i}`, x: r1(lineLeft(i) - 4), y: r1(top),
-        width: r1(t.lineWidths[i] + 8), height: r1(fontSize * 1.08), strokeColor: 'transparent',
-        backgroundColor: HIGHLIGHTER, fillStyle: 'solid', roundness: null, seed: seed + 40 + i,
-      });
-    });
-  }
-
   if (kind === 'line') {
     part({
       type: 'line', id: `${t.id}:shape`, x: t.x, y: t.y + t.h, points: [[0, 0], [t.w, 0]], width: t.w, height: 0,
@@ -132,6 +118,20 @@ function topic(t: TopicBox, fileIds: ReadonlyMap<string, string>, out: Skeleton[
     part({
       type: 'rectangle', id: `${t.id}:frame`, ...box, strokeColor: t.color.stroke, backgroundColor: 'transparent',
       strokeWidth: DECOR_STROKE.frame, roundness: null, seed: seed + 6,
+    });
+  }
+
+  // Highlight swipes sit above the box (and any image), just behind the text, as in renderMap.
+  if (em === 'highlight') {
+    t.lines.forEach((line, i) => {
+      if (!line.trim()) return;
+      const by = t.y + t.textTop + i * lineHeight + lineHeight / 2 + fontSize * 0.34;
+      const top = by - fontSize * 0.8;
+      part({
+        type: 'rectangle', id: `${t.id}:highlight${i}`, x: r1(lineLeft(i) - 4), y: r1(top),
+        width: r1(t.lineWidths[i] + 8), height: r1(fontSize * 1.08), strokeColor: 'transparent',
+        backgroundColor: HIGHLIGHTER, fillStyle: 'solid', roundness: null, seed: seed + 40 + i,
+      });
     });
   }
 
@@ -207,7 +207,7 @@ async function loadFiles(layout: MapLayout, fetchImpl: typeof fetch) {
   const now = Date.now();
   await Promise.all([...keys].map(async (key) => {
     try {
-      const res = await fetchImpl(`/${key}`);
+      const res = await fetchImpl(`/${key}`, { signal: imageFetchSignal() });
       const mimeType = (res.headers.get('content-type') ?? '').split(';')[0].trim();
       if (!res.ok || !IMAGE_MIMES.has(mimeType)) return;
       const bytes = new Uint8Array(await res.arrayBuffer());
@@ -215,23 +215,32 @@ async function loadFiles(layout: MapLayout, fetchImpl: typeof fetch) {
       files[id] = { id, mimeType, dataURL: `data:${mimeType};base64,${bytesToBase64(bytes)}`, created: now, lastRetrieved: now };
       fileIds.set(key, id);
     } catch {
-      // Left out, as the SVG export does; the frame still marks where it was.
+      // Left out, as the SVG export does (including a timed-out fetch); the frame still marks where it was.
     }
   }));
-  return { files, fileIds };
+  // Every stored key we tried to fetch but isn't in fileIds failed or timed out.
+  const missingImages = keys.size - fileIds.size;
+  return { files, fileIds, missingImages };
 }
 
 /**
- * The `.excalidraw` file for the laid-out map (spec §9). The pinned library is loaded here, on demand, so it never
- * weighs on the editor or the embed.
+ * The `.excalidraw` file for the laid-out map (spec §9), plus how many stored images it could not keep. The
+ * pinned library is loaded here, on demand, so it never weighs on the editor or the embed.
  */
 export async function buildExcalidraw(
   layout: MapLayout,
-  opts: { fetchImpl?: typeof fetch; source?: string } = {},
-): Promise<string> {
+  opts: {
+    fetchImpl?: typeof fetch;
+    source?: string;
+    loadLibrary?: () => Promise<typeof import('@excalidraw/excalidraw')>;
+  } = {},
+): Promise<{ json: string; missingImages: number }> {
   const fetchImpl = opts.fetchImpl ?? ((input, init) => fetch(input, init));
-  const [{ convertToExcalidrawElements }, { files, fileIds }] = await Promise.all([
-    import('@excalidraw/excalidraw'),
+  const loadLibrary = opts.loadLibrary ?? (() => import('@excalidraw/excalidraw'));
+  const [{ convertToExcalidrawElements }, { files, fileIds, missingImages }] = await Promise.all([
+    loadLibrary().catch(() => {
+      throw new Error('Sketchmap was updated since this page was opened. Reload the page, then export again.');
+    }),
     loadFiles(layout, fetchImpl),
   ]);
   const { elements: skeletons, centres } = toExcalidrawSkeleton(layout, fileIds);
@@ -244,7 +253,7 @@ export async function buildExcalidraw(
     if (!c) return e;
     return { ...e, x: c.x - e.width / 2, ...(c.y === undefined ? {} : { y: c.y - e.height / 2 }) };
   });
-  return JSON.stringify({
+  const json = JSON.stringify({
     type: 'excalidraw',
     version: 2,
     source: opts.source ?? location.origin,
@@ -252,4 +261,5 @@ export async function buildExcalidraw(
     appState: { viewBackgroundColor: '#ffffff' },
     files,
   }, null, 2);
+  return { json, missingImages };
 }

@@ -5,6 +5,18 @@ import { renderMap } from '../render/renderMap';
 const SVGNS = 'http://www.w3.org/2000/svg';
 const PAD = 40;
 
+/** How long an image fetch (export or inline) is given before it counts as failed, so a stalled network request can't lock the export buttons forever. */
+export const IMAGE_FETCH_TIMEOUT_MS = 15_000;
+
+/** AbortSignal.timeout, with a tiny fallback for a runtime that lacks the static method. */
+export function imageFetchSignal(): AbortSignal {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+  controller.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
+  return controller.signal;
+}
+
 export function bytesToBase64(bytes: Uint8Array): string {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -43,7 +55,7 @@ async function inlineImages(svg: SVGSVGElement, fetchImpl: typeof fetch): Promis
   await Promise.all(images.map(async (img) => {
     try {
       const href = img.getAttribute('href')!;
-      const res = await fetchImpl(href);
+      const res = await fetchImpl(href, { signal: imageFetchSignal() });
       if (!res.ok) throw new Error(`Image ${href} could not be loaded (HTTP ${res.status})`);
       const bytes = new Uint8Array(await res.arrayBuffer());
       const contentType = res.headers.get('content-type') ?? 'application/octet-stream';

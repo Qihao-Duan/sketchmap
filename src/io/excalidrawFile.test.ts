@@ -28,7 +28,8 @@ describe('buildExcalidraw', () => {
   it('writes a scene Excalidraw itself restores, with our ids, Excalifont text and the image in files', async () => {
     const root = n('r', 'Root', [n('a', 'Alpha', [n('b', 'Beta')]), n('i', 'Pic', [], { image: { key: KEY, w: 120, h: 80 } })]);
     const layout = layoutMap(root, 'map', measure);
-    const json = await buildExcalidraw(layout, { fetchImpl: okFetch, source: 'https://sketchmap.test' });
+    const { json, missingImages } = await buildExcalidraw(layout, { fetchImpl: okFetch, source: 'https://sketchmap.test' });
+    expect(missingImages).toBe(0);
     const file = JSON.parse(json);
     expect(file).toMatchObject({ type: 'excalidraw', version: 2, source: 'https://sketchmap.test', appState: { viewBackgroundColor: '#ffffff' } });
 
@@ -49,12 +50,13 @@ describe('buildExcalidraw', () => {
   it('centres box text on the topic after Excalidraw measures it', async () => {
     const layout = layoutMap(n('r', 'Root words'), 'map', measure);
     const r = layout.byId.get('r')!;
-    const file = JSON.parse(await buildExcalidraw(layout, { fetchImpl: okFetch }));
+    const { json } = await buildExcalidraw(layout, { fetchImpl: okFetch });
+    const file = JSON.parse(json);
     const text = file.elements.find((e: { id: string }) => e.id === 'r:text');
     expect(text.x + text.width / 2).toBeCloseTo(r.x + r.style.padX + r.badgeW + r.textW / 2, 5);
   });
 
-  it('drops an image that fails to load, keeping its frame, and never fetches a foreign key', async () => {
+  it('drops an image that fails to load, keeping its frame, never fetches a foreign key, and counts it missing', async () => {
     const calls: string[] = [];
     const failing = (async (input: RequestInfo | URL) => {
       calls.push(String(input));
@@ -64,19 +66,42 @@ describe('buildExcalidraw', () => {
       n('i', 'Pic', [], { image: { key: KEY, w: 120, h: 80 } }),
       n('x', 'Evil', [], { image: { key: 'https://evil.example/x.png', w: 120, h: 80 } }),
     ]);
-    const file = JSON.parse(await buildExcalidraw(layoutMap(root, 'map', measure), { fetchImpl: failing }));
+    const { json, missingImages } = await buildExcalidraw(layoutMap(root, 'map', measure), { fetchImpl: failing });
+    const file = JSON.parse(json);
     const ids = file.elements.map((e: { id: string }) => e.id);
     expect(ids).toContain('i:frame');
     expect(ids).not.toContain('i:image');
     expect(file.files).toEqual({});
     expect(calls).toEqual([`/${KEY}`]);
+    expect(missingImages).toBe(1);
   });
 
-  it('refuses a response that is not an image type it knows', async () => {
+  it('refuses a response that is not an image type it knows, and counts it missing', async () => {
     const html = (async () => new Response('<html>', { headers: { 'content-type': 'text/html' } })) as typeof fetch;
     const root = n('r', 'Root', [n('i', 'Pic', [], { image: { key: KEY, w: 120, h: 80 } })]);
-    const file = JSON.parse(await buildExcalidraw(layoutMap(root, 'map', measure), { fetchImpl: html }));
-    expect(file.files).toEqual({});
+    const { json, missingImages } = await buildExcalidraw(layoutMap(root, 'map', measure), { fetchImpl: html });
+    expect(JSON.parse(json).files).toEqual({});
+    expect(missingImages).toBe(1);
+  });
+
+  it('gives each image fetch an AbortSignal, so a stalled request times out instead of locking the export', async () => {
+    const inits: (RequestInit | undefined)[] = [];
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      inits.push(init);
+      return new Response(PNG, { headers: { 'content-type': 'image/png' } });
+    }) as typeof fetch;
+    const root = n('r', 'Root', [n('i', 'Pic', [], { image: { key: KEY, w: 120, h: 80 } })]);
+    await buildExcalidraw(layoutMap(root, 'map', measure), { fetchImpl });
+    expect(inits).toHaveLength(1);
+    expect(inits[0]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('clears with a reload message when the dynamic import of the library rejects (e.g. a stale chunk after a redeploy)', async () => {
+    const root = n('r', 'Root');
+    const layout = layoutMap(root, 'map', measure);
+    const loadLibrary = () => Promise.reject(new Error('Failed to fetch dynamically imported module: …'));
+    await expect(buildExcalidraw(layout, { fetchImpl: okFetch, loadLibrary }))
+      .rejects.toThrow('Sketchmap was updated since this page was opened. Reload the page, then export again.');
   });
 });
 

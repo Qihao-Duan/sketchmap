@@ -21,7 +21,7 @@ vi.mock('../io/imagePrep', async (importOriginal) => {
 // that in, keeping excalidrawLosses and EXCALIDRAW_MIME real.
 vi.mock('../io/excalidraw', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../io/excalidraw')>();
-  return { ...actual, buildExcalidraw: vi.fn(async () => '{"type":"excalidraw"}') };
+  return { ...actual, buildExcalidraw: vi.fn(async () => ({ json: '{"type":"excalidraw"}', missingImages: 0 })) };
 });
 vi.mock('../io/exportImage', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../io/exportImage')>();
@@ -123,7 +123,7 @@ beforeEach(() => {
   vi.mocked(prepareImage).mockReset();
   vi.mocked(prepareImage).mockResolvedValue({ blob: new Blob(['x'], { type: 'image/png' }), width: 200, height: 100 });
   vi.mocked(buildExcalidraw).mockReset();
-  vi.mocked(buildExcalidraw).mockResolvedValue('{"type":"excalidraw"}');
+  vi.mocked(buildExcalidraw).mockResolvedValue({ json: '{"type":"excalidraw"}', missingImages: 0 });
   vi.mocked(download).mockReset();
 });
 afterEach(() => { container.remove(); vi.useRealTimers(); });
@@ -792,9 +792,16 @@ describe('Excalidraw export', () => {
     expect(container.textContent).toContain('Downloaded. Not kept in .excalidraw: notes.');
   });
 
+  it('adds the missing-image count to the notice, after any other losses', async () => {
+    vi.mocked(buildExcalidraw).mockResolvedValue({ json: '{"type":"excalidraw"}', missingImages: 2 });
+    mount(fakeApi(), { ...map, root: { ...map.root, note: 'Remember' } });
+    await click('Excalidraw');
+    expect(container.textContent).toContain('Downloaded. Not kept in .excalidraw: notes, 2 images that could not be loaded.');
+  });
+
   it('disables all three export buttons while the build is pending, and ignores a second click', async () => {
     let release!: () => void;
-    vi.mocked(buildExcalidraw).mockReturnValue(new Promise((resolve) => { release = () => resolve('{"type":"excalidraw"}'); }));
+    vi.mocked(buildExcalidraw).mockReturnValue(new Promise((resolve) => { release = () => resolve({ json: '{"type":"excalidraw"}', missingImages: 0 }); }));
     mount(fakeApi());
     act(() => {
       [...container.querySelectorAll('button')].find((b) => b.textContent === 'Excalidraw')!.click();

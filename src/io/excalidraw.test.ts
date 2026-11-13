@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { layoutMap } from '../layout';
-import { ASIDE_INK, HIGHLIGHTER, INK, LINK_COLOR, PALETTE, PRIORITY_COLORS, ROOT_COLOR, branchStrokeWidth, topicStrokeWidth } from '../layout/styles';
+import { ASIDE_INK, HIGHLIGHTER, INK, LINK_COLOR, PALETTE, PRIORITY_COLORS, ROOT_COLOR, badgeSize, branchStrokeWidth, topicStrokeWidth } from '../layout/styles';
 import type { Measure } from '../layout/wrap';
 import type { LayoutKind, MapNode } from '../shared/types';
 import { excalidrawLosses, fileIdFor, pathPoints, toExcalidrawSkeleton, type Skeleton } from './excalidraw';
@@ -8,6 +8,7 @@ import { excalidrawLosses, fileIdFor, pathPoints, toExcalidrawSkeleton, type Ske
 const measure: Measure = (t, size) => t.length * size * 0.5;
 const n = (id: string, text: string, children: MapNode[] = [], extra: Partial<MapNode> = {}): MapNode => ({ id, text, children, ...extra });
 const KEY = 'img/AAAAAAAAAAAAAAAAAAAAA/BBBBBBBBBB.png';
+const r1 = (v: number) => Math.round(v * 10) / 10;
 const scene = (root: MapNode, kind: LayoutKind = 'map', fileIds = new Map<string, string>()) => {
   const layout = layoutMap(root, kind, measure);
   return { layout, ...toExcalidrawSkeleton(layout, fileIds) };
@@ -76,11 +77,12 @@ describe('toExcalidrawSkeleton', () => {
     expect(byId(elements, 'a:text')).toMatchObject({ strokeColor: LINK_COLOR, link: 'https://a.example' });
   });
 
-  it('puts a highlighter swipe behind each non-blank line, before the text', () => {
+  it('puts a highlighter swipe above the box, before the text, as in renderMap', () => {
     const { layout, elements } = scene(n('r', 'Root', [n('h', 'Highlighted words', [], { emphasis: 'highlight' })]));
     const swipes = elements.filter((e) => e.id.startsWith('h:highlight'));
     expect(swipes).toHaveLength(layout.byId.get('h')!.lines.length);
     expect(swipes[0]).toMatchObject({ type: 'rectangle', backgroundColor: HIGHLIGHTER, fillStyle: 'solid', strokeColor: 'transparent' });
+    expect(elements.indexOf(byId(elements, 'h:shape'))).toBeLessThan(elements.indexOf(swipes[0]));
     expect(elements.indexOf(swipes[0])).toBeLessThan(elements.indexOf(byId(elements, 'h:text')));
   });
 
@@ -140,6 +142,31 @@ describe('toExcalidrawSkeleton', () => {
     const tree = n('r', 'Root', [n('a', 'Alpha')]);
     expect(scene(tree).elements).toEqual(scene(tree).elements);
     expect(typeof byId(scene(tree).elements, 'r:shape').seed).toBe('number');
+  });
+
+  it('draws an org elbow branch (a depth-2 topic) as a straight line with null roundness, corners from pathPoints', () => {
+    const tree = n('r', 'Root', [n('a', 'Alpha', [n('b', 'Beta')])]);
+    const { layout, elements } = scene(tree, 'org');
+    const b = layout.branches.find((br) => br.to === 'b')!;
+    const { points, curved } = pathPoints(b.d);
+    expect(curved).toBe(false); // an elbow (M…L…L…), not a cubic curve
+    const line = byId(elements, 'b:branch');
+    expect(line).toMatchObject({ type: 'line', x: points[0][0], y: points[0][1], roundness: null });
+    const [x0, y0] = points[0];
+    expect(line.points).toEqual(points.map(([x, y]) => [r1(x - x0), r1(y - y0)]));
+  });
+
+  it("keeps a left-side topic's badge centred by the same formula as the right side (renderMap: lineLeft(0) - badgeW + d/2)", () => {
+    const tree = n('r', 'Root', [n('p', 'Node'), n('q', 'Node'), n('x', 'Side item', [], { priority: 2 })]);
+    const { layout, elements } = scene(tree);
+    const t = layout.byId.get('x')!;
+    expect(t.side).toBe(-1); // the third of three equal children lands on the left
+    const d = badgeSize(t.style.fontSize);
+    const textLeft = t.x + t.style.padX + t.badgeW;
+    const lineLeft0 = textLeft + (t.textW - t.lineWidths[0]) / 2; // centred box, one line
+    const expectedCx = lineLeft0 - t.badgeW + d / 2;
+    const badge = byId(elements, 'x:badge');
+    expect(badge.x + (badge.width as number) / 2).toBeCloseTo(expectedCx, 5);
   });
 });
 
