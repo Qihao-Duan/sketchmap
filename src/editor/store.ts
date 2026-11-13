@@ -1,4 +1,5 @@
 import { produce } from 'immer';
+import { displaySize, IMAGE_SIZES } from '../io/imagePrep';
 import { linkWhole } from '../shared/rich';
 import type { Emphasis, LayoutKind, MapNode, MindMap } from '../shared/types';
 import * as T from '../model/tree';
@@ -39,7 +40,9 @@ export type EditorAction =
   | { type: 'setPriority'; id: string; priority: 1 | 2 | 3 | null }
   | { type: 'setMarker'; id: string; emoji: string | null }
   | { type: 'setNote'; id: string; note: string }
-  | { type: 'setLink'; id: string; href: string | null };
+  | { type: 'setLink'; id: string; href: string | null }
+  | { type: 'setImage'; id: string; image: { key: string; w: number; h: number } | null }
+  | { type: 'setImageSize'; id: string; size: 'S' | 'M' | 'L' };
 
 export function initEditor(map: MindMap): EditorState {
   return { map, selectedId: map.root.id, editing: null, past: [], future: [], revision: 0 };
@@ -213,6 +216,35 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const text = linkWhole(f.node.text, action.href);
       if (text === f.node.text || text.length > 5000) return state;
       return commit(state, produce(state.map, (d) => void T.setText(d.root, action.id, text)));
+    }
+
+    case 'setImage': {
+      if (state.editing) return state;
+      const f = T.findNode(state.map.root, action.id);
+      if (!f) return state;
+      const current = f.node.image ?? null;
+      const img = action.image;
+      const same = current === img || (current !== null && img !== null && current.key === img.key && current.w === img.w && current.h === img.h);
+      if (same) return state;
+      const next = produce(state.map, (d) => {
+        const node = T.findNode(d.root, action.id)!.node;
+        if (img === null) delete node.image;
+        else node.image = img;
+      });
+      return commit(state, next);
+    }
+
+    case 'setImageSize': {
+      if (state.editing) return state;
+      const img = T.findNode(state.map.root, action.id)?.node.image;
+      if (!img) return state;
+      const resized = displaySize(img.w, img.h, IMAGE_SIZES[action.size]);
+      if (resized.w === img.w) return state;
+      const next = produce(state.map, (d) => {
+        const node = T.findNode(d.root, action.id)!.node;
+        node.image = { ...node.image!, ...resized };
+      });
+      return commit(state, next);
     }
 
     case 'undo': {

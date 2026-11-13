@@ -21,6 +21,7 @@ interface Props {
   onEdit?(id: string): void;
   onMove?(id: string, targetId: string): void;
   onViewChange?(view: View): void;
+  onDropFile?(topicId: string | null, file: File): void;
   rightInset?: number;
   fitMaxK?: number;
   ref?: Ref<CanvasHandle>;
@@ -36,7 +37,7 @@ function openLink(href: string) {
   if (/^https?:\/\//i.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
 }
 
-export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect, onEdit, onMove, onViewChange, rightInset = 0, fitMaxK, ref }: Props) {
+export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect, onEdit, onMove, onViewChange, onDropFile, rightInset = 0, fitMaxK, ref }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const worldRef = useRef<SVGGElement>(null);
   const overlayRef = useRef<SVGGElement>(null);
@@ -228,6 +229,17 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
         onPointerMove={onPointerMove}
         onPointerUp={(e) => endGesture(e, false)}
         onPointerCancel={(e) => endGesture(e, true)}
+        onDragOver={(e) => {
+          if (interactive && e.dataTransfer.types.includes('Files')) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          if (!interactive) return;
+          e.preventDefault();
+          const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith('image/'));
+          if (!file) return;
+          const topicId = (e.target as Element).closest('g.topic')?.getAttribute('data-id') ?? null;
+          onDropFile?.(topicId, file);
+        }}
         onClick={(e) => {
           // Links open from the pointer handlers above, or here from the keyboard; never by the browser's own navigation.
           const a = (e.target as Element).closest('a');

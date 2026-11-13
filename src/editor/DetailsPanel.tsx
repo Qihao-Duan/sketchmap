@@ -1,5 +1,6 @@
 import rough from 'roughjs';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { IMAGE_SIZES } from '../io/imagePrep';
 import { ASIDE_INK, HIGHLIGHTER, INK, PRIORITY_COLORS } from '../layout/styles';
 import { parseRich } from '../shared/rich';
 import { MARKERS, type Emphasis, type MapNode } from '../shared/types';
@@ -68,26 +69,35 @@ const PRIORITIES: Array<{ value: 1 | 2 | 3 | null; label: string; title: string;
   },
 ];
 
+const IMAGE_SIZE_KEYS = ['S', 'M', 'L'] as const;
+
 export interface DetailsPanelProps {
   node: MapNode;
   onEmphasis(emphasis: Emphasis | null): void;
   onPriority(priority: 1 | 2 | 3 | null): void;
   onMarker(emoji: string | null): void;
   onNote(id: string, note: string): void;
+  onImageFile(file: File): void;
+  onImageSize(size: 'S' | 'M' | 'L'): void;
+  onImageRemove(): void;
+  /** An image is being uploaded: the Add/Replace button is disabled and reads "Uploading…". */
+  uploading?: boolean;
   /** A new topic is open for typing: finish it before writing a note. */
   newTopicOpen?: boolean;
   /** Folds the panel into a slim tab at the right edge. */
   onFold(): void;
 }
 
-/** The selected topic's importance, priority, marker and note. Mount it with `key={node.id}`. */
-export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, newTopicOpen, onFold }: DetailsPanelProps) {
+/** The selected topic's importance, priority, marker, note and image. Mount it with `key={node.id}`. */
+export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, onImageFile, onImageSize, onImageRemove, uploading, newTopicOpen, onFold }: DetailsPanelProps) {
   const [note, setNote] = useState(node.note ?? '');
   const noteBox = useRef<HTMLTextAreaElement>(null);
   const pending = useRef<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const onNoteRef = useRef(onNote);
   onNoteRef.current = onNote;
+  const imageInput = useRef<HTMLInputElement>(null);
+  const pickImage = () => imageInput.current?.click();
 
   const flush = () => {
     window.clearTimeout(timer.current);
@@ -221,6 +231,47 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, n
           </ul>
         </div>
       )}
+      <div className="field">
+        <span className="flabel">Image</span>
+        {node.image ? (
+          <div className="image-actions">
+            <div className="chips" role="group" aria-label="Image size">
+              {IMAGE_SIZE_KEYS.map((sz) => (
+                <button
+                  key={sz}
+                  type="button"
+                  className="chip"
+                  aria-pressed={node.image!.w === IMAGE_SIZES[sz]}
+                  onMouseDown={noFocus}
+                  onClick={() => onImageSize(sz)}
+                >
+                  {sz}
+                </button>
+              ))}
+            </div>
+            <button type="button" onMouseDown={noFocus} onClick={pickImage} disabled={uploading}>
+              {uploading ? 'Uploading…' : 'Replace…'}
+            </button>
+            <button type="button" onMouseDown={noFocus} onClick={onImageRemove}>Remove</button>
+          </div>
+        ) : (
+          <button type="button" onMouseDown={noFocus} onClick={pickImage} disabled={uploading}>
+            {uploading ? 'Uploading…' : 'Add image…'}
+          </button>
+        )}
+        <input
+          ref={imageInput}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          aria-label="Image file"
+          className="image-file-input"
+          onChange={(e) => {
+            const file = e.target.files?.[0] ?? null;
+            e.target.value = '';
+            if (file) onImageFile(file);
+          }}
+        />
+      </div>
       <p className="muted hint">Select a topic and press ⌘/Ctrl K to link all of it. While editing, select words and press ⌘/Ctrl K, or paste a link over them.</p>
     </aside>
   );

@@ -3,9 +3,17 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
+import { ImageError, prepareImage } from '../io/imagePrep';
 import type { MindMap } from '../shared/types';
 import { draftKey } from './autosave';
 import { Editor } from './EditorPage';
+
+// jsdom can't decode images (createImageBitmap/OffscreenCanvas aren't implemented): stub prepareImage,
+// keeping the real displaySize/IMAGE_SIZES so the rest of the image flow behaves like production.
+vi.mock('../io/imagePrep', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../io/imagePrep')>();
+  return { ...actual, prepareImage: vi.fn() };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const map: MindMap = { id: 'abcdefghijklmnopqrstu', title: 'Root', layout: 'map', version: 1, updatedAt: 't', root: { id: 'root000001', text: 'Root', children: [] } };
@@ -14,7 +22,8 @@ let container: HTMLDivElement;
 
 function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
   return {
-    listMaps: vi.fn(), createMap: vi.fn(), deleteMap: vi.fn(), uploadImage: vi.fn(),
+    listMaps: vi.fn(), createMap: vi.fn(), deleteMap: vi.fn(),
+    uploadImage: vi.fn(async () => ({ key: 'img/abcdefghijklmnopqrstu/k.png' })),
     getMap: vi.fn(async () => ({ map, etag: '"server"' })),
     saveMap: vi.fn(async (m: MindMap) => ({ map: { ...m, version: m.version + 1, title: m.root.text }, etag: '"e2"' })),
     ...overrides,
@@ -46,6 +55,22 @@ function paste(text: string, html = '') {
   Object.defineProperty(ev, 'clipboardData', { value: { getData: (type: string) => (type === 'text/html' ? html : text) } });
   act(() => void window.dispatchEvent(ev));
 }
+async function pasteFile(file: File) {
+  const ev = new Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'clipboardData', { value: { files: [file], getData: () => '' } });
+  await act(async () => {
+    window.dispatchEvent(ev);
+    await vi.advanceTimersByTimeAsync(0);
+  });
+}
+async function chooseImage(file: File) {
+  const input = container.querySelector('input[aria-label="Image file"]') as HTMLInputElement;
+  Object.defineProperty(input, 'files', { value: [file], configurable: true });
+  await act(async () => {
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(0);
+  });
+}
 const pressed = () => container.querySelector('[aria-label="Layout"] button[aria-pressed="true"]')!.textContent;
 const topics = () => container.querySelectorAll('g.topic').length;
 const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
@@ -60,7 +85,12 @@ const clickLabel = (label: string) => act(async () => {
 const pressedIn = (group: string) =>
   [...container.querySelectorAll(`[aria-label="${group}"] button[aria-pressed="true"]`)].map((b) => b.getAttribute('aria-label') ?? b.textContent);
 
-beforeEach(() => { vi.useFakeTimers(); localStorage.clear(); });
+beforeEach(() => {
+  vi.useFakeTimers();
+  localStorage.clear();
+  vi.mocked(prepareImage).mockReset();
+  vi.mocked(prepareImage).mockResolvedValue({ blob: new Blob(['x'], { type: 'image/png' }), width: 200, height: 100 });
+});
 afterEach(() => { container.remove(); vi.useRealTimers(); });
 
 describe('Editor', () => {
@@ -541,5 +571,56 @@ describe('Details panel', () => {
     const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
     act(() => void a.dispatchEvent(down));
     expect(down.defaultPrevented).toBe(true);
+  });
+});
+
+describe('Images', () => {
+  const file = () => new File(['x'], 'photo.png', { type: 'image/png' });
+  const topicImage = () => container.querySelector('g.topic image.topic-image');
+
+  it('choosing a file in the Image row draws g.topic image.topic-image', async () => {
+    mount(fakeApi());
+    expect(topicImage()).toBeNull();
+    await chooseImage(file());
+    expect(topicImage()).not.toBeNull();
+    expect(topicImage()!.getAttribute('width')).toBe('200');
+  });
+
+  it('S, M and L change its width', async () => {
+    mount(fakeApi());
+    await chooseImage(file());
+    await click('S');
+    expect(topicImage()!.getAttribute('width')).toBe('120');
+    await click('L');
+    expect(topicImage()!.getAttribute('width')).toBe('300');
+    await click('M');
+    expect(topicImage()!.getAttribute('width')).toBe('200');
+  });
+
+  it('Remove takes the image away, and undo brings it back', async () => {
+    mount(fakeApi());
+    await chooseImage(file());
+    expect(topicImage()).not.toBeNull();
+    await click('Remove');
+    expect(topicImage()).toBeNull();
+    keydown({ key: 'z', metaKey: true });
+    expect(topicImage()).not.toBeNull();
+  });
+
+  it('a rejected prepareImage shows the banner and adds nothing', async () => {
+    vi.mocked(prepareImage).mockRejectedValue(new ImageError('SVG images aren’t supported (they can carry script).'));
+    mount(fakeApi());
+    await chooseImage(file());
+    expect(topicImage()).toBeNull();
+    const banner = container.querySelector('[role="alert"]')!;
+    expect(banner.textContent).toContain('Image not added: SVG images aren’t supported');
+    act(() => void (banner.querySelector('button') as HTMLButtonElement).click());
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('pasting a clipboard with an image file attaches it to the selected topic', async () => {
+    mount(fakeApi());
+    await pasteFile(file());
+    expect(topicImage()).not.toBeNull();
   });
 });

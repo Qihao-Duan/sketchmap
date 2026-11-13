@@ -12,7 +12,7 @@ const layout = computeLayout(tree, (t, s) => t.length * s * 0.5);
 let container: HTMLDivElement;
 
 function mount(interactive = true) {
-  const h = { onSelect: vi.fn(), onEdit: vi.fn(), onMove: vi.fn(), onToggleFold: vi.fn() };
+  const h = { onSelect: vi.fn(), onEdit: vi.fn(), onMove: vi.fn(), onToggleFold: vi.fn(), onDropFile: vi.fn() };
   container = document.createElement('div');
   document.body.appendChild(container);
   act(() => createRoot(container).render(<Canvas layout={layout} selectedId={null} interactive={interactive} {...h} />));
@@ -21,6 +21,11 @@ function mount(interactive = true) {
 const press = (el: Element, type: string, x = 10, y = 10, buttons = 0) =>
   act(() => void el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons, clientX: x, clientY: y })));
 const hit = (id: string) => container.querySelector(`g.topic[data-id="${id}"] rect.hit`)!;
+const dragEvent = (type: string, dataTransfer: { files?: File[]; types?: string[] }) => {
+  const ev = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'dataTransfer', { value: { files: dataTransfer.files ?? [], types: dataTransfer.types ?? [] } });
+  return ev;
+};
 
 afterEach(() => container.remove());
 
@@ -230,5 +235,40 @@ describe('Canvas', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  describe('drop', () => {
+    const file = new File(['x'], 'photo.png', { type: 'image/png' });
+
+    it('dropping a file on a topic calls onDropFile with that topic’s id', () => {
+      const h = mount();
+      act(() => void hit('a').dispatchEvent(dragEvent('drop', { files: [file], types: ['Files'] })));
+      expect(h.onDropFile).toHaveBeenCalledWith('a', file);
+    });
+
+    it('dropping on the background calls onDropFile with null', () => {
+      const h = mount();
+      const svg = container.querySelector('svg')!;
+      act(() => void svg.dispatchEvent(dragEvent('drop', { files: [file], types: ['Files'] })));
+      expect(h.onDropFile).toHaveBeenCalledWith(null, file);
+    });
+
+    it('dragover with Files is preventDefaulted', () => {
+      mount();
+      const svg = container.querySelector('svg')!;
+      const ev = dragEvent('dragover', { types: ['Files'] });
+      act(() => void svg.dispatchEvent(ev));
+      expect(ev.defaultPrevented).toBe(true);
+    });
+
+    it('a view-only canvas ignores drops and dragover', () => {
+      const h = mount(false);
+      const svg = container.querySelector('svg')!;
+      const over = dragEvent('dragover', { types: ['Files'] });
+      act(() => void svg.dispatchEvent(over));
+      expect(over.defaultPrevented).toBe(false);
+      act(() => void svg.dispatchEvent(dragEvent('drop', { files: [file], types: ['Files'] })));
+      expect(h.onDropFile).not.toHaveBeenCalled();
+    });
   });
 });

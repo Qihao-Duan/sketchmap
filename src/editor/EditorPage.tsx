@@ -4,6 +4,7 @@ import { KeyPrompt } from '../auth/KeyPrompt';
 import { getOwnerKey, setOwnerKey } from '../auth/ownerKey';
 import { buildSvg, download, fileName, svgToPng, visibleText } from '../io/exportImage';
 import { parseHtmlOutline } from '../io/htmlOutline';
+import { displaySize, prepareImage } from '../io/imagePrep';
 import { markdownLosses, parseOutline, toMarkdown } from '../io/markdown';
 import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
@@ -57,6 +58,8 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [linkFor, setLinkFor] = useState<string | null>(null);
   const [mdCopied, setMdCopied] = useState(false);
   const [mdNotice, setMdNotice] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(() => {
     try {
       const stored = storage.getItem(DETAILS_KEY);
@@ -172,6 +175,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       if (stateRef.current.editing || modalRef.current) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const imageFile = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'));
+      if (imageFile) {
+        e.preventDefault();
+        void attachImage(stateRef.current.selectedId, imageFile);
+        return;
+      }
       const html = e.clipboardData?.getData('text/html') ?? '';
       const text = e.clipboardData?.getData('text/plain') ?? '';
       const parsed = (html ? parseHtmlOutline(html) : null) ?? (text.trim() ? parseOutline(text) : null);
@@ -199,6 +208,20 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const endEdit = () => {
     const active = document.activeElement as HTMLElement | null;
     if (stateRef.current.editing || active?.closest('.details')) active?.blur();
+  };
+  const attachImage = async (id: string, file: File) => {
+    setImageBusy(true);
+    setImageError(null);
+    try {
+      const prepared = await prepareImage(file);
+      const { key } = await api.uploadImage(initial.id, prepared.blob);
+      endEdit();
+      dispatch({ type: 'setImage', id, image: { key, ...displaySize(prepared.width, prepared.height) } });
+    } catch (e) {
+      setImageError(`Image not added: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setImageBusy(false);
+    }
   };
   const toggleDetails = () => {
     const next = !detailsOpen;
@@ -384,6 +407,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         </div>
       )}
       {exportError && <div className="banner" role="alert">{exportError}</div>}
+      {imageError && (
+        <div className="banner" role="alert">
+          {imageError}
+          <button type="button" onClick={() => setImageError(null)}>Dismiss</button>
+        </div>
+      )}
       {status === 'rejected' && (
         <div className="banner" role="alert">
           The server refused this save: {rejectedMessage}. Your changes are kept in this browser.
@@ -402,6 +431,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           }}
           onMove={(id, targetId) => dispatch({ type: 'move', id, targetId })}
           onToggleFold={(id) => dispatch({ type: 'toggleFold', id })}
+          onDropFile={(id, file) => void attachImage(id ?? state.selectedId, file)}
           onViewChange={setView}
           rightInset={detailsOpen ? 296 : 44}
         />
@@ -446,6 +476,18 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
               dispatch({ type: 'setMarker', id, emoji });
             }}
             onNote={(id, note) => dispatch({ type: 'setNote', id, note })}
+            onImageFile={(file) => void attachImage(selectedNode.id, file)}
+            onImageSize={(size) => {
+              const id = selectedNode.id;
+              endEdit();
+              dispatch({ type: 'setImageSize', id, size });
+            }}
+            onImageRemove={() => {
+              const id = selectedNode.id;
+              endEdit();
+              dispatch({ type: 'setImage', id, image: null });
+            }}
+            uploading={imageBusy}
             newTopicOpen={!!state.editing?.isNew}
             onFold={toggleDetails}
           />

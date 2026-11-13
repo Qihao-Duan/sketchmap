@@ -216,3 +216,47 @@ describe('setLink', () => {
     expect(reduce(s, { type: 'setLink', id: 'gone', href: 'https://a.com' })).toBe(s);
   });
 });
+
+describe('setImage and setImageSize', () => {
+  const nodeA = (s: EditorState) => s.map.root.children[0];
+  const image = { key: 'img/abcdefghijklmnopqrstu/a.png', w: 200, h: 100 };
+
+  it('setImage sets the image, null removes it, and undo restores it', () => {
+    let s = initEditor(base());
+    s = reduce(s, { type: 'setImage', id: 'a', image });
+    expect(nodeA(s).image).toEqual(image);
+    expect(s.past).toHaveLength(1);
+    s = reduce(s, { type: 'setImage', id: 'a', image: null });
+    expect(nodeA(s).image).toBeUndefined();
+    expect(s.past).toHaveLength(2);
+    s = reduce(s, { type: 'undo' });
+    expect(nodeA(s).image).toEqual(image);
+  });
+
+  it('setImage is a no-op while editing, for the same value, and for a topic that no longer exists', () => {
+    const s = reduce(initEditor(base()), { type: 'setImage', id: 'a', image });
+    expect(reduce(s, { type: 'setImage', id: 'a', image })).toBe(s);
+    expect(reduce(s, { type: 'setImage', id: 'gone', image })).toBe(s);
+    const editing = reduce(s, { type: 'startEdit', id: 'a' });
+    expect(reduce(editing, { type: 'setImage', id: 'a', image: null })).toBe(editing);
+  });
+
+  it('setImageSize scales a 200x100 image to each size, keeping the aspect ratio, as one undo step', () => {
+    let s = reduce(initEditor(base()), { type: 'setImage', id: 'a', image });
+    s = reduce(s, { type: 'setImageSize', id: 'a', size: 'S' });
+    expect(nodeA(s).image).toEqual({ ...image, w: 120, h: 60 });
+    expect(s.past).toHaveLength(2);
+    s = reduce(s, { type: 'setImageSize', id: 'a', size: 'L' });
+    expect(nodeA(s).image).toEqual({ ...image, w: 300, h: 150 });
+  });
+
+  it('setImageSize is a no-op for the same size, without an image, or while editing', () => {
+    let s = reduce(initEditor(base()), { type: 'setImage', id: 'a', image });
+    s = reduce(s, { type: 'setImageSize', id: 'a', size: 'M' });
+    expect(reduce(s, { type: 'setImageSize', id: 'a', size: 'M' })).toBe(s);
+    const noImage = initEditor(base());
+    expect(reduce(noImage, { type: 'setImageSize', id: 'a', size: 'S' })).toBe(noImage);
+    const editing = reduce(s, { type: 'startEdit', id: 'a' });
+    expect(reduce(editing, { type: 'setImageSize', id: 'a', size: 'S' })).toBe(editing);
+  });
+});
