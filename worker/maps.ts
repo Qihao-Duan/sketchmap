@@ -93,8 +93,9 @@ export async function saveMap(id: string, request: Request, env: Env): Promise<R
 
 export async function deleteMap(id: string, env: Env): Promise<Response> {
   if (ID_RE.test(id)) {
-    await env.MAPS.delete(objectKey(id));
+    // Images first: if that fails, the map is still there and the delete can be retried (no orphaned images).
     await deleteImages(id, env);
+    await env.MAPS.delete(objectKey(id));
   }
   return new Response(null, { status: 204, headers: API_HEADERS });
 }

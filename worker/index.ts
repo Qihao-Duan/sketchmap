@@ -55,7 +55,6 @@ export default {
         return errorResponse(500, 'Internal error');
       }
     }
-    if (!env.ASSETS) return errorResponse(404, 'Not found');
     return serveAsset(request, env);
   },
 } satisfies ExportedHandler<Env>;

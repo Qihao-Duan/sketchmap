@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker, { type Env } from '../index';
+import { serveImage } from '../images';
 import type { MindMap } from '../../src/shared/types';
 
 const E = env as unknown as Env;
@@ -51,7 +52,7 @@ describe('images API', () => {
 
   it('needs an existing map, and serves 404 for unknown or malformed image paths', async () => {
     expect((await upload('abcdefghijklmnopqrstu', PNG)).status).toBe(404);
-    for (const p of ['/img/nope', '/img/abcdefghijklmnopqrstu/x.svg', '/img/../maps/x.json', '/img/abcdefghijklmnopqrstu/missing.png']) {
+    for (const p of ['/img/nope', '/img/abcdefghijklmnopqrstu/x.svg', '/img/abcdefghijklmnopqrstu/missing.png', '/img/abcdefghijklmnopqrstu/a/b.png']) {
       const r = await worker.fetch(new Request(`http://x${p}`), E);
       expect(r.status, p).toBe(404);
     }
@@ -64,5 +65,34 @@ describe('images API', () => {
     expect(list.every((m) => !m.id.includes('/'))).toBe(true);
     expect((await call(`/api/maps/${map.id}`, { method: 'DELETE' })).status).toBe(204);
     expect((await worker.fetch(new Request(`http://x/${key}`), E)).status).toBe(404);
+  });
+});
+
+describe('images API, edges', () => {
+  it('refuses a body over 5 MB even without a Content-Length, by counting while it reads', async () => {
+    const { map } = await create();
+    const chunk = new Uint8Array(1024 * 1024);
+    chunk.set(PNG);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (sent >= 6) return c.close();
+        sent++;
+        c.enqueue(chunk.slice());
+      },
+    });
+    const req = new Request(`http://x/api/maps/${map.id}/images`, { method: 'POST', body, headers: { Authorization: `Bearer ${KEY}` }, duplex: 'half' } as RequestInit);
+    expect((await worker.fetch(req, E)).status).toBe(413);
+  });
+
+  it('answers 405 for other methods, serves HEAD, and never serves a path outside img/', async () => {
+    const { map } = await create();
+    for (const method of ['GET', 'PUT', 'DELETE']) expect((await call(`/api/maps/${map.id}/images`, { method })).status, method).toBe(405);
+    const { key } = (await (await upload(map.id, PNG)).json()) as { key: string };
+    const head = await worker.fetch(new Request(`http://x/${key}`, { method: 'HEAD' }), E);
+    expect(head.status).toBe(200);
+    expect((await worker.fetch(new Request(`http://x/${key}`, { method: 'POST' }), E)).status).toBe(405);
+    expect((await serveImage('/img/../maps/x.json', E)).status).toBe(404);
+    expect((await serveImage(`/maps/${map.id}.json`, E)).status).toBe(404);
   });
 });

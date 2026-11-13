@@ -18,13 +18,38 @@ export function sniffImage(b: Uint8Array): { ext: 'png' | 'jpg' | 'webp' | 'gif'
   return null;
 }
 
+/** Reads a request body, giving up past `max` bytes even when Content-Length is missing or wrong (no full buffering). */
+async function readCapped(request: Request, max: number): Promise<Uint8Array | null> {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
+}
+
 /** POST /api/maps/:id/images (owner only): stores one image under the map and returns its key. */
 export async function uploadImage(mapId: string, request: Request, env: Env): Promise<Response> {
   if (!ID_RE.test(mapId)) return errorResponse(404, 'Not found');
   if (Number(request.headers.get('Content-Length') ?? '0') > IMAGE_MAX_BYTES) return errorResponse(413, 'Image is larger than 5 MB');
   if (!(await env.MAPS.head(`maps/${mapId}.json`))) return errorResponse(404, 'Not found');
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > IMAGE_MAX_BYTES) return errorResponse(413, 'Image is larger than 5 MB');
+  const bytes = await readCapped(request, IMAGE_MAX_BYTES);
+  if (!bytes) return errorResponse(413, 'Image is larger than 5 MB');
   const kind = sniffImage(bytes);
   if (!kind) return errorResponse(415, 'Only PNG, JPEG, WebP and GIF images can be uploaded');
   const key = `img/${mapId}/${newNodeId()}.${kind.ext}`;
