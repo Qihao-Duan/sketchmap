@@ -26,7 +26,7 @@ export interface XmindImport {
   dropped: string[];
   /** What was brought over in a different form, for the summary ("2 floating topics attached to the root"). */
   changed: string[];
-  /** Non-SVG image resources found on topics (content.json only), up to `MAX_IMAGES`; the rest are counted in `dropped`. */
+  /** Image resources found on topics (content.json only), up to `MAX_IMAGES`; the rest are counted in `dropped`. */
   images: XmindImageRef[];
 }
 
@@ -52,7 +52,6 @@ class Dropped {
   markers = 0;
   links = 0;
   linksTooLong = 0;
-  svgImages = 0;
   imagesOverLimit = 0;
   xml8Images = 0;
   tooDeep = 0;
@@ -73,7 +72,6 @@ class Dropped {
     if (this.linksTooLong) {
       out.push(this.linksTooLong === 1 ? '1 link too long to keep' : `${this.linksTooLong} links too long to keep`);
     }
-    if (this.svgImages) out.push(`${this.svgImages} SVG image${plural(this.svgImages)} (not supported)`);
     if (this.imagesOverLimit) out.push(`${this.imagesOverLimit} image${plural(this.imagesOverLimit)} not imported (over 100)`);
     if (this.xml8Images) out.push(`${this.xml8Images} image${plural(this.xml8Images)} (XMind 8 images aren’t imported)`);
     if (this.tooDeep) out.push(`${this.tooDeep} topic${plural(this.tooDeep)} nested too deep`);
@@ -117,10 +115,11 @@ interface BuildCtx {
 }
 
 /**
- * `image.src = "xap:resources/<name>"` (content.json only): a non-SVG resource is recorded on `ctx.images` for the
- * list page to upload, up to `MAX_IMAGES`; an SVG, or anything past the cap, is counted in `ctx.dropped` instead.
- * Any other shape — no `image`, no `src`, or a `src` that isn't a `xap:resources/` string — is left alone: real
- * files only ever use this one form, and a non-image reference is not something this import can act on anyway.
+ * `image.src = "xap:resources/<name>"` (content.json only): a resource (SVG included — the list page's
+ * `prepareImage` draws it into a PNG) is recorded on `ctx.images` for the list page to upload, up to
+ * `MAX_IMAGES`; anything past the cap is counted in `ctx.dropped` instead. Any other shape — no `image`, no
+ * `src`, or a `src` that isn't a `xap:resources/` string — is left alone: real files only ever use this one
+ * form, and a non-image reference is not something this import can act on anyway.
  */
 function recordImage(image: unknown, nodeId: string, ctx: BuildCtx): void {
   if (!image || typeof image !== 'object') return;
@@ -128,10 +127,6 @@ function recordImage(image: unknown, nodeId: string, ctx: BuildCtx): void {
   if (typeof src !== 'string' || !src.startsWith('xap:resources/')) return;
   const name = src.slice('xap:resources/'.length);
   if (!name || name.length > 255) return; // not a resource name any real file uses
-  if (/\.svg$/i.test(name)) {
-    ctx.dropped.svgImages++;
-    return;
-  }
   if (ctx.images.length >= MAX_IMAGES) {
     ctx.dropped.imagesOverLimit++;
     return;

@@ -11,6 +11,12 @@ const MAX_UPLOAD_BYTES = MAX_SOURCE_IMAGE_BYTES;
 const MAX_ENCODED_BYTES = 5 * 1024 * 1024;
 const JPEG_QUALITY = 0.85;
 const SNIFF_BYTES = 512;
+/** An SVG source is refused above this size, before it is ever drawn (there is no raster size to shrink from). */
+const MAX_SVG_SOURCE_BYTES = MAX_ENCODED_BYTES;
+/** `rasteriseSvg` gives up on a decode that never settles (e.g. a pathological SVG). */
+const SVG_DECODE_TIMEOUT_MS = 10_000;
+/** A decoded SVG is scaled up to at least this long on its longest side, so tiny icons stay crisp. */
+const MIN_SVG_PX = 64;
 
 /** Width = target; height keeps the aspect ratio, rounded. Both clamped to the schema's 16-2048px. */
 export function displaySize(width: number, height: number, target: number = IMAGE_SIZES.M): { w: number; h: number } {
@@ -47,14 +53,78 @@ async function encode(canvas: OffscreenCanvas | HTMLCanvasElement, useOffscreen:
 }
 
 /**
- * Re-encodes `file` for upload: refuses SVG (it can carry script), shrinks to at most 2048px on the
- * longest side, and picks PNG (any transparency) or JPEG at 0.85 quality otherwise.
+ * Draws an SVG into a PNG, in the browser: loaded through an `<img>` element (so it cannot run script or load
+ * external resources, and only the rendered pixels are kept), then drawn on a canvas like the raster path.
+ * Always encodes PNG, since SVG usually carries transparency.
+ */
+export async function rasteriseSvg(file: Blob): Promise<{ blob: Blob; width: number; height: number }> {
+  if (file.size > MAX_SVG_SOURCE_BYTES) {
+    throw new ImageError('That SVG is too large (over 5 MB).');
+  }
+
+  let url: string;
+  try {
+    url = URL.createObjectURL(new Blob([await file.arrayBuffer()], { type: 'image/svg+xml' }));
+  } catch {
+    // A platform failure making the object URL (e.g. jsdom, which has no real `createObjectURL`) is just
+    // another way the SVG couldn't be drawn, not a crash to leak to the caller.
+    throw new ImageError('That SVG couldn’t be drawn.');
+  }
+  try {
+    const img = new Image();
+    img.src = url;
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('timed out')), SVG_DECODE_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([img.decode(), timeout]);
+    } catch {
+      throw new ImageError('That SVG couldn’t be drawn.');
+    } finally {
+      clearTimeout(timer!);
+    }
+
+    // An SVG with no intrinsic size (e.g. only a viewBox) decodes with naturalWidth/Height at 0.
+    const naturalWidth = img.naturalWidth || 512;
+    const naturalHeight = img.naturalHeight || 512;
+    const longest = Math.max(naturalWidth, naturalHeight);
+    const scale = longest > MAX_PX ? MAX_PX / longest : longest < MIN_SVG_PX ? MIN_SVG_PX / longest : 1;
+    const width = Math.round(naturalWidth * scale);
+    const height = Math.round(naturalHeight * scale);
+
+    const useOffscreen = typeof OffscreenCanvas !== 'undefined';
+    const canvas: OffscreenCanvas | HTMLCanvasElement = useOffscreen
+      ? new OffscreenCanvas(width, height)
+      : document.createElement('canvas');
+    if (!useOffscreen) {
+      (canvas as HTMLCanvasElement).width = width;
+      (canvas as HTMLCanvasElement).height = height;
+    }
+    const ctx = canvas.getContext('2d') as (OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D) | null;
+    if (!ctx) throw new ImageError('That image couldn’t be read.');
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const blob = await encode(canvas, useOffscreen, 'image/png', JPEG_QUALITY);
+    if (blob.size > MAX_ENCODED_BYTES) {
+      throw new ImageError('Even after shrinking, the image is larger than 5 MB.');
+    }
+    return { blob, width, height };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * Re-encodes `file` for upload: draws SVG into a PNG (`rasteriseSvg`, since an SVG drawn as an image can't run
+ * script), shrinks a raster image to at most 2048px on the longest side, and picks PNG (any transparency) or
+ * JPEG at 0.85 quality otherwise.
  */
 export async function prepareImage(file: Blob): Promise<{ blob: Blob; width: number; height: number }> {
   const prefix = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
 
   if (looksLikeSvgText(prefix) || file.type === 'image/svg+xml') {
-    throw new ImageError('SVG images aren’t supported (they can carry script).');
+    return rasteriseSvg(file);
   }
   // Only the bytes decide: a file that claims to be an image but isn't one of the four raster formats is refused.
   const kind = sniffKind(prefix);

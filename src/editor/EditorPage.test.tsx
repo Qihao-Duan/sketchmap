@@ -627,12 +627,15 @@ describe('Images', () => {
   });
 
   it('a rejected prepareImage shows the banner and adds nothing', async () => {
-    vi.mocked(prepareImage).mockRejectedValue(new ImageError('SVG images aren’t supported (they can carry script).'));
+    // Message updated for the user's decision (2026-11-13): SVG is no longer refused outright, so
+    // "SVG images aren't supported" is no longer something prepareImage can reject with; "couldn't be
+    // drawn" (a decode failure) is a real rejection message now in its place.
+    vi.mocked(prepareImage).mockRejectedValue(new ImageError('That SVG couldn’t be drawn.'));
     mount(fakeApi());
     await chooseImage(file());
     expect(topicImage()).toBeNull();
     const banner = container.querySelector('[role="alert"]')!;
-    expect(banner.textContent).toContain('Image not added: SVG images aren’t supported');
+    expect(banner.textContent).toContain('Image not added: That SVG couldn’t be drawn.');
     act(() => void (banner.querySelector('button') as HTMLButtonElement).click());
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });

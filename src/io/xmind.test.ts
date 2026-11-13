@@ -66,7 +66,9 @@ describe('fromXmindJson', () => {
     expect(fromXmindJson(content).changed).toEqual(['1 floating topic attached to the root']);
   });
 
-  it('records non-SVG image resources for upload, and drops SVG resources as unsupported', () => {
+  // The user's decision (2026-11-13): SVG images are no longer dropped as unsupported. The list page's
+  // `prepareImage` now draws an SVG into a PNG in the browser, the same as any other recorded image resource.
+  it('records SVG image resources for upload too, same as any other format', () => {
     const got = fromXmindJson([sheet({
       id: 'r',
       title: 'R',
@@ -77,8 +79,11 @@ describe('fromXmindJson', () => {
         ],
       },
     })]);
-    expect(got.images).toEqual([{ nodeId: got.root.children[0].id, resource: 'resources/a.png' }]);
-    expect(got.dropped).toEqual(['1 SVG image (not supported)']);
+    expect(got.images).toEqual([
+      { nodeId: got.root.children[0].id, resource: 'resources/a.png' },
+      { nodeId: got.root.children[1].id, resource: 'resources/b.svg' },
+    ]);
+    expect(got.dropped).toEqual([]);
   });
 
   it('keeps numeric width/height recorded on an image resource, ignoring non-numeric ones', () => {

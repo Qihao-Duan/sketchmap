@@ -122,7 +122,7 @@ The **marker set** is 💡 ✅ ⚠️ ❓ ⭐ 📌 🔥 ❌ 📅 👤, one marke
 - **Before upload**, the browser re-encodes every image:
   - The longest side is scaled down to at most 2048 px.
   - Images with transparency become PNG; everything else becomes JPEG at quality 0.85.
-  - SVG files are rejected, because an SVG can carry script.
+  - SVG files are drawn into a PNG in the browser (an SVG drawn as an image can't run script), and only the PNG is stored.
 - **Sizes:** the display width defaults to 200 px. S, M and L presets set 120, 200 and 300 px, the aspect ratio is kept, and v1 has no free drag-resize.
 - **Limits:** the server rejects uploads over 5 MB. A map's JSON is capped at 2 MB, which is thousands of topics.
 
@@ -268,7 +268,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
   - `![](url)` lines are kept as text in v1.
   - A leading 🔴 / 🟠 / 🔵 becomes priority 1/2/3, and an item wrapped entirely in `**…**` becomes Key, so a Markdown round-trip keeps both.
 - **`.xmind` in:**
-  - XMind 2020+ files (`content.json`): titles, attached children, plain-text notes, `href` (becomes a link on the whole text), folded state, priority markers (`priority-1` … `priority-9`, where 3 and above become ③), and images from `resources/`.
+  - XMind 2020+ files (`content.json`): titles, attached children, plain-text notes, `href` (becomes a link on the whole text), folded state, priority markers (`priority-1` … `priority-9`, where 3 and above become ③), and images from `resources/` — SVG images come along too, drawn into a PNG the same as any other upload.
   - XMind 8 files (`content.xml`): titles, children and notes.
   - Floating topics and callouts are attached to the map (floating topics under the root, callouts under their topic); their XMind position is not kept. Styles are not imported. Relationships, boundaries, labels, open task checkboxes and other sheets are dropped, and the import summary lists them.
 - **`.excalidraw` out:**

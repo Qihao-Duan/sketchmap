@@ -278,3 +278,16 @@ test('an image added from the details panel survives a reload, shows in the view
   const afterDelete = await page.request.get(href);
   expect(afterDelete.status()).toBe(404);
 });
+
+test('an SVG image is drawn into a PNG, in the browser, and any script it carries never runs', async ({ page }) => {
+  await openNewMap(page);
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="red"/><script>document.title=\'pwned\'</script></svg>';
+  await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'icon.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(svg) });
+
+  const image = page.locator('g.topic image.topic-image');
+  await expect(image).toHaveCount(1);
+  const href = (await image.getAttribute('href'))!;
+  expect(href).toMatch(/\.png$/); // SVG goes in; only a PNG comes out and is stored
+
+  expect(await page.title()).not.toBe('pwned'); // drawn through an <img>, so the <script> inside never ran
+});
