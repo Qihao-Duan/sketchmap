@@ -115,7 +115,7 @@ export function download(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 
-export function fileName(title: string, ext: 'svg' | 'png'): string {
+export function fileName(title: string, ext: 'svg' | 'png' | 'excalidraw'): string {
   const base = title.trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').slice(0, 80);
   return `${base || 'mindmap'}.${ext}`;
 }

@@ -5,6 +5,7 @@ import { IMAGE_KEY_RE } from '../shared/types';
 import {
   ASIDE_INK, HIGHLIGHTER, INK, LINK_COLOR, PRIORITY_COLORS, badgeSize, branchStrokeWidth, topicStrokeWidth,
 } from '../layout/styles';
+import { bytesToBase64 } from './exportImage';
 
 /** An element skeleton for `convertToExcalidrawElements` (our own loose type, so the library stays out of the main bundle). */
 export interface Skeleton {
@@ -186,4 +187,66 @@ export function toExcalidrawSkeleton(layout: MapLayout, fileIds: ReadonlyMap<str
   const centres: SkeletonScene['centres'] = new Map();
   for (const t of layout.boxes) topic(t, fileIds, elements, centres);
   return { elements, centres };
+}
+
+/** Excalidraw's own media type for scene files. */
+export const EXCALIDRAW_MIME = 'application/vnd.excalidraw+json';
+const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+interface BinaryFile { id: string; mimeType: string; dataURL: string; created: number; lastRetrieved: number }
+
+/** Fetches each stored topic image once; a failed or non-image response leaves that image out. */
+async function loadFiles(layout: MapLayout, fetchImpl: typeof fetch) {
+  const keys = new Set<string>();
+  for (const b of layout.boxes) if (b.image && b.node.image && IMAGE_KEY_RE.test(b.node.image.key)) keys.add(b.node.image.key);
+  const files: Record<string, BinaryFile> = {};
+  const fileIds = new Map<string, string>();
+  const now = Date.now();
+  await Promise.all([...keys].map(async (key) => {
+    try {
+      const res = await fetchImpl(`/${key}`);
+      const mimeType = (res.headers.get('content-type') ?? '').split(';')[0].trim();
+      if (!res.ok || !IMAGE_MIMES.has(mimeType)) return;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const id = fileIdFor(key);
+      files[id] = { id, mimeType, dataURL: `data:${mimeType};base64,${bytesToBase64(bytes)}`, created: now, lastRetrieved: now };
+      fileIds.set(key, id);
+    } catch {
+      // Left out, as the SVG export does; the frame still marks where it was.
+    }
+  }));
+  return { files, fileIds };
+}
+
+/**
+ * The `.excalidraw` file for the laid-out map (spec §9). The pinned library is loaded here, on demand, so it never
+ * weighs on the editor or the embed.
+ */
+export async function buildExcalidraw(
+  layout: MapLayout,
+  opts: { fetchImpl?: typeof fetch; source?: string } = {},
+): Promise<string> {
+  const fetchImpl = opts.fetchImpl ?? ((input, init) => fetch(input, init));
+  const [{ convertToExcalidrawElements }, { files, fileIds }] = await Promise.all([
+    import('@excalidraw/excalidraw'),
+    loadFiles(layout, fetchImpl),
+  ]);
+  const { elements: skeletons, centres } = toExcalidrawSkeleton(layout, fileIds);
+  const converted = convertToExcalidrawElements(
+    skeletons as unknown as Parameters<typeof convertToExcalidrawElements>[0],
+    { regenerateIds: false },
+  );
+  const elements = converted.map((e) => {
+    const c = centres.get(e.id);
+    if (!c) return e;
+    return { ...e, x: c.x - e.width / 2, ...(c.y === undefined ? {} : { y: c.y - e.height / 2 }) };
+  });
+  return JSON.stringify({
+    type: 'excalidraw',
+    version: 2,
+    source: opts.source ?? location.origin,
+    elements,
+    appState: { viewBackgroundColor: '#ffffff' },
+    files,
+  }, null, 2);
 }

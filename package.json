@@ -17,6 +17,7 @@
     "prebuild": "npm run fonts"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
     "immer": "^11.2.10",
     "nanoid": "^6.0.2",
     "react": "^19.3.1",
@@ -28,7 +29,6 @@
     "@cloudflare/vite-plugin": "^1.69.0",
     "@cloudflare/vitest-plugin": "^1.8.0",
     "@cloudflare/workers-types": "^5.20261112.1",
-    "@excalidraw/excalidraw": "0.18.1",
     "@playwright/test": "^1.65.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
