@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MARKERS, type MapNode, type MindMap } from './types';
+import { IMAGE_KEY_RE, MARKERS, type MapNode, type MindMap } from './types';
 
 export class MapValidationError extends Error {}
 
@@ -17,7 +17,7 @@ const mapNodeSchema: z.ZodType<MapNode> = z.lazy(() =>
     priority: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
     image: z
       .strictObject({
-        key: z.string().regex(/^img\/[A-Za-z0-9_-]{21}\/[A-Za-z0-9_-]{1,64}\.(png|jpg|webp|gif)$/),
+        key: z.string().regex(IMAGE_KEY_RE),
         w: z.number().int().min(16).max(2048),
         h: z.number().int().min(16).max(2048),
       })

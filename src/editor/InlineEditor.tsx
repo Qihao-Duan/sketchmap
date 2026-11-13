@@ -69,7 +69,8 @@ export function InlineEditor({ box, view, initialText, selectAll, onCommit, onCa
 
   const { fontSize, lineHeight, padX, padY, kind } = box.style;
   const k = view.k;
-  const textOffset = box.textTop - padY;
+  // Start below the image (if any), so the box never covers it, even while an image-only topic gets its first text.
+  const textOffset = box.image ? box.image.y + box.image.h : 0;
   const minHeight = (box.h - textOffset) * k;
   const width = Math.max(box.w * k, parseRich(value).plain !== value ? 280 : 140);
   const lines = Math.max(1, value.split('\n').length);

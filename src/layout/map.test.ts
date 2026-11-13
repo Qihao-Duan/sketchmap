@@ -258,3 +258,16 @@ describe('links in topics', () => {
     expect(at('Plain').segments).toEqual([[{ text: 'Plain', x: 0, w: measure('Plain', 17) }]]);
   });
 });
+
+describe('image topics keep their badge, marker and note inside the box', () => {
+  const img = { key: 'img/abcdefghijklmnopqrstu/x.png', w: 200, h: 100 };
+  const at = (extra: Partial<MapNode>) => layoutMap(n('r', 'Root', [n('a', 'A', [n('x', '', [], { image: img, ...extra })])]), 'map', measure).byId.get('x')!;
+  it('an image-only topic has no text line, but a priority, a note or a marker keeps one', () => {
+    expect(at({}).lines).toEqual([]);
+    for (const extra of [{ priority: 1 as const }, { note: 'n' }, { emoji: '💡' }]) {
+      const t = at(extra);
+      expect(t.lines, JSON.stringify(extra)).toHaveLength(1);
+      expect(t.h, JSON.stringify(extra)).toBeGreaterThanOrEqual(t.textTop + t.style.lineHeight + t.style.padY);
+    }
+  });
+});

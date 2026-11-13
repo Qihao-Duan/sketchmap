@@ -1,4 +1,5 @@
 import rough from 'roughjs';
+import { IMAGE_KEY_RE } from '../shared/types';
 import type { MapLayout, TopicBox } from '../layout/map';
 import { countDescendants } from '../model/tree';
 import { FONT_STACK } from './fonts';
@@ -98,7 +99,8 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
   /** Left edge of line i; centred lines sit in the middle of the text block. */
   const lineLeft = (i: number) => (centred ? textLeft + (t.textW - t.lineWidths[i]) / 2 : textLeft);
 
-  if (t.image && t.node.image) {
+  // Only keys of the stored-image form: a hand-edited map can't point the canvas or an export at another site.
+  if (t.image && t.node.image && IMAGE_KEY_RE.test(t.node.image.key)) {
     el(doc, 'image', {
       class: 'topic-image', href: `/${t.node.image.key}`, x: t.x + t.image.x, y: t.y + t.image.y,
       width: t.image.w, height: t.image.h, preserveAspectRatio: 'xMidYMid slice',

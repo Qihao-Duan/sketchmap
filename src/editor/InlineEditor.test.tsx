@@ -175,4 +175,11 @@ describe('InlineEditor', () => {
     expect(container.querySelector('input[aria-label="Link URL"]')).toBeNull();
     expect(onCommit).not.toHaveBeenCalled();
   });
+
+  it('starts below the image, also while an image-only topic gets its first text', () => {
+    const withImage = computeLayout({ id: 'r', text: '', image: { key: 'img/abcdefghijklmnopqrstu/x.png', w: 200, h: 100 }, children: [] }, (t, s) => t.length * s * 0.5).byId.get('r')!;
+    const { ta } = mount({ box: withImage, initialText: '' });
+    const imageBottom = withImage.y + withImage.image!.y + withImage.image!.h;
+    expect(parseFloat(ta.style.top)).toBeGreaterThanOrEqual(imageBottom);
+  });
 });

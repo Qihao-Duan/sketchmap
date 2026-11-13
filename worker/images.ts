@@ -4,8 +4,7 @@ import type { Env } from './index';
 
 export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const ID_RE = /^[A-Za-z0-9_-]{21}$/;
-/** Same pattern as the map schema's image key. */
-const KEY_RE = /^img\/[A-Za-z0-9_-]{21}\/[A-Za-z0-9_-]{1,64}\.(png|jpg|webp|gif)$/;
+import { IMAGE_KEY_RE as KEY_RE } from '../src/shared/types';
 const NOT_FOUND_HEADERS = { 'X-Content-Type-Options': 'nosniff', 'Content-Type': 'text/plain; charset=utf-8' };
 
 /** The image type from its first bytes, never from the Content-Type header (spec §8). */

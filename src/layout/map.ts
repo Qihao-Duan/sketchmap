@@ -104,8 +104,8 @@ export function measureTopic(node: MapNode, depth: number, measure: Measure, kin
   const rich = parseRich(node.text);
   const prefix = node.emoji ? `${node.emoji} ` : '';
   const display = prefix + rich.plain;
-  // With an image and no text of its own (after the marker prefix), the topic is image-only: no text lines at all.
-  const noText = !!node.image && !rich.plain;
+  // An image with nothing else to show is image-only: no text line. A marker, priority badge or note needs a line to sit on.
+  const noText = !!node.image && !display.trim() && !node.priority && !node.note?.trim();
   const wrapped = noText ? [] : wrapWithOffsets(display || ' ', style.fontSize, style.maxW, measure);
   const lines = wrapped.map((l) => l.text);
   const lineWidths = lines.map((l) => measure(l, style.fontSize));

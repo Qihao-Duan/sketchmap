@@ -171,4 +171,19 @@ describe('renderMap', () => {
       expect(Number(branch('h').getAttribute('stroke-width'))).toBeCloseTo(2.4);
     });
   });
+
+  it('draws a framed image only for keys of the stored-image form', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const world = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svg.appendChild(world);
+    const t: MapNode = { id: 'r', text: 'Root', children: [
+      { id: 'ok', text: 'Ok', image: { key: 'img/abcdefghijklmnopqrstu/x.png', w: 40, h: 30 }, children: [] },
+      { id: 'bad', text: 'Bad', image: { key: '//evil.example/x.png', w: 40, h: 30 }, children: [] },
+    ] };
+    renderMap(svg, world, computeLayout(t, measure), { selectedId: null });
+    const ok = world.querySelector('g.topic[data-id="ok"]')!;
+    expect(ok.querySelectorAll('image.topic-image')).toHaveLength(1);
+    expect(ok.querySelector('image.topic-image')!.nextElementSibling!.tagName).toBe('g'); // the rough frame follows it
+    expect(world.querySelector('g.topic[data-id="bad"] image')).toBeNull();
+  });
 });
