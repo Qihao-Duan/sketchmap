@@ -52,7 +52,7 @@ export function createApi(
   }
   /** A read that failed on the network or with a server error is tried once more: reads are safe to repeat, writes are not. */
   async function request(path: string, init: RequestInit = {}, auth = true): Promise<Response> {
-    const read = !init.method || init.method === 'GET';
+    const read = (init.method ?? 'GET').toUpperCase() === 'GET' && !init.body;
     try {
       return await once(path, init, auth);
     } catch (e) {

@@ -14,6 +14,7 @@ import { allText, findNode } from '../model/tree';
 import { canvasMeasure, ensureFonts } from '../render/fonts';
 import { linkWhole, parseRich } from '../shared/rich';
 import type { LayoutKind, MindMap } from '../shared/types';
+import { browserStorage } from '../storage';
 import { Autosaver, draftKey, readDraft, type Draft, type SaveStatus } from './autosave';
 import { Canvas, type CanvasHandle } from './Canvas';
 import { DetailsPanel } from './DetailsPanel';
@@ -25,7 +26,6 @@ import { navigate } from './navigate';
 import { OutlinePanel } from './OutlinePanel';
 import { editorReducer, initEditor } from './store';
 import type { View } from './viewport';
-import { browserStorage } from '../storage';
 
 const IGNORE_KEYS_IN = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A']);
 const LAYOUTS: Array<[LayoutKind, string]> = [['map', 'Mind map'], ['logic', 'Logic chart'], ['org', 'Org chart']];
