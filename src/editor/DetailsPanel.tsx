@@ -242,6 +242,7 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, o
                   type="button"
                   className="chip"
                   aria-pressed={node.image!.w === IMAGE_SIZES[sz]}
+                  disabled={uploading}
                   onMouseDown={noFocus}
                   onClick={() => onImageSize(sz)}
                 >
@@ -252,7 +253,8 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, o
             <button type="button" onMouseDown={noFocus} onClick={pickImage} disabled={uploading}>
               {uploading ? 'Uploading…' : 'Replace…'}
             </button>
-            <button type="button" onMouseDown={noFocus} onClick={onImageRemove}>Remove</button>
+            {/* Locked while a replacement uploads: its late arrival would otherwise undo a Remove or a resize. */}
+            <button type="button" onMouseDown={noFocus} onClick={onImageRemove} disabled={uploading}>Remove</button>
           </div>
         ) : (
           <button type="button" onMouseDown={noFocus} onClick={pickImage} disabled={uploading}>
