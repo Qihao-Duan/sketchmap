@@ -13,6 +13,8 @@ export interface RenderOptions {
   dropTargetId?: string | null;
   /** Draws topic images here instead of inline: the canvas's unfiltered photo layer (dark mode leaves photos alone). */
   photos?: SVGGElement;
+  /** Draws each image's frame here instead of inline: the canvas's filtered layer above the photos, so the frame stays on top and keeps the dark-mode look. */
+  frames?: SVGGElement;
 }
 
 type RoughSvg = ReturnType<typeof rough.svg>;
@@ -49,6 +51,7 @@ export function renderMap(svg: SVGSVGElement, world: SVGGElement, layout: MapLay
   const rc = rough.svg(svg);
   world.replaceChildren();
   opts.photos?.replaceChildren();
+  opts.frames?.replaceChildren();
   const branches = el(doc, 'g', { class: 'branches' }, world);
   const topics = el(doc, 'g', { class: 'topics' }, world);
   for (const b of layout.branches) {
@@ -113,9 +116,14 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
       class: 'topic-image', 'data-id': t.id, href: `/${imageKey}`, x: t.x + t.image.x, y: t.y + t.image.y,
       width: t.image.w, height: t.image.h, preserveAspectRatio: 'xMidYMid slice',
     }, opts.photos ?? g);
-    g.appendChild(rc.rectangle(t.x + t.image.x, t.y + t.image.y, t.image.w, t.image.h, {
+    const frame = rc.rectangle(t.x + t.image.x, t.y + t.image.y, t.image.w, t.image.h, {
       stroke: t.color.stroke, strokeWidth: DECOR_STROKE.frame, roughness: 0.9, seed: seed + 6,
-    }));
+    });
+    // On its own layer, the frame sits above the (unfiltered) photo, so it keeps the dark-mode
+    // look instead of 40–76% of its ink being hidden under an opaque image. Inline (exports), it
+    // stays right after the image as before.
+    if (opts.frames) el(doc, 'g', { class: 'topic-frame', 'data-id': t.id }, opts.frames).appendChild(frame);
+    else g.appendChild(frame);
   }
 
   t.lines.forEach((line, i) => {

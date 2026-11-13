@@ -284,15 +284,23 @@ describe('Canvas', () => {
       act(() => createRoot(container).render(
         <Canvas ref={(h) => { ref.current = h; }} layout={imgLayout} selectedId={null} interactive onToggleFold={() => {}} />,
       ));
-      const [drawing, photos] = container.querySelectorAll('.canvas > svg');
+      const svgs = container.querySelectorAll('.canvas > svg');
+      expect(svgs).toHaveLength(3); // drawing, photos, frames, in that order
+      const [drawing, photos, frames] = svgs;
       expect(drawing.getAttribute('role')).toBe('img');
       expect(photos.classList.contains('photos')).toBe(true);
       expect(photos.getAttribute('aria-hidden')).toBe('true');
+      expect(frames.classList.contains('frames')).toBe(true);
+      expect(frames.getAttribute('aria-hidden')).toBe('true');
       expect(drawing.querySelectorAll('image')).toHaveLength(0);
       expect(photos.querySelectorAll('image.topic-image[data-id="p"]')).toHaveLength(1);
+      // The frame stays with the drawing's g.world (no topic-frame of its own there); it moved to the frames layer.
+      expect(drawing.querySelector('g.world g.topic-frame')).toBeNull();
+      expect(frames.querySelectorAll('g.topic-frame[data-id="p"]')).toHaveLength(1);
       act(() => ref.current!.zoomBy(1.5));
       const world = drawing.querySelector('g.world')!;
       expect(photos.querySelector('g.photos-world')!.getAttribute('transform')).toBe(world.getAttribute('transform'));
+      expect(frames.querySelector('g.frames-world')!.getAttribute('transform')).toBe(world.getAttribute('transform'));
     });
 
     it('keeps the dragged photo out of the dark-filtered drawing svg while it follows the pointer', () => {
@@ -305,7 +313,7 @@ describe('Canvas', () => {
       act(() => createRoot(container).render(
         <Canvas layout={imgLayout} selectedId={null} interactive onToggleFold={() => {}} />,
       ));
-      const [drawing, photos] = container.querySelectorAll('.canvas > svg');
+      const [drawing, photos, frames] = container.querySelectorAll('.canvas > svg');
       const hitP = container.querySelector('g.topic[data-id="p"] rect.hit')!;
       press(hitP, 'pointerdown', 10, 10);
       press(hitP, 'pointermove', 20, 20, 1); // dx = dy = 10, past the 6 px drag threshold
@@ -317,9 +325,15 @@ describe('Canvas', () => {
       expect(ghostGroup).not.toBeNull();
       expect(ghostGroup.querySelectorAll('image.topic-image[data-id="p"]')).toHaveLength(1);
       expect(ghostGroup.getAttribute('transform')).toBe('translate(10 10)');
+      // Its frame rides along on the (filtered) frames layer, same translate.
+      const ghostFrame = frames.querySelector('g.ghost-frame')!;
+      expect(ghostFrame).not.toBeNull();
+      expect(ghostFrame.querySelectorAll('g.topic-frame[data-id="p"]')).toHaveLength(1);
+      expect(ghostFrame.getAttribute('transform')).toBe('translate(10 10)');
 
       press(hitP, 'pointerup', 20, 20);
       expect(photos.querySelector('g.ghost-photo')).toBeNull();
+      expect(frames.querySelector('g.ghost-frame')).toBeNull();
     });
   });
 });

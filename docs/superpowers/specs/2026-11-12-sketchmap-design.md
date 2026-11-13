@@ -209,6 +209,7 @@ Styles by depth:
 - **Dark mode:**
   - Like Excalidraw, the drawing gets `invert(93%) hue-rotate(180deg)`.
   - Images sit on a separate, unfiltered layer above the drawing, so photos keep their true colours. A counter-filter can't do this: `hue-rotate(180deg)` pushes saturated colours out of gamut before the drawing's filter, so they clip, measured at up to 110/255 off on yellow.
+  - Each image's sketchy frame is drawn on a third layer above the photos, filtered like the drawing, so the frame stays on top of the (opaque) photo — as it does in the exports — and keeps the dark-mode look.
 - **Fonts:**
   - Self-hosted. Excalifont's 7 woff2 subsets and Xiaolai's ~210 subsets come from `@excalidraw/excalidraw@0.18.1` and are declared with `unicode-range`, so the browser downloads only the pieces a map uses.
   - Both fonts are OFL-1.1: ship `fonts/OFL.txt` alongside them, and credit them in the app's About.
@@ -292,6 +293,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
 - **Image problems:** a non-image, an oversized file or a failed upload shows a toast that says why. The topic doesn't change.
 - **Unknown map on the view page:** a plain "This map doesn't exist or was deleted" page.
 - **Fonts fail to load:** after 2.5 s the map lays out with system fonts.
+- **Browsers:** the editor and the embed need Chrome/Edge 123+, Firefox 120+ or Safari 17.5+ (iOS 17.5+ for the Notion iOS app) for `light-dark()`; older browsers still draw the map but lose the app's colours.
 
 **Tests:**
 - **Unit (Vitest):**

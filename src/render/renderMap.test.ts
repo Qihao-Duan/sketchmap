@@ -146,6 +146,37 @@ describe('renderMap', () => {
     expect(topic.querySelectorAll('path').length).toBeGreaterThan(1);
   });
 
+  it('draws the frame inline when frames is absent, but moves it to the frame layer (clearing stale children) when given', () => {
+    const withImage: MapNode = {
+      id: 'r', text: 'Root',
+      children: [{ id: 'img', text: 'Cat', image: { key: 'img/abcdefghijklmnopqrstu/x.png', w: 200, h: 100 }, children: [] }],
+    };
+    const build = (withFrames: boolean) => {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const world = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const photos = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const frames = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      if (withFrames) frames.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'g')); // stale, from a previous render
+      svg.append(world, photos, frames);
+      const layout = computeLayout(withImage, measure);
+      renderMap(svg, world, layout, { selectedId: null, photos, frames: withFrames ? frames : undefined });
+      const topic = world.querySelector('g.topic[data-id="img"]')!;
+      // Every rough shape (box outline, frame) is an unclassed <g>; count them directly under the topic.
+      const bareGroups = [...topic.children].filter((c) => c.tagName === 'g' && !c.hasAttribute('class'));
+      return { frames, bareGroups };
+    };
+
+    const inline = build(false);
+    const sideLayer = build(true);
+    // Exactly one bare group (the frame) left the topic for the side layer; the box outline stays.
+    expect(sideLayer.bareGroups).toHaveLength(inline.bareGroups.length - 1);
+    // Stale children are cleared: exactly the fresh frame remains.
+    expect(sideLayer.frames.children).toHaveLength(1);
+    const wrapper = sideLayer.frames.querySelector('g.topic-frame[data-id="img"]')!;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper.querySelectorAll('path').length).toBeGreaterThan(0); // the rough rectangle
+  });
+
   it('draws org-chart deep topics as unfilled outlines', async () => {
     const { computeOrgLayout } = await import('../layout/org');
     const { PALETTE } = await import('../layout/styles');

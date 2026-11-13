@@ -7,6 +7,10 @@ import { openNewMap } from './helpers';
 const NOTION_SANDBOX =
   'allow-scripts allow-popups allow-top-navigation-by-user-activation allow-forms allow-same-origin allow-storage-access-by-user-activation allow-popups-to-escape-sandbox';
 
+const hexToRgb = (hex: string): [number, number, number] => [
+  parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16),
+];
+
 test('create a map, edit it, reload it, and see it inside a Notion-like embed', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Owner key').fill('dev-owner-key');
@@ -347,18 +351,42 @@ test('in dark mode a topic image keeps its colours while the drawing is inverted
   };
   await page.emulateMedia({ colorScheme: 'light' });
   const light = await sample();
+  // The samples are the source stripes themselves, not just "unaffected by the filter": catches a
+  // regression where the photo layer draws the right pixels but at the wrong place or scale.
+  for (let i = 0; i < COLS.length; i++) {
+    const rgb = hexToRgb(COLS[i]);
+    for (let ch = 0; ch < 3; ch++) expect(Math.abs(light[i][ch] - rgb[ch])).toBeLessThanOrEqual(20);
+  }
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect.poll(() => page.locator('.canvas > svg[role="img"]').evaluate((s) => getComputedStyle(s).filter)).toContain('invert');
   const dark = await sample();
   for (let i = 0; i < COLS.length; i++) {
     for (let ch = 0; ch < 3; ch++) expect(Math.abs(dark[i][ch] - light[i][ch])).toBeLessThanOrEqual(3);
   }
+
+  // Pan and zoom, then check the photo and its (filtered) frame are still aligned: the frame's
+  // sketchy stroke has a little width, so a few pixels of slack.
+  await page.mouse.move(20, 20); // the empty canvas, well clear of the fitted topic (56 px pad)
+  await page.mouse.down();
+  await page.mouse.move(150, 130, { steps: 5 });
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+
+  const imageBox = (await image.boundingBox())!;
+  const frameBox = (await page.locator('svg.frames g.topic-frame').boundingBox())!;
+  expect(imageBox.x).toBeGreaterThanOrEqual(frameBox.x - 3);
+  expect(imageBox.y).toBeGreaterThanOrEqual(frameBox.y - 3);
+  expect(imageBox.x + imageBox.width).toBeLessThanOrEqual(frameBox.x + frameBox.width + 3);
+  expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(frameBox.y + frameBox.height + 3);
 });
 
 test('?theme= forces the embed light or dark, whatever the system says', async ({ page }) => {
   const id = await openNewMap(page);
   const filter = () => page.locator('.canvas > svg[role="img"]').evaluate((s) => getComputedStyle(s).filter);
   const paper = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+  // Set server-side (the Worker rewrites the served HTML), so there's no flash of the system theme.
+  expect(await (await page.request.get(`/m/${id}?theme=dark`)).text()).toContain('data-theme="dark"');
 
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto(`/m/${id}?theme=dark`);

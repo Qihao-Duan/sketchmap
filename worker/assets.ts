@@ -1,3 +1,4 @@
+import { themeFromSearch } from '../src/shared/theme';
 import type { Env } from './index';
 
 /**
@@ -30,11 +31,17 @@ export function securityHeaders(pathname: string, contentType: string | null, de
 export async function serveAsset(request: Request, env: Pick<Env, 'ASSETS'>): Promise<Response> {
   const upstream = await env.ASSETS.fetch(request);
   const res = new Response(upstream.body, upstream); // copy so headers are mutable
-  const { pathname } = new URL(request.url);
+  const { pathname, search } = new URL(request.url);
   if (pathname.startsWith('/m/')) {
     res.headers.delete('X-Frame-Options');
     res.headers.delete('Content-Security-Policy');
   }
   for (const [k, v] of Object.entries(securityHeaders(pathname, upstream.headers.get('Content-Type')))) res.headers.set(k, v);
+  // Set `data-theme` server-side so there's no flash of the system theme while the module script
+  // loads and runs: `main.tsx`'s own `applyTheme` call is harmless and still covers non-Worker hosting.
+  const theme = (res.headers.get('Content-Type') ?? '').includes('text/html') ? themeFromSearch(search) : null;
+  if (theme) {
+    return new HTMLRewriter().on('html', { element(el) { el.setAttribute('data-theme', theme); } }).transform(res);
+  }
   return res;
 }

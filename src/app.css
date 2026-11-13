@@ -24,6 +24,9 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
 .canvas svg { width: 100%; height: 100%; display: block; filter: var(--canvas-filter); user-select: none; -webkit-user-select: none; }
 /* Topic images sit on their own layer above the drawing, untouched by the dark-mode filter. */
 .canvas svg.photos { position: absolute; inset: 0; pointer-events: none; filter: none; }
+/* Image frames sit above the photos, so they stay visible over an opaque image; they keep
+   .canvas svg's filter (inherited, not overridden here), so they invert like the rest of the drawing. */
+.canvas svg.frames { position: absolute; inset: 0; pointer-events: none; }
 /* The Notion embed must not trap vertical page scrolling on touch: let the page scroll
    while a horizontal/pinch gesture still pans and zooms the map. */
 .view .canvas { touch-action: pan-y pinch-zoom; }

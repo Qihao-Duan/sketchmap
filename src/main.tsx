@@ -2,7 +2,8 @@ import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installFontFaces } from './render/fonts';
 import { parseRoute } from './router';
-import { applyTheme, themeFromSearch } from './theme';
+import { applyTheme } from './theme';
+import { themeFromSearch } from './shared/theme';
 import './app.css';
 
 const ListPage = lazy(() => import('./list/ListPage').then((m) => ({ default: m.ListPage })));

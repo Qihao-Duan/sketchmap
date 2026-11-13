@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { applyTheme, themeFromSearch } from './theme';
+import { applyTheme } from './theme';
+import { themeFromSearch } from './shared/theme';
 
 describe('themeFromSearch', () => {
   it('reads exactly light or dark, and ignores anything else', () => {

@@ -44,6 +44,8 @@ Only someone with the owner key can change it.
 
 The embed follows your system's light or dark setting. If your Notion page uses a different theme, add `?theme=dark` or `?theme=light` to the embed link, e.g. `https://…/m/<id>?theme=dark`.
 
+Browsers: the editor and the embed need Chrome/Edge 123+, Firefox 120+ or Safari 17.5+ (iOS 17.5+ for the Notion iOS app); older browsers still draw the map but lose the app's colours.
+
 ## Step 2: layouts, outline and paste
 
 - **Layout switch.** Pick **Mind map**, **Logic chart** or **Org chart** from the header; the choice is saved with the map.
@@ -72,7 +74,7 @@ The embed follows your system's light or dark setting. If your Notion page uses 
 - To make a topic that is only an image, add the image, then clear the topic's text.
 - PNG, JPEG, WebP, GIF and SVG are accepted, judged by the file's contents, not its name. SVG images (including XMind icons) are converted to PNG, drawn in the browser through an `<img>` element so any script they carry never runs. Before upload the browser shrinks the image to at most 2048 px on its longest side and saves it as PNG (if it has transparency) or JPEG; an animated GIF keeps its first frame; an SVG is always saved as PNG. Image files up to 30 MB are accepted (an SVG source up to 5 MB); after shrinking, an upload must be under 5 MB.
 - Images are stored in the same R2 bucket under `img/<random>/…` (the address never reveals which map they belong to), served from `/img/…` with long caching, and deleted together with their map. Removing an image from a topic keeps the file, so undo can bring it back.
-- Images are drawn above the topic's text with a sketchy frame, in the editor, the Notion view and SVG/PNG exports (exports embed them). In dark mode the drawing is inverted the way Excalidraw does it, but images are drawn on their own layer, so photos keep their true colours.
+- Images are drawn above the topic's text with a sketchy frame, in the editor, the Notion view and SVG/PNG exports (exports embed them). In dark mode the drawing is inverted the way Excalidraw does it, but images are drawn on their own layer, so photos keep their true colours; the frame is drawn on a third layer above the photos, so it stays on top of the image and still gets the dark-mode inversion.
 - **Excalidraw export:** downloads a `.excalidraw` file (open it at excalidraw.com, or drag it onto an Excalidraw canvas) with boxes, branches, text in Excalifont, highlight swipes, priority badges and images. Each topic's parts are grouped. Notes aren't included, a topic keeps only its first link, and folded branches stay folded; the editor lists what was left out.
 - **Copy as Markdown** writes an image as `![](https://<your-site>/img/…)`. The Outline panel leaves images out, and Markdown that comes back in keeps `![](…)` as plain text.
 - **.xmind import** brings in PNG, JPEG, WebP, GIF and SVG images from the file (up to 100), converting SVG to PNG the same way as a direct upload.

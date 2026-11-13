@@ -9,6 +9,11 @@ function withAssets(contentType: string, extra: Record<string, string> = {}): En
   } as unknown as Fetcher;
   return { ...(env as unknown as Env), ASSETS };
 }
+/** An ASSETS stub serving a real `<html>` document, for the `?theme=` HTMLRewriter tests below. */
+function withHtmlAssets(body: string, contentType = 'text/html; charset=utf-8'): Env {
+  const ASSETS = { fetch: async () => new Response(body, { headers: { 'Content-Type': contentType } }) } as unknown as Fetcher;
+  return { ...(env as unknown as Env), ASSETS };
+}
 const get = (path: string, e: Env) => worker.fetch(new Request(`http://x${path}`), e);
 
 describe('asset responses', () => {
@@ -36,6 +41,27 @@ describe('asset responses', () => {
     const res = await get('/assets/index.js', withAssets('text/javascript'));
     expect(res.headers.get('Content-Security-Policy')).toBeNull();
     expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+  });
+});
+
+describe('?theme= sets data-theme in the served HTML, so there is no flash of the system theme', () => {
+  const html = '<!doctype html><html><head><title>Sketchmap</title></head><body></body></html>';
+
+  it('writes data-theme onto <html> for a recognised value', async () => {
+    const res = await get('/m/x?theme=dark', withHtmlAssets(html));
+    expect(await res.text()).toContain('<html data-theme="dark">');
+  });
+
+  it('leaves the HTML untouched for an unrecognised value or no param', async () => {
+    for (const path of ['/m/x?theme=blue', '/m/x']) {
+      const res = await get(path, withHtmlAssets(html));
+      expect(await res.text()).toBe(html);
+    }
+  });
+
+  it('leaves a non-HTML asset untouched even with ?theme=', async () => {
+    const res = await get('/assets/index.js?theme=dark', withHtmlAssets('console.log(1)', 'text/javascript'));
+    expect(await res.text()).toBe('console.log(1)');
   });
 });
 
