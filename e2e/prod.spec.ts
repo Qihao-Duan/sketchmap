@@ -23,7 +23,7 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   // An uploaded image is served from /img/…, drawn with a same-origin <image href>, and inlined for
   // export by fetching that same path: img-src 'self' data: blob: and connect-src 'self' both cover it.
   await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PNG_2x2 });
-  await expect(page.locator('g.topic image.topic-image')).toHaveCount(1);
+  await expect(page.locator('image.topic-image')).toHaveCount(1);
   expect(violations).toEqual([]);
 
   const download = page.waitForEvent('download');

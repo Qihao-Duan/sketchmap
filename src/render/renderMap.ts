@@ -11,6 +11,8 @@ export const SELECT_COLOR = '#4263eb';
 export interface RenderOptions {
   selectedId?: string | null;
   dropTargetId?: string | null;
+  /** Draws topic images here instead of inline: the canvas's unfiltered photo layer (dark mode leaves photos alone). */
+  photos?: SVGGElement;
 }
 
 type RoughSvg = ReturnType<typeof rough.svg>;
@@ -46,6 +48,7 @@ export function renderMap(svg: SVGSVGElement, world: SVGGElement, layout: MapLay
   const doc = svg.ownerDocument;
   const rc = rough.svg(svg);
   world.replaceChildren();
+  opts.photos?.replaceChildren();
   const branches = el(doc, 'g', { class: 'branches' }, world);
   const topics = el(doc, 'g', { class: 'topics' }, world);
   for (const b of layout.branches) {
@@ -107,9 +110,9 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
   const imageKey = storedImageKey(t);
   if (imageKey && t.image) {
     el(doc, 'image', {
-      class: 'topic-image', href: `/${imageKey}`, x: t.x + t.image.x, y: t.y + t.image.y,
+      class: 'topic-image', 'data-id': t.id, href: `/${imageKey}`, x: t.x + t.image.x, y: t.y + t.image.y,
       width: t.image.w, height: t.image.h, preserveAspectRatio: 'xMidYMid slice',
-    }, g);
+    }, opts.photos ?? g);
     g.appendChild(rc.rectangle(t.x + t.image.x, t.y + t.image.y, t.image.w, t.image.h, {
       stroke: t.color.stroke, strokeWidth: DECOR_STROKE.frame, roughness: 0.9, seed: seed + 6,
     }));

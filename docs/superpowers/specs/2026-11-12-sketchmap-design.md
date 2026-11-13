@@ -208,7 +208,7 @@ Styles by depth:
 - **Fold control:** a small circle at the branch end. When a branch is folded, the circle shows how many topics are hidden.
 - **Dark mode:**
   - Like Excalidraw, the drawing gets `invert(93%) hue-rotate(180deg)`.
-  - Images get a counter-filter so photos don't come out inverted. They end up slightly faded, which is fine.
+  - Images sit on a separate, unfiltered layer above the drawing, so photos keep their true colours. A counter-filter can't do this: `hue-rotate(180deg)` pushes saturated colours out of gamut before the drawing's filter, so they clip, measured at up to 110/255 off on yellow.
 - **Fonts:**
   - Self-hosted. Excalifont's 7 woff2 subsets and Xiaolai's ~210 subsets come from `@excalidraw/excalidraw@0.18.1` and are declared with `unicode-range`, so the browser downloads only the pieces a map uses.
   - Both fonts are OFL-1.1: ship `fonts/OFL.txt` alongside them, and credit them in the app's About.

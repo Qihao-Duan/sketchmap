@@ -243,7 +243,7 @@ test('an image added from the details panel survives a reload, shows in the view
 
   await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PNG_2x2 });
 
-  const image = page.locator('g.topic image.topic-image');
+  const image = page.locator('image.topic-image');
   await expect(image).toHaveCount(1);
   const href = (await image.getAttribute('href'))!;
   expect(href).toMatch(/^\/img\/[A-Za-z0-9_-]{21}\/[A-Za-z0-9_-]{10}\.(png|jpg)$/);
@@ -252,14 +252,14 @@ test('an image added from the details panel survives a reload, shows in the view
 
   await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
   await page.reload();
-  await expect(page.locator('g.topic image.topic-image')).toHaveAttribute('href', href);
+  await expect(page.locator('image.topic-image')).toHaveAttribute('href', href);
 
   const fetched = await page.request.get(href);
   expect(fetched.status()).toBe(200);
   expect(fetched.headers()['content-type']).toBe('image/png');
 
   await page.goto(`/m/${id}`);
-  await expect(page.locator('g.topic image.topic-image')).toBeVisible();
+  await expect(page.locator('image.topic-image')).toBeVisible();
 
   await page.goto(`/e/${id}`);
   const download = page.waitForEvent('download');
@@ -285,7 +285,7 @@ test('an SVG image is drawn into a PNG, in the browser, and any script it carrie
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="red"/><script>document.title=\'pwned\'</script></svg>';
   await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'icon.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(svg) });
 
-  const image = page.locator('g.topic image.topic-image');
+  const image = page.locator('image.topic-image');
   await expect(image).toHaveCount(1);
   const href = (await image.getAttribute('href'))!;
   expect(href).toMatch(/\.png$/); // SVG goes in; only a PNG comes out and is stored
@@ -296,7 +296,7 @@ test('an SVG image is drawn into a PNG, in the browser, and any script it carrie
 test('the Excalidraw export downloads a scene with the topics, their text and the image file', async ({ page }) => {
   await openNewMap(page);
   await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PNG_2x2 });
-  await expect(page.locator('g.topic image.topic-image')).toHaveCount(1);
+  await expect(page.locator('image.topic-image')).toHaveCount(1);
   await page.keyboard.press('Tab');
   await page.keyboard.type('Alpha');
   await page.keyboard.press('Enter');
@@ -318,4 +318,39 @@ test('the Excalidraw export downloads a scene with the topics, their text and th
   expect(scene.files[image.fileId].dataURL).toMatch(/^data:image\/png;base64,/);
   // Measured with the real Excalifont in a real browser: the text has a real width.
   expect(scene.elements.find((e: { text?: string }) => e.text === 'Alpha').width).toBeGreaterThan(20);
+});
+
+test('in dark mode a topic image keeps its colours while the drawing is inverted', async ({ page }) => {
+  await openNewMap(page);
+  // Saturated stripes: the colours a counter-filter can't bring back.
+  const COLS = ['#e03131', '#2f9e44', '#1971c2', '#fcc419', '#c2255c', '#15aabf'];
+  const png = await page.evaluate((cols) => {
+    const c = document.createElement('canvas'); c.width = cols.length * 40; c.height = 40;
+    const g = c.getContext('2d')!; cols.forEach((col, i) => { g.fillStyle = col; g.fillRect(i * 40, 0, 40, 40); });
+    return c.toDataURL('image/png').split(',')[1];
+  }, COLS);
+  await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'stripes.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  const image = page.locator('image.topic-image');
+  await expect(image).toHaveCount(1);
+  await page.getByRole('button', { name: 'Fit' }).click();
+
+  const sample = async () => {
+    const box = (await image.boundingBox())!;
+    const shot = (await page.screenshot()).toString('base64');
+    return page.evaluate(async ({ shot, box, n }) => {
+      const img = new Image(); img.src = `data:image/png;base64,${shot}`; await img.decode();
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+      const g = c.getContext('2d')!; g.drawImage(img, 0, 0);
+      const k = img.width / innerWidth;
+      return Array.from({ length: n }, (_, i) => [...g.getImageData(Math.round((box.x + box.width * (i + 0.5) / n) * k), Math.round((box.y + box.height / 2) * k), 1, 1).data].slice(0, 3));
+    }, { shot, box, n: COLS.length });
+  };
+  await page.emulateMedia({ colorScheme: 'light' });
+  const light = await sample();
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(() => page.locator('.canvas > svg[role="img"]').evaluate((s) => getComputedStyle(s).filter)).toContain('invert');
+  const dark = await sample();
+  for (let i = 0; i < COLS.length; i++) {
+    for (let ch = 0; ch < 3; ch++) expect(Math.abs(dark[i][ch] - light[i][ch])).toBeLessThanOrEqual(3);
+  }
 });

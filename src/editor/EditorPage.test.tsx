@@ -611,9 +611,9 @@ describe('Details panel', () => {
 
 describe('Images', () => {
   const file = () => new File(['x'], 'photo.png', { type: 'image/png' });
-  const topicImage = () => container.querySelector('g.topic image.topic-image');
+  const topicImage = () => container.querySelector('image.topic-image');
 
-  it('choosing a file in the Image row draws g.topic image.topic-image', async () => {
+  it('choosing a file in the Image row draws image.topic-image', async () => {
     mount(fakeApi());
     expect(topicImage()).toBeNull();
     await chooseImage(file());

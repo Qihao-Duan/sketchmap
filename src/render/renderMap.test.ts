@@ -122,6 +122,30 @@ describe('renderMap', () => {
     expect(Number(text.getAttribute('y'))).toBeGreaterThan(box.y + box.image!.y + box.image!.h);
   });
 
+  it('draws images into the photo layer when one is given, leaving the frame in the topic', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const world = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const photos = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    photos.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'image')); // stale, from a previous render
+    svg.append(world, photos);
+    const withImage: MapNode = {
+      id: 'r', text: 'Root',
+      children: [{ id: 'img', text: 'Cat', image: { key: 'img/abcdefghijklmnopqrstu/x.png', w: 200, h: 100 }, children: [] }],
+    };
+    const layout = computeLayout(withImage, measure);
+    renderMap(svg, world, layout, { selectedId: null, photos });
+    expect(world.querySelectorAll('image')).toHaveLength(0);
+    const imgs = photos.querySelectorAll('image.topic-image');
+    expect(imgs).toHaveLength(1);
+    const box = layout.byId.get('img')!;
+    expect(imgs[0].getAttribute('data-id')).toBe('img');
+    expect(Number(imgs[0].getAttribute('x'))).toBeCloseTo(box.x + box.image!.x);
+    expect(Number(imgs[0].getAttribute('y'))).toBeCloseTo(box.y + box.image!.y);
+    // The rough frame is still drawn with the topic (a g of rough paths after the hit rect and the box).
+    const topic = world.querySelector('g.topic[data-id="img"]')!;
+    expect(topic.querySelectorAll('path').length).toBeGreaterThan(1);
+  });
+
   it('draws org-chart deep topics as unfilled outlines', async () => {
     const { computeOrgLayout } = await import('../layout/org');
     const { PALETTE } = await import('../layout/styles');

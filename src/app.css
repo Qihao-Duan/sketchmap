@@ -3,7 +3,6 @@
   --accent: #3b5bdb; --accent-ink: #ffffff; --accent-soft: #e9edff; --dots: #dedad0; --warn: #c2410c;
   --shadow: 0 1px 2px rgba(40, 36, 28, 0.06), 0 8px 24px rgba(40, 36, 28, 0.08);
   --canvas-filter: none;
-  --image-filter: none;
   --hand: "Excalifont", "Xiaolai", "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
   --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: light;
@@ -14,7 +13,6 @@
     --accent: #9fb1ff; --accent-ink: #11131c; --accent-soft: #252b45; --dots: #2b2b30; --warn: #fb923c;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.4);
     --canvas-filter: invert(93%) hue-rotate(180deg);
-    --image-filter: invert(100%) hue-rotate(180deg);
     color-scheme: dark;
   }
 }
@@ -25,6 +23,8 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
   background-color: var(--paper); background-image: radial-gradient(var(--dots) 1px, transparent 1.3px); background-size: 22px 22px;
 }
 .canvas svg { width: 100%; height: 100%; display: block; filter: var(--canvas-filter); user-select: none; -webkit-user-select: none; }
+/* Topic images sit on their own layer above the drawing, untouched by the dark-mode filter. */
+.canvas svg.photos { position: absolute; inset: 0; pointer-events: none; filter: none; }
 /* The Notion embed must not trap vertical page scrolling on touch: let the page scroll
    while a horizontal/pinch gesture still pans and zooms the map. */
 .view .canvas { touch-action: pan-y pinch-zoom; }
@@ -136,5 +136,3 @@ svg.mini { display: block; filter: var(--canvas-filter); }
 
 .import-result { margin: 12px 0 0; padding: 10px 12px; background: var(--accent-soft); border-radius: 10px; }
 .import-result a { color: var(--accent); font-weight: 600; }
-
-.canvas svg image.topic-image { filter: var(--image-filter); }

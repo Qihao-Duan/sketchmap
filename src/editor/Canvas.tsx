@@ -41,6 +41,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
   const svgRef = useRef<SVGSVGElement>(null);
   const worldRef = useRef<SVGGElement>(null);
   const overlayRef = useRef<SVGGElement>(null);
+  const photosRef = useRef<SVGGElement>(null);
   const viewRef = useRef<View>({ tx: 0, ty: 0, k: 1 });
   const fitted = useRef(false);
   const gesture = useRef<Gesture | null>(null);
@@ -59,6 +60,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     const t = `translate(${v.tx} ${v.ty}) scale(${v.k})`;
     worldRef.current?.setAttribute('transform', t);
     overlayRef.current?.setAttribute('transform', t);
+    photosRef.current?.setAttribute('transform', t);
     onViewChangeRef.current?.(v);
   };
   const fit = () => {
@@ -67,7 +69,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
   };
 
   useLayoutEffect(() => {
-    renderMap(svgRef.current!, worldRef.current!, layout, { selectedId, dropTargetId: dropTarget });
+    renderMap(svgRef.current!, worldRef.current!, layout, { selectedId, dropTargetId: dropTarget, photos: photosRef.current ?? undefined });
     if (!fitted.current && size()[0] > 0) {
       fitted.current = true;
       fit();
@@ -186,6 +188,8 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
         g.ghost.style.pointerEvents = 'none';
         g.ghost.querySelectorAll('[pointer-events]').forEach((n) => n.setAttribute('pointer-events', 'none'));
         g.ghost.setAttribute('pointer-events', 'none');
+        const photo = photosRef.current?.querySelector(`image[data-id="${g.id}"]`);
+        if (photo) g.ghost.appendChild(photo.cloneNode(true));
         overlayRef.current?.appendChild(g.ghost);
       }
     }
@@ -252,6 +256,10 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
       >
         <g ref={worldRef} className="world" />
         <g ref={overlayRef} className="overlay" />
+      </svg>
+      {/* Topic images, outside the drawing's dark-mode filter so photos keep their colours; clicks pass through to the drawing. */}
+      <svg className="photos" aria-hidden="true">
+        <g ref={photosRef} className="photos-world" />
       </svg>
     </div>
   );

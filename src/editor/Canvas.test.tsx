@@ -271,4 +271,28 @@ describe('Canvas', () => {
       expect(h.onDropFile).not.toHaveBeenCalled();
     });
   });
+
+  describe('photo layer', () => {
+    it('draws images on an unfiltered svg over the drawing, panned and zoomed with it', () => {
+      const withImage: MapNode = { id: 'r', text: 'Root', children: [
+        { id: 'p', text: 'Pic', image: { key: 'img/abcdefghijklmnopqrstu/x.png', w: 120, h: 80 }, children: [] },
+      ] };
+      const imgLayout = computeLayout(withImage, (t, s) => t.length * s * 0.5);
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      const ref = { current: null as CanvasHandle | null };
+      act(() => createRoot(container).render(
+        <Canvas ref={(h) => { ref.current = h; }} layout={imgLayout} selectedId={null} interactive onToggleFold={() => {}} />,
+      ));
+      const [drawing, photos] = container.querySelectorAll('.canvas > svg');
+      expect(drawing.getAttribute('role')).toBe('img');
+      expect(photos.classList.contains('photos')).toBe(true);
+      expect(photos.getAttribute('aria-hidden')).toBe('true');
+      expect(drawing.querySelectorAll('image')).toHaveLength(0);
+      expect(photos.querySelectorAll('image.topic-image[data-id="p"]')).toHaveLength(1);
+      act(() => ref.current!.zoomBy(1.5));
+      const world = drawing.querySelector('g.world')!;
+      expect(photos.querySelector('g.photos-world')!.getAttribute('transform')).toBe(world.getAttribute('transform'));
+    });
+  });
 });
