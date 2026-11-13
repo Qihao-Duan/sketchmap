@@ -37,6 +37,18 @@ describe('export', () => {
     expect(svg).toContain(`viewBox="${x - 40} ${y - 40} `);
   });
 
+  it('keeps a topic link as a link in the SVG, and counts only its visible text for the font subset', async () => {
+    const linked = computeLayout(
+      { id: 'r', text: 'See [docs](https://example.com/d) now', children: [] },
+      (t, s) => t.length * s * 0.5,
+    );
+    const fetchImpl = vi.fn(async () => new Response(woff2Bytes(1))) as unknown as typeof fetch;
+    const svg = await buildSvg(linked, visibleText(linked), { fetchImpl });
+    expect(svg).toMatch(/<a [^>]*href="https:\/\/example\.com\/d"[^>]*><tspan[^>]*>docs<\/tspan><\/a>/);
+    expect(visibleText(linked)).toContain('docs');
+    expect(visibleText(linked)).not.toContain('https://');
+  });
+
   it('fails clearly when a font file cannot be fetched', async () => {
     const fetchImpl = (async () => new Response('', { status: 404 })) as unknown as typeof fetch;
     await expect(buildSvg(layout, 'Root', { fetchImpl })).rejects.toThrow(/Font .*404/);

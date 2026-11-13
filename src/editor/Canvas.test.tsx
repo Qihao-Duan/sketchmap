@@ -335,5 +335,39 @@ describe('Canvas', () => {
       expect(photos.querySelector('g.ghost-photo')).toBeNull();
       expect(frames.querySelector('g.ghost-frame')).toBeNull();
     });
+
+    it('keeps the dragged photo and frame ghosts when the drop target changes and the canvas re-renders mid-drag', () => {
+      const withImage: MapNode = { id: 'r', text: 'Root', children: [
+        { id: 'p', text: 'Pic', image: { key: 'img/abcdefghijklmnopqrstu/x.png', w: 120, h: 80 }, children: [] },
+        { id: 'q', text: 'Other', children: [] },
+      ] };
+      const imgLayout = computeLayout(withImage, (t, s) => t.length * s * 0.5);
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      act(() => createRoot(container).render(
+        <Canvas layout={imgLayout} selectedId={null} interactive onToggleFold={() => {}} />,
+      ));
+      const [, photos, frames] = container.querySelectorAll('.canvas > svg');
+      const hitP = container.querySelector('g.topic[data-id="p"] rect.hit')!;
+      const hitQ = container.querySelector('g.topic[data-id="q"] rect.hit')!;
+      const original = document.elementFromPoint;
+      document.elementFromPoint = () => hitQ;
+      try {
+        press(hitP, 'pointerdown', 10, 10);
+        press(hitP, 'pointermove', 20, 20, 1); // past the drag threshold; the pointer is now over Other
+        // The drop highlight re-rendered the canvas (Other's group gained `drop`)...
+        expect(container.querySelector('g.topic[data-id="q"]')!.classList.contains('drop')).toBe(true);
+        // ...and the ghosts, and the one photo, survived it.
+        expect(photos.querySelectorAll('g.ghost-photo')).toHaveLength(1);
+        expect(frames.querySelectorAll('g.ghost-frame')).toHaveLength(1);
+        expect(photos.querySelectorAll('g.photos-world image.topic-image[data-id="p"]')).toHaveLength(1);
+        press(hitP, 'pointermove', 30, 30, 1); // moving on keeps them too
+        expect(photos.querySelectorAll('g.ghost-photo')).toHaveLength(1);
+        expect(frames.querySelectorAll('g.ghost-frame')).toHaveLength(1);
+        press(hitP, 'pointerup', 30, 30);
+      } finally {
+        document.elementFromPoint = original;
+      }
+    });
   });
 });

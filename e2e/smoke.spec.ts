@@ -11,7 +11,7 @@ const hexToRgb = (hex: string): [number, number, number] => [
   parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16),
 ];
 
-test('create a map, edit it, reload it, and see it inside a Notion-like embed', async ({ page }) => {
+test('create a map, edit it, reload it, and see it inside a Notion-like embed', async ({ page, baseURL }) => {
   await page.goto('/');
   await page.getByLabel('Owner key').fill('dev-owner-key');
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -35,7 +35,7 @@ test('create a map, edit it, reload it, and see it inside a Notion-like embed', 
   await expect(page.locator('g.topic text', { hasText: '中文也可以' })).toBeVisible();
 
   await page.setContent(
-    `<iframe src="http://localhost:5173/m/${id}" sandbox="${NOTION_SANDBOX}" style="width:900px;height:500px;border:0"></iframe>`,
+    `<iframe src="${baseURL}/m/${id}" sandbox="${NOTION_SANDBOX}" style="width:900px;height:500px;border:0"></iframe>`,
   );
   const frame = page.frameLocator('iframe');
   await expect(frame.locator('g.topic')).toHaveCount(3);
@@ -196,7 +196,7 @@ test('the editor box fits a long link, and the link field sits below it (I1)', a
   expect(fieldTop).toBeGreaterThanOrEqual(taBottom);
 });
 
-test('a link opens from inside a Notion-sandboxed iframe (pins allow-popups)', async ({ page, context }) => {
+test('a link opens from inside a Notion-sandboxed iframe (pins allow-popups)', async ({ page, context, baseURL }) => {
   await context.route('https://example.com/**', (r) => r.fulfill({ body: 'ok', contentType: 'text/plain' }));
   const id = await openNewMap(page);
   await page.keyboard.press('Tab');
@@ -209,7 +209,7 @@ test('a link opens from inside a Notion-sandboxed iframe (pins allow-popups)', a
   await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
 
   await page.setContent(
-    `<iframe src="http://localhost:5173/m/${id}" sandbox="${NOTION_SANDBOX}" style="width:900px;height:500px;border:0"></iframe>`,
+    `<iframe src="${baseURL}/m/${id}" sandbox="${NOTION_SANDBOX}" style="width:900px;height:500px;border:0"></iframe>`,
   );
   const frame = page.frameLocator('iframe');
   await expect(frame.locator('g.topic')).toHaveCount(2);
@@ -240,6 +240,58 @@ test('an .xmind file imports as a new map, with links, notes and priority, and s
   const id = page.url().split('/e/')[1];
   await page.goto(`/m/${id}`);
   await expect(page.locator('g.topic')).toHaveCount(3);
+});
+
+test('an image pasted from the clipboard, or dropped on a topic, lands on that topic', async ({ page }) => {
+  await openNewMap(page);
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Alpha');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('g.topic')).toHaveCount(2);
+  const ids = await page.locator('g.topic').evaluateAll((els) => els.map((el) => [el.textContent ?? '', el.getAttribute('data-id')!] as const));
+  const alpha = ids.find(([text]) => text.includes('Alpha'))![1];
+  const root = ids.find(([text]) => !text.includes('Alpha'))![1];
+
+  const send = (kind: 'paste' | 'drop', topicId: string) => page.evaluate(({ kind, topicId, b64 }) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const data = new DataTransfer();
+    data.items.add(new File([bytes], 'pic.png', { type: 'image/png' }));
+    if (kind === 'paste') {
+      window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    } else {
+      const hit = document.querySelector(`g.topic[data-id="${topicId}"] rect.hit`)!;
+      hit.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+    }
+  }, { kind, topicId, b64: PNG_2x2.toString('base64') });
+
+  await send('paste', alpha); // Alpha is the selected topic after Enter
+  await expect(page.locator(`image.topic-image[data-id="${alpha}"]`)).toHaveCount(1);
+  await send('drop', root); // a drop goes to the topic under it, not to the selection
+  await expect(page.locator(`image.topic-image[data-id="${root}"]`)).toHaveCount(1);
+  await expect(page.locator('image.topic-image')).toHaveCount(2);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('an .xmind file with an image imports the image too', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Owner key').fill('dev-owner-key');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  const xmind = await makeZip([
+    { name: 'content.json', data: JSON.stringify([{
+      id: 's', class: 'sheet', title: 'S',
+      rootTopic: { id: 'r', title: 'With a picture', children: { attached: [{ id: 'a', title: 'Photo', image: { src: 'xap:resources/pic.png' } }] } },
+    }]) },
+    { name: 'resources/pic.png', data: new Uint8Array(PNG_2x2), deflate: false },
+  ]);
+  await page.locator('input[aria-label="XMind file"]').setInputFiles({ name: 'pic.xmind', mimeType: 'application/octet-stream', buffer: Buffer.from(xmind) });
+  await expect(page.locator('.import-result')).toContainText('2 topics');
+  await page.locator('.import-result a').click();
+  await page.waitForURL(/\/e\//);
+  const image = page.locator('image.topic-image');
+  await expect(image).toHaveCount(1);
+  const href = (await image.getAttribute('href'))!;
+  expect(href).toMatch(/^\/img\/[A-Za-z0-9_-]{21}\/[A-Za-z0-9_-]{10}\.png$/);
+  expect((await page.request.get(href)).status()).toBe(200);
 });
 
 test('an image added from the details panel survives a reload, shows in the view and is inlined in the SVG export; deleting the map deletes it', async ({ page }) => {
