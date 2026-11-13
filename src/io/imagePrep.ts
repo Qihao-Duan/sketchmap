@@ -9,7 +9,6 @@ const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 const MAX_ENCODED_BYTES = 5 * 1024 * 1024;
 const JPEG_QUALITY = 0.85;
 const SNIFF_BYTES = 512;
-const RASTER_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 /** Width = target; height keeps the aspect ratio, rounded. Both clamped to the schema's 16-2048px. */
 export function displaySize(width: number, height: number, target: number = IMAGE_SIZES.M): { w: number; h: number } {
@@ -19,7 +18,8 @@ export function displaySize(width: number, height: number, target: number = IMAG
 
 function looksLikeSvgText(bytes: Uint8Array): boolean {
   const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes).replace(/^\uFEFF/, '').trimStart();
-  return text.startsWith('<?xml') || text.startsWith('<svg');
+  // XML declarations, comments and doctypes may come first; any <svg in the first bytes counts.
+  return text.startsWith('<?xml') || /<svg[\s>/]/i.test(text);
 }
 
 /** Identifies an image's kind from its magic bytes (or SVG's leading text), never from `Content-Type`. */
@@ -54,8 +54,9 @@ export async function prepareImage(file: Blob): Promise<{ blob: Blob; width: num
   if (looksLikeSvgText(prefix) || file.type === 'image/svg+xml') {
     throw new ImageError('SVG images aren’t supported (they can carry script).');
   }
+  // Only the bytes decide: a file that claims to be an image but isn't one of the four raster formats is refused.
   const kind = sniffKind(prefix);
-  if (!(kind === 'png' || kind === 'jpeg' || kind === 'webp' || kind === 'gif') && !RASTER_TYPES.has(file.type)) {
+  if (!(kind === 'png' || kind === 'jpeg' || kind === 'webp' || kind === 'gif')) {
     throw new ImageError('That file isn’t an image (PNG, JPEG, WebP or GIF).');
   }
   if (file.size > MAX_UPLOAD_BYTES) {
@@ -64,7 +65,8 @@ export async function prepareImage(file: Blob): Promise<{ blob: Blob; width: num
 
   let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(file);
+    // EXIF orientation applied explicitly; an animated GIF keeps only its first frame.
+    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
   } catch {
     throw new ImageError('That image couldn’t be read.');
   }

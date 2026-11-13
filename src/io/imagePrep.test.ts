@@ -24,4 +24,17 @@ describe('image preparation', () => {
     await expect(prepareImage(new File(['<?xml version="1.0"?><svg/>'], 'x.png', { type: 'image/png' }))).rejects.toThrow(/SVG/);
     await expect(prepareImage(new File(['hello'], 'x.txt', { type: 'text/plain' }))).rejects.toBeInstanceOf(ImageError);
   });
+
+  it('accepts only bytes that really are PNG, JPEG, WebP or GIF, whatever the file claims', async () => {
+    const sneaky = new File(['<!-- hi --><svg xmlns="http://www.w3.org/2000/svg"><script>x</script></svg>'], 'x.png', { type: 'image/png' });
+    await expect(prepareImage(sneaky)).rejects.toThrow(/SVG images aren’t supported/);
+    await expect(prepareImage(new File(['just text'], 'x.png', { type: 'image/png' }))).rejects.toThrow(/isn’t an image/);
+    await expect(prepareImage(new File([new Uint8Array([0x1f, 0x8b, 8, 0])], 'x.svgz', { type: 'image/png' }))).rejects.toThrow(/isn’t an image/);
+  });
+
+  it('refuses files over 30 MB before decoding them', async () => {
+    const big = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'big.png', { type: 'image/png' });
+    Object.defineProperty(big, 'size', { value: 31 * 1024 * 1024 });
+    await expect(prepareImage(big)).rejects.toThrow(/over 30 MB/);
+  });
 });
