@@ -335,7 +335,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       return;
     }
     const lost = markdownLosses(state.map.root);
-    navigator.clipboard.writeText(toMarkdown(state.map.root)).then(
+    navigator.clipboard.writeText(toMarkdown(state.map.root, { imageBase: location.origin })).then(
       () => {
         setMdCopied(true);
         setMdNotice(lost.length ? `Copied. Not kept in Markdown: ${lost.join(', ')}.` : null);

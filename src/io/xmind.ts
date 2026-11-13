@@ -6,6 +6,16 @@ import { readZip, ZipError } from './zip';
 
 export class XmindError extends Error {}
 
+/** A topic's image, recorded for the list page to read, prepare and upload after the tree is built (spec §9). */
+export interface XmindImageRef {
+  /** The id `importXmind` gave the topic that carries this image, to find it again with `findNode`. */
+  nodeId: string;
+  /** The zip entry to read the bytes from, e.g. `resources/abc.png`. */
+  resource: string;
+  width?: number;
+  height?: number;
+}
+
 export interface XmindImport {
   root: MapNode;
   layout: LayoutKind;
@@ -15,10 +25,13 @@ export interface XmindImport {
   dropped: string[];
   /** What was brought over in a different form, for the summary ("2 floating topics attached to the root"). */
   changed: string[];
+  /** Non-SVG image resources found on topics (content.json only), up to `MAX_IMAGES`; the rest are counted in `dropped`. */
+  images: XmindImageRef[];
 }
 
 const MAX_TEXT = 5000;
 const MAX_NOTE = 50_000;
+const MAX_IMAGES = 100;
 /** XMind marker → our marker (ids seen in real files, except task-done/symbol-exclam/symbol-wrong, which are documented). */
 const MARKER_MAP: Array<[RegExp, string]> = [
   [/^star-/, '⭐'], [/^flag-/, '📌'], [/^people-/, '👤'], [/^symbol-question$/, '❓'],
@@ -38,7 +51,9 @@ class Dropped {
   markers = 0;
   links = 0;
   linksTooLong = 0;
-  images = 0;
+  svgImages = 0;
+  imagesOverLimit = 0;
+  xml8Images = 0;
   tooDeep = 0;
 
   /** Readable phrases, in the fixed order the import summary shows them. */
@@ -57,7 +72,9 @@ class Dropped {
     if (this.linksTooLong) {
       out.push(this.linksTooLong === 1 ? '1 link too long to keep' : `${this.linksTooLong} links too long to keep`);
     }
-    if (this.images) out.push(`${this.images} image${plural(this.images)} (images arrive in step 4)`);
+    if (this.svgImages) out.push(`${this.svgImages} SVG image${plural(this.svgImages)} (not supported)`);
+    if (this.imagesOverLimit) out.push(`${this.imagesOverLimit} image${plural(this.imagesOverLimit)} not imported (over 100)`);
+    if (this.xml8Images) out.push(`${this.xml8Images} image${plural(this.xml8Images)} (XMind 8 images aren’t imported)`);
     if (this.tooDeep) out.push(`${this.tooDeep} topic${plural(this.tooDeep)} nested too deep`);
     return out;
   }
@@ -89,11 +106,42 @@ class Changed {
   }
 }
 
-/** Shared state threaded through a tree build: what gets dropped, what gets changed, and how many topics made it in. */
+/** Shared state threaded through a tree build: what gets dropped, what gets changed, how many topics made it in,
+ * and the image resources found along the way. */
 interface BuildCtx {
   dropped: Dropped;
   changed: Changed;
   topics: number;
+  images: XmindImageRef[];
+}
+
+/**
+ * `image.src = "xap:resources/<name>"` (content.json only): a non-SVG resource is recorded on `ctx.images` for the
+ * list page to upload, up to `MAX_IMAGES`; an SVG, or anything past the cap, is counted in `ctx.dropped` instead.
+ * Any other shape — no `image`, no `src`, or a `src` that isn't a `xap:resources/` string — is left alone: real
+ * files only ever use this one form, and a non-image reference is not something this import can act on anyway.
+ */
+function recordImage(image: unknown, nodeId: string, ctx: BuildCtx): void {
+  if (!image || typeof image !== 'object') return;
+  const src = (image as { src?: unknown }).src;
+  if (typeof src !== 'string' || !src.startsWith('xap:resources/')) return;
+  const name = src.slice('xap:resources/'.length);
+  if (/\.svg$/i.test(name)) {
+    ctx.dropped.svgImages++;
+    return;
+  }
+  if (ctx.images.length >= MAX_IMAGES) {
+    ctx.dropped.imagesOverLimit++;
+    return;
+  }
+  const width = (image as { width?: unknown }).width;
+  const height = (image as { height?: unknown }).height;
+  ctx.images.push({
+    nodeId,
+    resource: `resources/${name}`,
+    ...(typeof width === 'number' ? { width } : {}),
+    ...(typeof height === 'number' ? { height } : {}),
+  });
 }
 
 /** `org.xmind.ui.org-chart.down` → `org`, `…logic…`/`…tree…` → `logic`, anything else → `map`. */
@@ -205,6 +253,7 @@ function countJsonTopics(topics: unknown[]): number {
 
 function buildJsonTopic(topic: JsonTopic, depth: number, ctx: BuildCtx): MapNode {
   ctx.topics++;
+  const nodeId = newNodeId();
   const title = typeof topic.title === 'string' ? topic.title : '';
   const href = typeof topic.href === 'string' ? topic.href : undefined;
   const noteRaw = typeof topic.notes?.plain?.content === 'string' ? topic.notes.plain.content : '';
@@ -216,7 +265,7 @@ function buildJsonTopic(topic: JsonTopic, depth: number, ctx: BuildCtx): MapNode
 
   ctx.dropped.labels += Array.isArray(topic.labels) ? topic.labels.length : 0;
   ctx.dropped.boundaries += Array.isArray(topic.boundaries) ? topic.boundaries.length : 0;
-  if (topic.image) ctx.dropped.images++;
+  recordImage(topic.image, nodeId, ctx);
   ctx.dropped.summaryTopics += Array.isArray(topic.children?.summary) ? topic.children.summary.length : 0;
 
   // A task checkbox (`extensions: [{ provider: 'org.xmind.ui.task', content: { status } }]`). `done` gives the
@@ -263,7 +312,7 @@ function buildJsonTopic(topic: JsonTopic, depth: number, ctx: BuildCtx): MapNode
     }
   }
 
-  const node: MapNode = { id: newNodeId(), ...fields, children };
+  const node: MapNode = { id: nodeId, ...fields, children };
   // The root never collapses: the editor has no fold control at depth 0, so a folded root would hide the whole map.
   if (depth > 0 && topic.branch === 'folded' && children.length > 0) node.collapsed = true;
   return node;
@@ -283,10 +332,10 @@ export function fromXmindJson(content: unknown): XmindImport {
     dropped.sheets = rest.length;
     dropped.relationships = Array.isArray(first.relationships) ? first.relationships.length : 0;
 
-    const ctx: BuildCtx = { dropped, changed: new Changed(), topics: 0 };
+    const ctx: BuildCtx = { dropped, changed: new Changed(), topics: 0, images: [] };
     const root = buildJsonTopic(first.rootTopic, 0, ctx);
     const layout = layoutFromStructureClass(first.rootTopic.structureClass);
-    return { root, layout, topics: ctx.topics, dropped: dropped.list(), changed: ctx.changed.list() };
+    return { root, layout, topics: ctx.topics, dropped: dropped.list(), changed: ctx.changed.list(), images: ctx.images };
   } catch (e) {
     if (e instanceof XmindError) throw e;
     throw new XmindError('The XMind file is damaged.');
@@ -334,6 +383,8 @@ function buildXmlTopic(topicEl: Element, depth: number, ctx: BuildCtx): MapNode 
   ctx.dropped.boundaries += boundariesEl ? xmlChildren(boundariesEl, 'boundary').length : 0;
   const labelsEl = xmlChildren(topicEl, 'labels')[0];
   ctx.dropped.labels += labelsEl ? xmlChildren(labelsEl, 'label').length : 0;
+  // XMind 8 images have no `xap:resources/` mapping to read later, so they are just counted, never uploaded.
+  if (xmlChildren(topicEl, 'image').length > 0) ctx.dropped.xml8Images++;
 
   const childrenEl = xmlChildren(topicEl, 'children')[0];
   const topicsEls = childrenEl ? xmlChildren(childrenEl, 'topics') : [];
@@ -380,10 +431,10 @@ export function fromXmindXml(xml: string): XmindImport {
     const topicEl = xmlChildren(first, 'topic')[0];
     if (!topicEl) throw new XmindError('No mind map found in this file.');
 
-    const ctx: BuildCtx = { dropped, changed: new Changed(), topics: 0 };
+    const ctx: BuildCtx = { dropped, changed: new Changed(), topics: 0, images: [] };
     const rootNode = buildXmlTopic(topicEl, 0, ctx);
     const layout = layoutFromStructureClass(topicEl.getAttribute('structure-class') ?? undefined);
-    return { root: rootNode, layout, topics: ctx.topics, dropped: dropped.list(), changed: ctx.changed.list() };
+    return { root: rootNode, layout, topics: ctx.topics, dropped: dropped.list(), changed: ctx.changed.list(), images: ctx.images };
   } catch (e) {
     if (e instanceof XmindError) throw e;
     throw new XmindError('The XMind file is damaged.');
@@ -430,4 +481,11 @@ export async function importXmind(bytes: Uint8Array): Promise<XmindImport> {
     throw new XmindError('This map is too big to import (over 2 MB).');
   }
   return result;
+}
+
+/** Reads the `resources/<name>` entries `importXmind` recorded on `XmindImport.images`, out of the same archive. */
+export async function readXmindResources(bytes: Uint8Array, names: string[]): Promise<Map<string, Uint8Array>> {
+  // 30 MB, not readZip's 20 MB default: matches prepareImage's own raw-upload cap, so a resource large enough to
+  // be prepared isn't rejected first by this read.
+  return readZip(bytes, names, 30_000_000);
 }

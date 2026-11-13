@@ -43,7 +43,11 @@ export function readDecorations(raw: string): Pick<MapNode, 'text' | 'priority' 
   return { text, ...out };
 }
 
-/** What Markdown can't carry, for the "not kept" notice (spec §9): Highlight, Aside and notes. */
+/**
+ * What Markdown can't carry, for the "not kept" notice (spec §9): Highlight, Aside, notes and images. Images are
+ * listed here even when `toMarkdown` is asked to inline them (`imageBase`): pasting that text back into the Outline
+ * panel and applying it turns `![](…)` into inert text, never back into a topic image (spec §9 ruling).
+ */
 export function markdownLosses(root: MapNode): string[] {
   const found = new Set<string>();
   const stack = [root];
@@ -52,18 +56,24 @@ export function markdownLosses(root: MapNode): string[] {
     if (n.emphasis === 'highlight') found.add('Highlight');
     if (n.emphasis === 'aside') found.add('Aside');
     if (n.note?.trim()) found.add('notes');
+    if (n.image) found.add('images');
     if (n.emphasis === 'key' && n.text.includes('**')) found.add(KEY_WITH_STARS);
     stack.push(...n.children);
   }
-  return ['Highlight', 'Aside', 'notes', KEY_WITH_STARS].filter((x) => found.has(x));
+  return ['Highlight', 'Aside', 'notes', 'images', KEY_WITH_STARS].filter((x) => found.has(x));
 }
 
-/** `# Root`, then nested `- ` bullets, 2 spaces per level. Pastes into Notion as a nested list. */
-export function toMarkdown(root: MapNode): string {
-  const out = [`# ${topicLine(root)}`];
+/** `# Root`, then nested `- ` bullets, 2 spaces per level. Pastes into Notion as a nested list.
+ * With `imageBase` set, a topic that has an image gets ` ![](${imageBase}/${key})` appended to its line (spec §9). */
+export function toMarkdown(root: MapNode, opts: { imageBase?: string } = {}): string {
+  const line = (node: MapNode): string => {
+    const text = topicLine(node);
+    return opts.imageBase && node.image ? `${text} ![](${opts.imageBase}/${node.image.key})` : text;
+  };
+  const out = [`# ${line(root)}`];
   const walk = (node: MapNode, depth: number) => {
     for (const c of node.children) {
-      out.push(`${'  '.repeat(depth)}- ${topicLine(c)}`);
+      out.push(`${'  '.repeat(depth)}- ${line(c)}`);
       walk(c, depth + 1);
     }
   };

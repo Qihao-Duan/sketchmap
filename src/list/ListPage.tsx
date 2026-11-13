@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, createApi } from '../api/client';
 import { KeyPrompt } from '../auth/KeyPrompt';
 import { clearOwnerKey, getOwnerKey, setOwnerKey } from '../auth/ownerKey';
-import { importXmind, XmindError } from '../io/xmind';
+import { displaySize, prepareImage } from '../io/imagePrep';
+import { importXmind, readXmindResources, XmindError } from '../io/xmind';
+import { findNode } from '../model/tree';
 import { parseRich } from '../shared/rich';
 import type { MapSummary } from '../shared/types';
 
@@ -81,15 +83,43 @@ export function ListPage({ go = (url: string) => location.assign(url) }: { go?: 
     setImported(null);
     let createdId: string | null = null;
     try {
-      const result = await importXmind(new Uint8Array(await file.arrayBuffer()));
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const result = await importXmind(bytes);
       const { map, etag } = await api.createMap();
       createdId = map.id;
+
+      let failedImages = 0;
+      if (result.images.length > 0) {
+        let resources: Map<string, Uint8Array>;
+        try {
+          resources = await readXmindResources(bytes, result.images.map((img) => img.resource));
+        } catch {
+          resources = new Map(); // every image below fails with "resource not found", counted the same way
+        }
+        for (const img of result.images) {
+          try {
+            const raw = resources.get(img.resource);
+            if (!raw) throw new Error('resource not found in the archive');
+            const prepared = await prepareImage(new Blob([raw] as BlobPart[]));
+            const { key } = await api.uploadImage(map.id, prepared.blob);
+            const found = findNode(result.root, img.nodeId);
+            if (!found) throw new Error('topic not found');
+            found.node.image = { key, ...displaySize(img.width ?? prepared.width, img.height ?? prepared.height) };
+          } catch {
+            failedImages++;
+          }
+        }
+      }
+      const dropped = failedImages > 0
+        ? [...result.dropped, `${failedImages} image${failedImages === 1 ? '' : 's'} could not be added`]
+        : result.dropped;
+
       await api.saveMap({ ...map, root: result.root, layout: result.layout }, etag);
       setImported({
         id: map.id,
         title: parseRich(result.root.text).plain.split('\n')[0] || 'Untitled map',
         topics: result.topics,
-        dropped: result.dropped,
+        dropped,
         changed: result.changed,
       });
       refresh();

@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+// @ts-expect-error -- `jsdom` ships no type declarations in this project; used only to borrow its `window.DOMParser`.
+import { JSDOM } from 'jsdom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MapNode } from '../shared/types';
 import { makeZip } from '../test/zipFixture';
-import { fromXmindJson, importXmind, XmindError } from './xmind';
+import { fromXmindJson, fromXmindXml, importXmind, readXmindResources, XmindError } from './xmind';
 
 const shape = (n: MapNode): unknown => ({ t: n.text, c: n.children.map(shape) });
 // Shaped like real XMind 2020+ content.json (see the plan's evidence section); the content is made up.
@@ -47,6 +49,8 @@ describe('fromXmindJson', () => {
     expect(got.root.children[1]).not.toHaveProperty('priority');
     expect(got.topics).toBe(6);
     expect(got.root.id).toMatch(/^[A-Za-z0-9_-]{10}$/);
+    // 'b' (Spec) carries `image: { src: 'xap:resources/abc.png' }`: a non-SVG resource, recorded for upload.
+    expect(got.images).toEqual([{ nodeId: got.root.children[1].id, resource: 'resources/abc.png' }]);
   });
 
   it('lists what it could not bring over', () => {
@@ -58,9 +62,57 @@ describe('fromXmindJson', () => {
       '1 label',
       '2 other markers',
       '1 link to another topic or file',
-      '1 image (images arrive in step 4)',
     ]);
     expect(fromXmindJson(content).changed).toEqual(['1 floating topic attached to the root']);
+  });
+
+  it('records non-SVG image resources for upload, and drops SVG resources as unsupported', () => {
+    const got = fromXmindJson([sheet({
+      id: 'r',
+      title: 'R',
+      children: {
+        attached: [
+          { id: 'a', title: 'A', image: { src: 'xap:resources/a.png' } },
+          { id: 'b', title: 'B', image: { src: 'xap:resources/b.svg' } },
+        ],
+      },
+    })]);
+    expect(got.images).toEqual([{ nodeId: got.root.children[0].id, resource: 'resources/a.png' }]);
+    expect(got.dropped).toEqual(['1 SVG image (not supported)']);
+  });
+
+  it('keeps numeric width/height recorded on an image resource, ignoring non-numeric ones', () => {
+    const got = fromXmindJson([sheet({
+      id: 'r',
+      title: 'R',
+      children: {
+        attached: [
+          { id: 'a', title: 'A', image: { src: 'xap:resources/a.png', width: 120, height: 80.5 } },
+          { id: 'b', title: 'B', image: { src: 'xap:resources/b.png', width: 'nope' } },
+        ],
+      },
+    })]);
+    expect(got.images).toEqual([
+      { nodeId: got.root.children[0].id, resource: 'resources/a.png', width: 120, height: 80.5 },
+      { nodeId: got.root.children[1].id, resource: 'resources/b.png' },
+    ]);
+  });
+
+  it('caps recorded images at 100, counting the rest', () => {
+    const many = Array.from({ length: 105 }, (_, i) => ({ id: `t${i}`, title: 'x', image: { src: `xap:resources/${i}.png` } }));
+    const got = fromXmindJson([sheet({ id: 'r', title: 'R', children: { attached: many } })]);
+    expect(got.images).toHaveLength(100);
+    expect(got.dropped).toEqual(['5 images not imported (over 100)']);
+  });
+
+  it('ignores an image whose src is not a xap:resources/ string', () => {
+    const got = fromXmindJson([sheet({ id: 'r', title: 'R', children: { attached: [
+      { id: 'a', title: 'A', image: { src: 'http://example.com/a.png' } },
+      { id: 'b', title: 'B', image: 'not an object' },
+      { id: 'c', title: 'C', image: {} },
+    ] } })]);
+    expect(got.images).toEqual([]);
+    expect(got.dropped).toEqual([]);
   });
 
   it('maps the layout and caps priority at ③', () => {
@@ -155,5 +207,44 @@ describe('importXmind', () => {
     const many = Array.from({ length: 1300 }, (_, i) => ({ id: `t${i}`, title: '字'.repeat(500) }));
     const big = [sheet({ id: 'r', title: 'Big', children: { attached: many } })];
     await expect(importXmind(await zipped([{ name: 'content.json', data: JSON.stringify(big) }]))).rejects.toThrow(/too big/);
+  });
+});
+
+// This suite's test files run in the 'node' environment (readZip/makeZip need the real Blob.stream() and
+// Compression/DecompressionStream, which jsdom's environment does not provide); fromXmindXml's `new DOMParser()`
+// needs the opposite. Stub just that one global from the `jsdom` package's own window, not the whole realm.
+describe('fromXmindXml', () => {
+  beforeEach(() => vi.stubGlobal('DOMParser', new JSDOM().window.DOMParser));
+  afterEach(() => vi.unstubAllGlobals());
+
+  const xml = (topic: string) =>
+    `<?xml version="1.0"?><xmap-content xmlns="urn:xmind:xmap:xmlns:content:2.0" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:xlink="http://www.w3.org/1999/xlink"><sheet><topic><title>R</title><children><topics type="attached">${topic}</topics></children></topic></sheet></xmap-content>`;
+
+  it('counts an XMind 8 topic image as not imported, since there is no resource mapping for it', () => {
+    const got = fromXmindXml(xml('<topic><title>A</title><image xhtml:src="xap:resources/a.png"/></topic>'));
+    expect(got.images).toEqual([]);
+    expect(got.dropped).toEqual(['1 image (XMind 8 images aren’t imported)']);
+  });
+
+  it('counts more than one XMind 8 image, and topics without one are unaffected', () => {
+    const got = fromXmindXml(xml(
+      '<topic><title>A</title><image xhtml:src="xap:resources/a.png"/></topic>'
+      + '<topic><title>B</title></topic>'
+      + '<topic><title>C</title><image xhtml:src="xap:resources/c.svg"/></topic>',
+    ));
+    expect(got.dropped).toEqual(['2 images (XMind 8 images aren’t imported)']);
+  });
+});
+
+describe('readXmindResources', () => {
+  it('reads named resources/ entries out of the .xmind zip', async () => {
+    const bytes = await makeZip([
+      { name: 'content.json', data: '{}' },
+      { name: 'resources/a.png', data: new Uint8Array([1, 2, 3]), deflate: false },
+      { name: 'resources/b.svg', data: '<svg/>', deflate: false },
+    ]);
+    const got = await readXmindResources(bytes, ['resources/a.png']);
+    expect(got.get('resources/a.png')).toEqual(new Uint8Array([1, 2, 3]));
+    expect(got.has('resources/b.svg')).toBe(false);
   });
 });

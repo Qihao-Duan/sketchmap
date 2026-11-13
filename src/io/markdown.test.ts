@@ -13,6 +13,12 @@ describe('toMarkdown', () => {
   it('joins multi-line topic text into one line', () => {
     expect(toMarkdown(n('Root', [n('two\n lines')]))).toBe('# Root\n- two lines\n');
   });
+  it('appends an image link when imageBase is set, and leaves it out otherwise', () => {
+    const tree = n('R', [{ ...n('Cat'), image: { key: 'img/abcdefghijklmnopqrstu/c.png', w: 200, h: 100 } }]);
+    expect(toMarkdown(tree, { imageBase: 'https://s.example' }))
+      .toBe('# R\n- Cat ![](https://s.example/img/abcdefghijklmnopqrstu/c.png)\n');
+    expect(toMarkdown(tree)).toBe('# R\n- Cat\n');
+  });
 });
 
 describe('parseOutline', () => {
@@ -43,6 +49,12 @@ describe('parseOutline', () => {
     expect(markdownLosses(tree)).toEqual(['Highlight', 'notes']);
     expect(markdownLosses(n('R', [{ ...n('a'), emphasis: 'aside' }]))).toEqual(['Aside']);
     expect(markdownLosses(n('R'))).toEqual([]);
+  });
+
+  it('lists images, ordered after notes', () => {
+    const image = { key: 'img/abcdefghijklmnopqrstu/c.png', w: 200, h: 100 };
+    expect(markdownLosses(n('R', [{ ...n('a'), image }]))).toEqual(['images']);
+    expect(markdownLosses(n('R', [{ ...n('a'), note: 'x', image }]))).toEqual(['notes', 'images']);
   });
 
   it('round-trips toMarkdown', () => {
