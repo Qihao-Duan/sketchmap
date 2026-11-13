@@ -1,20 +1,19 @@
 :root {
-  --paper: #fbfaf6; --surface: #ffffff; --surface-2: #f4f2ec; --ink: #1e1e1e; --ink-2: #5f5b53; --line: #e3e0d8;
-  --accent: #3b5bdb; --accent-ink: #ffffff; --accent-soft: #e9edff; --dots: #dedad0; --warn: #c2410c;
-  --shadow: 0 1px 2px rgba(40, 36, 28, 0.06), 0 8px 24px rgba(40, 36, 28, 0.08);
+  color-scheme: light dark;
+  --paper: light-dark(#fbfaf6, #151517); --surface: light-dark(#ffffff, #1e1e21); --surface-2: light-dark(#f4f2ec, #26262a);
+  --ink: light-dark(#1e1e1e, #ebe8e2); --ink-2: light-dark(#5f5b53, #a8a49b); --line: light-dark(#e3e0d8, #34343a);
+  --accent: light-dark(#3b5bdb, #9fb1ff); --accent-ink: light-dark(#ffffff, #11131c); --accent-soft: light-dark(#e9edff, #252b45);
+  --dots: light-dark(#dedad0, #2b2b30); --warn: light-dark(#c2410c, #fb923c);
+  --shadow: 0 1px 2px light-dark(rgba(40, 36, 28, 0.06), rgba(0, 0, 0, 0.45)), 0 8px 24px light-dark(rgba(40, 36, 28, 0.08), rgba(0, 0, 0, 0.4));
   --canvas-filter: none;
   --hand: "Excalifont", "Xiaolai", "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
   --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
-  color-scheme: light;
 }
+/* ?theme=light|dark (data-theme on <html>) overrides the system setting. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; --canvas-filter: invert(93%) hue-rotate(180deg); }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #151517; --surface: #1e1e21; --surface-2: #26262a; --ink: #ebe8e2; --ink-2: #a8a49b; --line: #34343a;
-    --accent: #9fb1ff; --accent-ink: #11131c; --accent-soft: #252b45; --dots: #2b2b30; --warn: #fb923c;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.4);
-    --canvas-filter: invert(93%) hue-rotate(180deg);
-    color-scheme: dark;
-  }
+  :root:not([data-theme="light"]) { --canvas-filter: invert(93%) hue-rotate(180deg); }
 }
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--paper); color: var(--ink); font-family: var(--ui); font-size: 14px; }

@@ -354,3 +354,25 @@ test('in dark mode a topic image keeps its colours while the drawing is inverted
     for (let ch = 0; ch < 3; ch++) expect(Math.abs(dark[i][ch] - light[i][ch])).toBeLessThanOrEqual(3);
   }
 });
+
+test('?theme= forces the embed light or dark, whatever the system says', async ({ page }) => {
+  const id = await openNewMap(page);
+  const filter = () => page.locator('.canvas > svg[role="img"]').evaluate((s) => getComputedStyle(s).filter);
+  const paper = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto(`/m/${id}?theme=dark`);
+  await expect(page.locator('g.topic')).toHaveCount(1);
+  expect(await filter()).toContain('invert');
+  expect(await paper()).toBe('rgb(21, 21, 23)');
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto(`/m/${id}?theme=light`);
+  await expect(page.locator('g.topic')).toHaveCount(1);
+  expect(await filter()).toBe('none');
+  expect(await paper()).toBe('rgb(251, 250, 246)');
+
+  await page.goto(`/m/${id}`); // no override: follows the (dark) system
+  await expect(page.locator('g.topic')).toHaveCount(1);
+  expect(await filter()).toContain('invert');
+});

@@ -229,6 +229,7 @@ Styles by depth:
   - `/m/*` sends no `X-Frame-Options` and no `frame-ancestors`, so it can be framed anywhere.
   - `/e/*` and `/` send `frame-ancestors 'none'`. The editor is never framed, which also prevents clickjacking.
 - **Updates:** a save is visible on the embed's next load, because R2 reads are strongly consistent (Cloudflare R2 consistency docs). This is why maps are not stored in KV: KV can take "up to 60 seconds or more" to show a change elsewhere (Cloudflare KV docs).
+- `?theme=light|dark` forces the look; otherwise it follows `prefers-color-scheme`. This is for a Notion page whose theme differs from the system's, since an embedded page can't read Notion's theme.
 
 ## 8. Backend: Cloudflare Worker + R2
 

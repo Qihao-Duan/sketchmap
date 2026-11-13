@@ -2,6 +2,7 @@ import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installFontFaces } from './render/fonts';
 import { parseRoute } from './router';
+import { applyTheme, themeFromSearch } from './theme';
 import './app.css';
 
 const ListPage = lazy(() => import('./list/ListPage').then((m) => ({ default: m.ListPage })));
@@ -9,6 +10,7 @@ const EditorPage = lazy(() => import('./editor/EditorPage').then((m) => ({ defau
 const ViewPage = lazy(() => import('./view/ViewPage').then((m) => ({ default: m.ViewPage })));
 
 installFontFaces();
+applyTheme(document.documentElement, themeFromSearch(location.search));
 
 function App() {
   const route = parseRoute(location.pathname);

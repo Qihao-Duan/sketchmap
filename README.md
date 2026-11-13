@@ -42,6 +42,8 @@ Every page is served with a strict Content-Security-Policy (same-origin scripts 
 The embed is view-only by design. Anyone who can see the Notion page, or who has the link, can view the map.
 Only someone with the owner key can change it.
 
+The embed follows your system's light or dark setting. If your Notion page uses a different theme, add `?theme=dark` or `?theme=light` to the embed link, e.g. `https://…/m/<id>?theme=dark`.
+
 ## Step 2: layouts, outline and paste
 
 - **Layout switch.** Pick **Mind map**, **Logic chart** or **Org chart** from the header; the choice is saved with the map.
