@@ -73,6 +73,30 @@ describe('renderMap', () => {
     expect(world.querySelector('g.topic[data-id="r"] text a')).toBeNull();
   });
 
+  it('draws the topic image above the text, with a sketchy frame', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const world = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svg.appendChild(world);
+    const withImage: MapNode = {
+      id: 'r', text: 'Root',
+      children: [{ id: 'img', text: 'Cat', image: { key: 'img/abcdefghijklmnopqrstu/x.png', w: 200, h: 100 }, children: [] }],
+    };
+    const layout = computeLayout(withImage, measure);
+    renderMap(svg, world, layout, { selectedId: null });
+    const topic = world.querySelector('g.topic[data-id="img"]')!;
+    const images = topic.querySelectorAll('image.topic-image');
+    expect(images).toHaveLength(1);
+    const img = images[0];
+    const box = layout.byId.get('img')!;
+    expect(img.getAttribute('href')).toBe('/img/abcdefghijklmnopqrstu/x.png');
+    expect(Number(img.getAttribute('x'))).toBeCloseTo(box.x + box.image!.x);
+    expect(Number(img.getAttribute('y'))).toBeCloseTo(box.y + box.image!.y);
+    expect(img.getAttribute('width')).toBe('200');
+    expect(img.getAttribute('height')).toBe('100');
+    const text = topic.querySelector('text')!;
+    expect(Number(text.getAttribute('y'))).toBeGreaterThan(box.y + box.image!.y + box.image!.h);
+  });
+
   it('draws org-chart deep topics as unfilled outlines', async () => {
     const { computeOrgLayout } = await import('../layout/org');
     const { PALETTE } = await import('../layout/styles');

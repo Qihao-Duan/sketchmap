@@ -1,7 +1,7 @@
 import type { Emphasis, LayoutKind, MapNode } from '../shared/types';
 import { parseRich } from '../shared/rich';
 import { visibleChildren } from '../model/tree';
-import { badgeSize, DECOR, GAP, PALETTE, ROOT_COLOR, styleFor, type BranchColor, type NodeStyle } from './styles';
+import { badgeSize, DECOR, GAP, IMAGE_GAP, PALETTE, ROOT_COLOR, styleFor, type BranchColor, type NodeStyle } from './styles';
 import { wrapWithOffsets, type Measure } from './wrap';
 
 export type Side = 1 | -1 | 0;
@@ -27,6 +27,10 @@ export interface Measured {
   badgeW: number;
   /** Space right of the text for the note icon; 0 without a note. */
   noteW: number;
+  /** The image block, above the text, relative to the box's top-left. Absent without an image. */
+  image?: { x: number; y: number; w: number; h: number };
+  /** Offset from the box top to the top of the first text line: padY without an image, further down with one. */
+  textTop: number;
   w: number;
   h: number;
 }
@@ -100,19 +104,26 @@ export function measureTopic(node: MapNode, depth: number, measure: Measure, kin
   const rich = parseRich(node.text);
   const prefix = node.emoji ? `${node.emoji} ` : '';
   const display = prefix + rich.plain;
-  const wrapped = wrapWithOffsets(display || ' ', style.fontSize, style.maxW, measure);
+  // With an image and no text of its own (after the marker prefix), the topic is image-only: no text lines at all.
+  const noText = !!node.image && !rich.plain;
+  const wrapped = noText ? [] : wrapWithOffsets(display || ' ', style.fontSize, style.maxW, measure);
   const lines = wrapped.map((l) => l.text);
   const lineWidths = lines.map((l) => measure(l, style.fontSize));
   const links = rich.links.map((l) => ({ start: l.start + prefix.length, end: l.end + prefix.length, href: l.href }));
   const segments = wrapped.map((l) => splitLine(l.text, l.start, links, style.fontSize, measure));
-  const textW = lineWidths.reduce((m, lw) => Math.max(m, lw), style.fontSize * 1.6);
+  const textW = lines.length ? lineWidths.reduce((m, lw) => Math.max(m, lw), style.fontSize * 1.6) : 0;
   const badgeW = node.priority ? badgeSize(style.fontSize) + DECOR.badgeGap : 0;
   const noteW = node.note?.trim() ? DECOR.noteW : 0;
-  return {
-    style, lines, lineWidths, segments, textW, badgeW, noteW,
-    w: Math.ceil(badgeW + textW + noteW + style.padX * 2),
-    h: Math.ceil(lines.length * style.lineHeight + style.padY * 2),
-  };
+
+  const img = node.image;
+  const textTop = img ? style.padY + img.h + (lines.length ? IMAGE_GAP : 0) : style.padY;
+  const w = Math.ceil((img ? Math.max(badgeW + textW + noteW, img.w) : badgeW + textW + noteW) + style.padX * 2);
+  const h = img
+    ? Math.ceil(textTop + lines.length * style.lineHeight + style.padY)
+    : Math.ceil(lines.length * style.lineHeight + style.padY * 2);
+  const image = img ? { x: style.kind === 'line' ? style.padX : (w - img.w) / 2, y: style.padY, w: img.w, h: img.h } : undefined;
+
+  return { style, lines, lineWidths, segments, textW, badgeW, noteW, image, textTop, w, h };
 }
 
 export function boundsOf(boxes: TopicBox[]): Bounds {

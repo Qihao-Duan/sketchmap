@@ -91,16 +91,27 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
     g.appendChild(rc.line(t.x, t.y + t.h, t.x + t.w, t.y + t.h, { stroke: outline, strokeWidth: 1.6 * weight, roughness: 1, ...dash, seed }));
   }
 
-  const { fontSize, lineHeight, padX, padY } = t.style;
+  const { fontSize, lineHeight, padX } = t.style;
   const centred = t.style.kind !== 'line';
   const ink = aside ? ASIDE_INK : INK;
   const textLeft = t.x + padX + t.badgeW;
   /** Left edge of line i; centred lines sit in the middle of the text block. */
   const lineLeft = (i: number) => (centred ? textLeft + (t.textW - t.lineWidths[i]) / 2 : textLeft);
+
+  if (t.image && t.node.image) {
+    el(doc, 'image', {
+      class: 'topic-image', href: `/${t.node.image.key}`, x: t.x + t.image.x, y: t.y + t.image.y,
+      width: t.image.w, height: t.image.h, preserveAspectRatio: 'xMidYMid slice',
+    }, g);
+    g.appendChild(rc.rectangle(t.x + t.image.x, t.y + t.image.y, t.image.w, t.image.h, {
+      stroke: t.color.stroke, strokeWidth: 1.2, roughness: 0.9, seed: seed + 6,
+    }));
+  }
+
   t.lines.forEach((line, i) => {
     const lx = lineLeft(i);
     const lw = t.lineWidths[i];
-    const by = t.y + padY + i * lineHeight + lineHeight / 2 + fontSize * 0.34;
+    const by = t.y + t.textTop + i * lineHeight + lineHeight / 2 + fontSize * 0.34;
     if (em === 'highlight' && line.trim()) {
       const top = by - fontSize * 0.8;
       const bot = by + fontSize * 0.28;
@@ -143,7 +154,7 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
   if (t.node.priority) {
     const d = badgeSize(fontSize);
     const cx = lineLeft(0) - t.badgeW + d / 2;
-    const cy = t.y + padY + lineHeight / 2;
+    const cy = t.y + t.textTop + lineHeight / 2;
     const color = PRIORITY_COLORS[t.node.priority];
     const badge = el(doc, 'g', { class: 'badge' }, g);
     badge.appendChild(rc.circle(cx, cy, d, { fill: color, fillStyle: 'solid', stroke: color, strokeWidth: 1.2, roughness: 0.8, seed: seed + 50 }));
@@ -157,7 +168,7 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
   const note = t.node.note?.trim();
   if (note) {
     const ix = textLeft + t.textW + 8;
-    const iy = t.y + padY + (t.lines.length * lineHeight) / 2;
+    const iy = t.y + t.textTop + (t.lines.length * lineHeight) / 2;
     const icon = el(doc, 'g', { class: 'note-icon' }, g);
     // A transparent target, so hovering anywhere on the little page shows the note.
     el(doc, 'rect', { x: ix - 4, y: iy - 11, width: 20, height: 22, fill: 'transparent', 'pointer-events': 'all' }, icon);

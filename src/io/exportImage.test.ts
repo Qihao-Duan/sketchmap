@@ -18,6 +18,11 @@ const foldedLayout = computeLayout(
 
 const woff2Bytes = (...rest: number[]) => new Uint8Array([0x77, 0x4f, 0x46, 0x32, ...rest]); // "wOF2" magic
 
+const imageLayout = computeLayout(
+  { id: 'r', text: 'Root', children: [{ id: 'a', text: 'Cat', image: { key: 'img/abcdefghijklmnopqrstu/x.png', w: 200, h: 100 }, children: [] }] },
+  (t, s) => t.length * s * 0.5,
+);
+
 describe('export', () => {
   it('builds a standalone SVG with only the needed font subset embedded', async () => {
     const fetchImpl = vi.fn(async () => new Response(woff2Bytes(1, 2, 3))) as unknown as typeof fetch;
@@ -54,5 +59,27 @@ describe('export', () => {
     const fetchImpl = vi.fn(async () => new Response(woff2Bytes(1, 2, 3))) as unknown as typeof fetch;
     await buildSvg(foldedLayout, text, { fetchImpl });
     for (const [url] of vi.mocked(fetchImpl).mock.calls) expect(String(url)).not.toContain('/Xiaolai/');
+  });
+
+  it('inlines a topic image as a data URI', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/fonts/')) return new Response(woff2Bytes(1, 2, 3));
+      if (url === '/img/abcdefghijklmnopqrstu/x.png') return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } });
+      return new Response('', { status: 404 });
+    }) as unknown as typeof fetch;
+    const svg = await buildSvg(imageLayout, 'Root\nCat', { fetchImpl });
+    expect(svg).toContain('href="data:image/png;base64,AQID"');
+  });
+
+  it('drops an image that fails to fetch, keeping the frame and still resolving', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/fonts/')) return new Response(woff2Bytes(1, 2, 3));
+      return new Response('', { status: 404 });
+    }) as unknown as typeof fetch;
+    const svg = await buildSvg(imageLayout, 'Root\nCat', { fetchImpl });
+    expect(svg).not.toContain('<image');
+    expect(svg.match(/class="topic"/g)).toHaveLength(2); // the topics themselves still rendered
   });
 });

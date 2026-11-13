@@ -69,12 +69,13 @@ export function InlineEditor({ box, view, initialText, selectAll, onCommit, onCa
 
   const { fontSize, lineHeight, padX, padY, kind } = box.style;
   const k = view.k;
-  const minHeight = box.h * k;
+  const textOffset = box.textTop - padY;
+  const minHeight = (box.h - textOffset) * k;
   const width = Math.max(box.w * k, parseRich(value).plain !== value ? 280 : 140);
   const lines = Math.max(1, value.split('\n').length);
   const style: CSSProperties = {
     left: view.tx + box.x * k + (kind === 'line' ? 0 : (box.w * k - width) / 2),
-    top: view.ty + box.y * k,
+    top: view.ty + (box.y + textOffset) * k,
     width,
     minHeight,
     height: lines * lineHeight * k + padY * 2 * k + 4,

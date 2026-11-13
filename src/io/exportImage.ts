@@ -37,6 +37,23 @@ export function visibleText(layout: MapLayout): string {
   return layout.boxes.map((b) => b.lines.join('\n')).join('\n');
 }
 
+/** Replaces every topic image's `/img/…` href with an inlined data URI; a failed fetch drops that `<image>`, keeping its frame. */
+async function inlineImages(svg: SVGSVGElement, fetchImpl: typeof fetch): Promise<void> {
+  const images = [...svg.querySelectorAll('image')].filter((img) => (img.getAttribute('href') ?? '').startsWith('/img/'));
+  await Promise.all(images.map(async (img) => {
+    try {
+      const href = img.getAttribute('href')!;
+      const res = await fetchImpl(href);
+      if (!res.ok) throw new Error(`Image ${href} could not be loaded (HTTP ${res.status})`);
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
+      img.setAttribute('href', `data:${contentType};base64,${bytesToBase64(bytes)}`);
+    } catch {
+      img.remove();
+    }
+  }));
+}
+
 export async function buildSvg(
   layout: MapLayout,
   text: string,
@@ -62,6 +79,7 @@ export async function buildSvg(
 
   renderMap(svg, world, layout, { selectedId: null });
   world.querySelectorAll('rect.hit, g.fold:not(.folded)').forEach((n) => n.remove()); // editor-only bits
+  await inlineImages(svg, opts.fetchImpl ?? ((input, init) => fetch(input, init)));
   return new XMLSerializer().serializeToString(svg);
 }
 

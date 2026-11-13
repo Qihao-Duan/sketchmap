@@ -49,6 +49,8 @@ export const PRIORITY_COLORS: Record<1 | 2 | 3, string> = { 1: '#e03131', 2: '#f
 export const badgeSize = (fontSize: number): number => Math.round(fontSize * 1.05);
 /** Gap after the priority badge, and the slot after the text that holds the note icon. */
 export const DECOR = { badgeGap: 6, noteW: 24 } as const;
+/** Gap between a topic's image block and its text, when there is text below the image. */
+export const IMAGE_GAP = 8;
 
 export const ROOT_COLOR: BranchColor = { stroke: '#1e1e1e', fill: '#ffec99' };
 

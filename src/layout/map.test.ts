@@ -135,6 +135,7 @@ function decorate(node: MapNode, rand: () => number): MapNode {
     ...(rand() < 0.25 ? { priority: (1 + Math.floor(rand() * 3)) as 1 | 2 | 3 } : {}),
     ...(rand() < 0.2 ? { note: 'a note' } : {}),
     ...(rand() < 0.2 ? { emoji: '💡' } : {}),
+    ...(rand() < 0.1 ? { image: { key: 'img/test1234567890123456/a.png', w: 80, h: 40 } } : {}),
     children: node.children.map((c) => decorate(c, rand)),
   };
 }
@@ -193,6 +194,43 @@ describe('topic decorations', () => {
         }
       }
     }
+  });
+});
+
+describe('topic images', () => {
+  const image = { key: 'img/abcdefghijklmnopqrstu/x.png', w: 200, h: 100 };
+  const at = (text: string, kind: LayoutKind = 'map') =>
+    layoutMap(n('r', 'Root', [n('a', 'A', [n('x', text, [], { image })])]), kind, measure).byId.get('x')!;
+
+  it('reserves the image above the text, with a gap, and sizes the box to fit it', () => {
+    const t = at('Cat');
+    expect(t.image).toEqual({ x: 5, y: 4, w: 200, h: 100 });
+    expect(t.textTop).toBe(4 + 100 + 8);
+    expect(t.w).toBeGreaterThanOrEqual(210);
+    expect(t.h).toBe(t.textTop + 22 + 4);
+  });
+
+  it('with no text, there are no lines: just the image, and no gap beneath it', () => {
+    const t = at('');
+    expect(t.lines).toEqual([]);
+    expect(t.lineWidths).toEqual([]);
+    expect(t.segments).toEqual([]);
+    expect(t.textTop).toBe(4 + 100);
+    expect(t.h).toBe(4 + 100 + 4);
+  });
+
+  it('centres the image for non-line kinds, left-aligns it for line topics', () => {
+    const line = at('Cat', 'map'); // depth 2, line kind
+    expect(line.image!.x).toBe(line.style.padX);
+    const box = layoutMap(n('r', 'Root', [n('a', 'A', [], { image })]), 'map', measure).byId.get('a')!; // depth 1, box kind
+    expect(box.style.kind).toBe('box');
+    expect(box.image!.x).toBeCloseTo((box.w - box.image!.w) / 2);
+  });
+
+  it('without an image, textTop is just padY and sizing is unaffected', () => {
+    const t = layoutMap(n('r', 'Root', [n('a', 'A', [n('x', 'Cat')])]), 'map', measure).byId.get('x')!;
+    expect(t.image).toBeUndefined();
+    expect(t.textTop).toBe(t.style.padY);
   });
 });
 
