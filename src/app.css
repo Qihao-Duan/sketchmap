@@ -31,6 +31,9 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
    while a horizontal/pinch gesture still pans and zooms the map. */
 .view .canvas { touch-action: pan-y pinch-zoom; }
 .canvas .topic { cursor: pointer; }
+/* The box dragged over the background to select topics: above the three drawing layers, never in the way of the pointer. */
+.select-box { position: absolute; z-index: 1; box-sizing: border-box; border: 1.5px dashed #4263eb; border-radius: 2px; background: rgb(66 99 235 / 0.1); pointer-events: none; }
+.select-box[hidden] { display: none; }
 .canvas .topic.drop .hit { stroke: #4263eb; stroke-width: 2.5; stroke-dasharray: 5 5; }
 .canvas .fold { cursor: pointer; }
 .canvas .fold:not(.folded) { opacity: 0; transition: opacity 0.12s; }

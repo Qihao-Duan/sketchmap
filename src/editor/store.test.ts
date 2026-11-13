@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { MindMap } from '../shared/types';
-import { editorReducer as reduce, HISTORY_LIMIT, initEditor, type EditorState } from './store';
+import { MARKERS, type MindMap } from '../shared/types';
+import { editorReducer as reduce, HISTORY_LIMIT, initEditor, selectedIds, type EditorState } from './store';
 
 const base = (): MindMap => ({
   id: 'abcdefghijklmnopqrstu', title: 'Root', layout: 'map', version: 1, updatedAt: 't',
@@ -274,5 +274,168 @@ describe('setImage and setImageSize', () => {
     expect(nodeA(t).text).toBe('A');
     expect(t.past).toHaveLength(0);
     expect(t.editing).toBeNull();
+  });
+});
+
+describe('selecting several topics', () => {
+  const wide = (): MindMap => ({
+    ...base(),
+    root: {
+      id: 'r', text: 'Root', children: [
+        { id: 'a', text: 'A', children: [{ id: 'a1', text: 'A1', children: [] }, { id: 'a2', text: 'A2', children: [] }] },
+        { id: 'b', text: 'B', children: [] },
+        { id: 'c', text: 'C', children: [] },
+      ],
+    },
+  });
+  const start = (ids: string[], map = wide()) => reduce(initEditor(map), { type: 'selectMany', ids });
+  const node = (s: EditorState, id: string) => {
+    const walk = (n: MindMap['root']): MindMap['root'] | null => (n.id === id ? n : n.children.map(walk).find(Boolean) ?? null);
+    return walk(s.map.root)!;
+  };
+  const kids = (s: EditorState, id: string) => node(s, id).children.map((c) => c.id);
+
+  it('starts with the central topic alone', () => {
+    expect(selectedIds(initEditor(wide()))).toEqual(['r']);
+  });
+
+  it('selectMany selects the topics given; the current topic stays the current one when it is among them', () => {
+    let s = reduce(initEditor(wide()), { type: 'select', id: 'b' });
+    s = reduce(s, { type: 'selectMany', ids: ['a', 'b', 'c'] });
+    expect(selectedIds(s)).toEqual(['b', 'a', 'c']);
+    s = reduce(s, { type: 'selectMany', ids: ['a1', 'a2'] });
+    expect(selectedIds(s)).toEqual(['a1', 'a2']);
+  });
+
+  it('selectMany drops unknown ids and repeats; with none left, only the current topic stays selected', () => {
+    let s = start(['a', 'a', 'nope', 'b']);
+    expect(selectedIds(s)).toEqual(['a', 'b']);
+    s = reduce(s, { type: 'selectMany', ids: [] });
+    expect(selectedIds(s)).toEqual(['a']);
+    expect(reduce(s, { type: 'selectMany', ids: ['nope'] })).toBe(s);
+  });
+
+  it('selectMany returns the same state when the selection is already that', () => {
+    const s = start(['a', 'b']);
+    expect(reduce(s, { type: 'selectMany', ids: ['a', 'b'] })).toBe(s);
+  });
+
+  it('toggleSelect adds a topic, which becomes the current one, and takes a topic out again', () => {
+    let s = reduce(initEditor(wide()), { type: 'select', id: 'a' });
+    s = reduce(s, { type: 'toggleSelect', id: 'c' });
+    expect(selectedIds(s)).toEqual(['c', 'a']);
+    s = reduce(s, { type: 'toggleSelect', id: 'b' });
+    expect(selectedIds(s)).toEqual(['b', 'c', 'a']);
+    s = reduce(s, { type: 'toggleSelect', id: 'c' });
+    expect(selectedIds(s)).toEqual(['b', 'a']);
+    s = reduce(s, { type: 'toggleSelect', id: 'b' });
+    expect(selectedIds(s)).toEqual(['a']);
+  });
+
+  it('toggleSelect leaves the last selected topic selected, and ignores unknown ids', () => {
+    const s = reduce(initEditor(wide()), { type: 'select', id: 'a' });
+    expect(reduce(s, { type: 'toggleSelect', id: 'a' })).toBe(s);
+    expect(reduce(s, { type: 'toggleSelect', id: 'nope' })).toBe(s);
+  });
+
+  it('delete removes every selected branch as one undo step', () => {
+    let s = start(['a1', 'b']);
+    s = reduce(s, { type: 'delete' });
+    expect(kids(s, 'r')).toEqual(['a', 'c']);
+    expect(kids(s, 'a')).toEqual(['a2']);
+    expect(selectedIds(s)).toEqual(['a2']);
+    expect(s.past).toHaveLength(1);
+    s = reduce(s, { type: 'undo' });
+    expect(s.map).toEqual(wide());
+  });
+
+  it('delete keeps the central topic when it is part of the selection', () => {
+    let s = start(['r', 'b']);
+    s = reduce(s, { type: 'delete' });
+    expect(kids(s, 'r')).toEqual(['a', 'c']);
+    expect(selectedIds(s)).toEqual(['c']);
+    const only = start(['r']);
+    expect(reduce(only, { type: 'delete' })).toBe(only);
+  });
+
+  it('move takes the whole selection along when the dragged topic is part of it', () => {
+    let s = start(['a1', 'b']);
+    s = reduce(s, { type: 'move', id: 'b', targetId: 'c' });
+    expect(kids(s, 'c')).toEqual(['a1', 'b']);
+    expect(kids(s, 'a')).toEqual(['a2']);
+    expect(selectedIds(s)).toEqual(['b', 'a1']);
+    expect(s.past).toHaveLength(1);
+  });
+
+  it('move takes only the dragged topic when it is not part of the selection', () => {
+    let s = start(['a1', 'a2']);
+    s = reduce(s, { type: 'move', id: 'b', targetId: 'c' });
+    expect(kids(s, 'c')).toEqual(['b']);
+    expect(kids(s, 'a')).toEqual(['a1', 'a2']);
+    expect(selectedIds(s)).toEqual(['b']);
+  });
+
+  it('move refuses a target inside the selection and changes nothing', () => {
+    const s = start(['a', 'c']);
+    expect(reduce(s, { type: 'move', id: 'c', targetId: 'a1' })).toBe(s);
+  });
+
+  it('importance, priority and marker set on the current topic go to the whole selection, one undo step each', () => {
+    let s = start(['a1', 'b']);
+    s = reduce(s, { type: 'setPriority', id: s.selectedId, priority: 2 });
+    s = reduce(s, { type: 'setEmphasis', id: s.selectedId, emphasis: 'key' });
+    s = reduce(s, { type: 'setMarker', id: s.selectedId, emoji: MARKERS[0] });
+    for (const id of ['a1', 'b']) expect(node(s, id)).toMatchObject({ priority: 2, emphasis: 'key', emoji: MARKERS[0] });
+    expect(node(s, 'c').priority).toBeUndefined();
+    expect(s.past).toHaveLength(3);
+    expect(selectedIds(s)).toEqual(['a1', 'b']);
+    s = reduce(s, { type: 'undo' });
+    for (const id of ['a1', 'b']) expect(node(s, id).emoji).toBeUndefined();
+    expect(selectedIds(s)).toEqual(['a1', 'b']);
+  });
+
+  it('setting what every selected topic already has changes nothing', () => {
+    let s = start(['a1', 'b']);
+    s = reduce(s, { type: 'setPriority', id: s.selectedId, priority: 1 });
+    expect(reduce(s, { type: 'setPriority', id: s.selectedId, priority: 1 })).toBe(s);
+  });
+
+  it('a change aimed at a topic other than the current one touches only that topic', () => {
+    let s = start(['a1', 'b']);
+    s = reduce(s, { type: 'setPriority', id: 'c', priority: 3 });
+    expect(node(s, 'c').priority).toBe(3);
+    expect(node(s, 'a1').priority).toBeUndefined();
+    expect(node(s, 'b').priority).toBeUndefined();
+  });
+
+  it('Alt ↑ raises each selected topic from its own level, as one undo step', () => {
+    const map = wide();
+    map.root.children[0].children[0].emphasis = 'aside';
+    let s = start(['a1', 'b'], map);
+    s = reduce(s, { type: 'bumpEmphasis', delta: 1 });
+    expect(node(s, 'a1').emphasis).toBeUndefined();
+    expect(node(s, 'b').emphasis).toBe('highlight');
+    expect(s.past).toHaveLength(1);
+  });
+
+  it('selecting one topic, adding a topic, editing and pasting all go back to a single selected topic', () => {
+    expect(selectedIds(reduce(start(['a', 'b']), { type: 'select', id: 'c' }))).toEqual(['c']);
+    expect(selectedIds(reduce(start(['a', 'b']), { type: 'select', id: 'a' }))).toEqual(['a']);
+    expect(selectedIds(reduce(start(['a', 'b']), { type: 'addChild' }))).toHaveLength(1);
+    expect(selectedIds(reduce(start(['a', 'b']), { type: 'addSibling' }))).toHaveLength(1);
+    expect(selectedIds(reduce(start(['a', 'b']), { type: 'startEdit' }))).toEqual(['a']);
+    expect(selectedIds(reduce(start(['a', 'b']), { type: 'pasteNodes', nodes: [{ id: 'p', text: 'P', children: [] }] }))).toEqual(['p']);
+  });
+
+  it('undo keeps the selected topics that still exist', () => {
+    let s = reduce(reduce(initEditor(wide()), { type: 'select', id: 'a' }), { type: 'addChild' });
+    s = reduce(s, { type: 'commitEdit', text: 'New' });
+    const created = s.selectedId;
+    s = reduce(s, { type: 'selectMany', ids: [created, 'b', 'c'] });
+    expect(selectedIds(s)).toEqual([created, 'b', 'c']);
+    s = reduce(s, { type: 'undo' });
+    expect(selectedIds(s)).toEqual(['b', 'c']);
+    s = reduce(s, { type: 'redo' });
+    expect(selectedIds(s)).toEqual(['b', 'c']);
   });
 });

@@ -72,7 +72,10 @@ const PRIORITIES: Array<{ value: 1 | 2 | 3 | null; label: string; title: string;
 const IMAGE_SIZE_KEYS = ['S', 'M', 'L'] as const;
 
 export interface DetailsPanelProps {
+  /** The current topic. With several topics selected, importance, priority and marker go to all of them. */
   node: MapNode;
+  /** How many topics are selected (default 1). Above 1 the panel shows only what applies to all of them. */
+  count?: number;
   onEmphasis(emphasis: Emphasis | null): void;
   onPriority(priority: 1 | 2 | 3 | null): void;
   onMarker(emoji: string | null): void;
@@ -89,7 +92,8 @@ export interface DetailsPanelProps {
 }
 
 /** The selected topic's importance, priority, marker, note and image. Mount it with `key={node.id}`. */
-export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, onImageFile, onImageSize, onImageRemove, uploading, newTopicOpen, onFold }: DetailsPanelProps) {
+export function DetailsPanel({ node, count = 1, onEmphasis, onPriority, onMarker, onNote, onImageFile, onImageSize, onImageRemove, uploading, newTopicOpen, onFold }: DetailsPanelProps) {
+  const many = count > 1;
   const [note, setNote] = useState(node.note ?? '');
   const noteBox = useRef<HTMLTextAreaElement>(null);
   const pending = useRef<string | null>(null);
@@ -136,12 +140,12 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, o
   return (
     <aside className="float details" aria-label="Topic details">
       <div className="details-head">
-        <h2>Topic details</h2>
+        <h2>{many ? `${count} topics selected` : 'Topic details'}</h2>
         <button type="button" className="fold-details" aria-label="Fold the details panel" title="Fold into a tab" onMouseDown={noFocus} onClick={onFold}>
           ▸
         </button>
       </div>
-      <div className="topic-title">{title}</div>
+      {many ? <p className="muted hint">Importance, priority and marker go to all of them. Shown here: {title}.</p> : <div className="topic-title">{title}</div>}
       <div className="field">
         <span className="flabel">Importance</span>
         <div className="chips importance" role="group" aria-label="Importance">
@@ -198,7 +202,7 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, o
           ))}
         </div>
       </div>
-      <label className="field">
+      {!many && <label className="field">
         <span className="flabel">Note</span>
         <textarea
           ref={noteBox}
@@ -217,8 +221,8 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, o
           }}
           onBlur={flush}
         />
-      </label>
-      {rich.links.length > 0 && (
+      </label>}
+      {!many && rich.links.length > 0 && (
         <div className="field">
           <span className="flabel">Links in this topic</span>
           <ul className="links">
@@ -231,7 +235,7 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, o
           </ul>
         </div>
       )}
-      <div className="field">
+      {!many && <div className="field">
         <span className="flabel">Image</span>
         {node.image ? (
           <div className="image-actions">
@@ -285,8 +289,8 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, o
             if (file) onImageFile(file);
           }}
         />
-      </div>
-      <p className="muted hint">Select a topic and press ⌘/Ctrl K to link all of it. While editing, select words and press ⌘/Ctrl K, or paste a link over them.</p>
+      </div>}
+      {!many && <p className="muted hint">Select a topic and press ⌘/Ctrl K to link all of it. While editing, select words and press ⌘/Ctrl K, or paste a link over them.</p>}
     </aside>
   );
 }

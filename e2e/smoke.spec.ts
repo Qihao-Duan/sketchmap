@@ -176,6 +176,63 @@ test('drag-to-move finds its drop target in a real browser (O1)', async ({ page 
   expect(outline).toMatch(/- Alpha\n {2}- Beta\n/);
 });
 
+test('the left button drags a selection box over several topics; the right button moves the canvas', async ({ page }) => {
+  await openNewMap(page);
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Alpha');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Beta');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('g.topic')).toHaveCount(3);
+  // Logic chart: both topics sit to the right of the central one, with clear background around them.
+  await page.getByRole('button', { name: 'Logic chart' }).click();
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  const box = async (text: string) => (await page.locator('g.topic', { has: page.locator('text', { hasText: text }) }).locator('rect.hit').boundingBox())!;
+  const [a, b] = [await box('Alpha'), await box('Beta')];
+  const from = { x: Math.min(a.x, b.x) - 14, y: Math.min(a.y, b.y) - 14 };
+  const to = { x: Math.max(a.x + a.width, b.x + b.width) + 14, y: Math.max(a.y + a.height, b.y + b.height) + 14 };
+  // The drag starts on the bare canvas, not on a topic or a panel.
+  expect(await page.evaluate(({ x, y }) => {
+    const el = document.elementFromPoint(x, y);
+    return !!el?.closest('svg[role="img"]') && !el.closest('g.topic');
+  }, from)).toBe(true);
+  const central = await box('Central topic');
+
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 4 });
+  await expect(page.locator('.select-box')).toBeVisible();
+  await page.mouse.move(to.x, to.y, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.locator('.select-box')).toBeHidden();
+  await expect(page.locator('g.topic.selected')).toHaveCount(2);
+  await expect(page.locator('[aria-label="Topic details"] h2')).toHaveText('2 topics selected');
+  expect(await box('Central topic')).toEqual(central); // the canvas stayed where it was
+
+  // One change reaches both, one Delete removes both, and one undo brings both back.
+  await page.keyboard.press('Alt+1');
+  await expect(page.locator('g.topic g.badge')).toHaveCount(2);
+  await page.keyboard.press('Delete');
+  await expect(page.locator('g.topic')).toHaveCount(1);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.locator('g.topic')).toHaveCount(3);
+
+  // The right button moves the canvas, even when the drag starts on a topic, and moves no topic.
+  const before = await box('Central topic');
+  const grab = { x: before.x + before.width / 2, y: before.y + before.height / 2 };
+  await page.mouse.move(grab.x, grab.y);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(grab.x + 90, grab.y + 40, { steps: 5 });
+  await page.mouse.up({ button: 'right' });
+  const after = await box('Central topic');
+  expect(Math.abs(after.x - before.x - 90)).toBeLessThan(1);
+  expect(Math.abs(after.y - before.y - 40)).toBeLessThan(1);
+  await page.getByRole('button', { name: 'Outline' }).click();
+  expect(await page.locator('textarea[aria-label="Outline text"]').inputValue()).toMatch(/^# Central topic\n[\s\S]*- .*Alpha\n- .*Beta\n/); // both still under the central topic, in order
+});
+
 test('the editor box fits a long link, and the link field sits below it (I1)', async ({ page }) => {
   await openNewMap(page);
   await page.keyboard.press('Tab');
@@ -423,10 +480,10 @@ test('in dark mode a topic image keeps its colours while the drawing is inverted
 
   // Pan and zoom, then check the photo and its (filtered) frame are still aligned: the frame's
   // sketchy stroke has a little width, so a few pixels of slack.
-  await page.mouse.move(20, 20); // the empty canvas, well clear of the fitted topic (56 px pad)
-  await page.mouse.down();
+  await page.mouse.move(20, 20); // the right button moves the canvas from anywhere
+  await page.mouse.down({ button: 'right' });
   await page.mouse.move(150, 130, { steps: 5 });
-  await page.mouse.up();
+  await page.mouse.up({ button: 'right' });
   await page.getByRole('button', { name: 'Zoom in' }).click();
 
   const imageBox = (await image.boundingBox())!;

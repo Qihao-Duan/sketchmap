@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type Ref } from 'react';
 import type { MapLayout } from '../layout/map';
 import { isInBranch } from '../model/tree';
 import { renderMap } from '../render/renderMap';
@@ -15,9 +15,15 @@ export interface CanvasHandle {
 interface Props {
   layout: MapLayout;
   selectedId: string | null;
+  /** The other topics of a multi-selection; never holds `selectedId`. */
+  extraIds?: readonly string[];
   interactive: boolean;
   onToggleFold(id: string): void;
   onSelect?(id: string): void;
+  /** Shift-click on a topic: it joins the selection or leaves it. */
+  onToggleSelect?(id: string): void;
+  /** A box dragged over the background: every topic it touches, in drawing order (none: an empty list). */
+  onSelectMany?(ids: string[]): void;
   onEdit?(id: string): void;
   onMove?(id: string, targetId: string): void;
   onViewChange?(view: View): void;
@@ -29,8 +35,13 @@ interface Props {
 
 type Gesture =
   | { kind: 'pan'; x: number; y: number; tx: number; ty: number; link: string | null; moved: boolean }
-  | { kind: 'topic'; id: string; x: number; y: number; moved: boolean; dbl: boolean; ghost: SVGGElement | null; sideGhosts: SVGGElement[] }
+  /** `base`: what Shift keeps selected while the box adds to it. `last`: the selection last reported. */
+  | { kind: 'box'; x: number; y: number; base: string[]; last: string | null; moved: boolean }
+  /** `grouped`: the pressed topic is one of several selected ones, so a drag moves them all (`moving`). */
+  | { kind: 'topic'; id: string; x: number; y: number; moved: boolean; dbl: boolean; grouped: boolean; moving: string[]; ghosts: SVGGElement[] }
   | { kind: 'link'; x: number; y: number; href: string; moved: boolean };
+
+const NO_IDS: readonly string[] = [];
 
 /**
  * The world groups a dragged topic's bits live on besides the drawing's own overlay ghost: the photo
@@ -49,8 +60,12 @@ function openLink(href: string) {
   if (/^https?:\/\//i.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
 }
 
-export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect, onEdit, onMove, onViewChange, onDropFile, rightInset = 0, fitMaxK, ref }: Props) {
+export function Canvas({
+  layout, selectedId, extraIds = NO_IDS, interactive, onToggleFold, onSelect, onToggleSelect, onSelectMany, onEdit, onMove, onViewChange, onDropFile,
+  rightInset = 0, fitMaxK, ref,
+}: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<SVGGElement>(null);
   const overlayRef = useRef<SVGGElement>(null);
   const photosRef = useRef<SVGGElement>(null);
@@ -86,9 +101,10 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     if (w > 0) applyView(fitView(layout.bounds, w, h, { rightInset, maxK: fitMaxK }));
   };
 
+  const selectedSet = useMemo(() => new Set(extraIds), [extraIds]);
   useLayoutEffect(() => {
     renderMap(svgRef.current!, worldRef.current!, layout, {
-      selectedId, dropTargetId: dropTarget, photos: photosRef.current ?? undefined, frames: framesRef.current ?? undefined,
+      selectedId, selectedIds: selectedSet, dropTargetId: dropTarget, photos: photosRef.current ?? undefined, frames: framesRef.current ?? undefined,
     });
     if (!fitted.current && size()[0] > 0) {
       fitted.current = true;
@@ -96,7 +112,7 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     } else {
       applyView(viewRef.current);
     }
-  }, [layout, selectedId, dropTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layout, selectedId, selectedSet, dropTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
     fit,
@@ -106,6 +122,8 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     },
     view: () => viewRef.current,
     ensureVisible: (id) => {
+      // While a selection box is being dragged the canvas stays put: the box is drawn in screen space.
+      if (gesture.current?.kind === 'box') return;
       const b = layout.byId.get(id);
       const [w, h] = size();
       // Keep the topic clear of a panel on the right (the Details sidebar).
@@ -144,21 +162,48 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
     { world: framesRef.current, ghostParent: framesGhostRef.current, selector: (id) => `g.topic-frame[data-id="${id}"]`, ghostClass: 'ghost-frame' },
   ];
 
-  /** Clears a topic gesture's ghost and drop target without firing onMove/onEdit. */
+  /** Clears what a gesture put on screen (drag ghosts, the drop target, the selection box) without firing onMove/onEdit. */
   const releaseGesture = (g: Gesture) => {
     if (g.kind === 'topic') {
-      g.ghost?.remove();
-      g.sideGhosts.forEach((el) => el.remove());
+      g.ghosts.forEach((el) => el.remove());
       setDrop(null);
+    } else if (g.kind === 'box' && boxRef.current) {
+      boxRef.current.hidden = true;
     }
   };
 
+  /**
+   * The selected topics a drag moves: those not inside another selected one. The root never moves, and
+   * a selected root does not stand in for the topics below it.
+   */
+  const selectedTops = (): string[] => {
+    const chosen = new Set(selectedId ? [selectedId, ...extraIds] : extraIds);
+    const out: string[] = [];
+    for (const b of layout.boxes) {
+      if (!chosen.has(b.id) || b.parentId == null) continue;
+      let up = layout.byId.get(b.parentId);
+      while (up && (up.parentId == null || !chosen.has(up.id))) up = up.parentId == null ? undefined : layout.byId.get(up.parentId);
+      if (!up) out.push(b.id);
+    }
+    return out;
+  };
+
   const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
-    if (e.button !== 0) return;
+    // In the editor the right (or middle) button moves the canvas, from anywhere; the left button selects.
+    const panButton = interactive && (e.button === 1 || e.button === 2);
+    if (e.button !== 0 && !panButton) return;
     if (gesture.current) {
       // A previous pointerup/pointercancel never arrived; clean up before starting a new gesture.
       releaseGesture(gesture.current);
       gesture.current = null;
+    }
+    const startPan = (link: string | null) => {
+      svgRef.current?.setPointerCapture?.(e.pointerId);
+      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, link, moved: false };
+    };
+    if (panButton) {
+      startPan(null);
+      return;
     }
     const target = e.target as Element;
     const fold = target.closest('[data-fold]');
@@ -171,18 +216,60 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
       gesture.current = { kind: 'link', x: e.clientX, y: e.clientY, href, moved: false };
       return;
     }
-    svgRef.current?.setPointerCapture?.(e.pointerId);
     const topic = interactive ? target.closest('g.topic') : null;
     if (!topic) {
-      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, link: interactive ? null : href, moved: false };
+      // The view-only page has nothing to select, and a finger has no second button: there a drag on the
+      // background moves the canvas. In the editor, with a mouse, it draws a selection box.
+      if (!interactive || e.pointerType === 'touch') {
+        startPan(interactive ? null : href);
+        return;
+      }
+      svgRef.current?.setPointerCapture?.(e.pointerId);
+      const base = e.shiftKey && selectedId ? [selectedId, ...extraIds] : [];
+      gesture.current = { kind: 'box', x: e.clientX, y: e.clientY, base, last: null, moved: false };
       return;
     }
     const id = topic.getAttribute('data-id')!;
+    if (e.shiftKey) {
+      onToggleSelect?.(id);
+      return;
+    }
+    svgRef.current?.setPointerCapture?.(e.pointerId);
     const now = Date.now();
     const dbl = lastDown.current.id === id && now - lastDown.current.t < 420;
     lastDown.current = { id, t: dbl ? 0 : now };
-    onSelect?.(id);
-    gesture.current = { kind: 'topic', id, x: e.clientX, y: e.clientY, moved: false, dbl, ghost: null, sideGhosts: [] };
+    // Pressing one of several selected topics keeps them all selected, so the press can start a drag of
+    // the whole group; released without a drag, it selects just that topic (see endGesture).
+    const grouped = extraIds.length > 0 && (id === selectedId || extraIds.includes(id));
+    if (!grouped) onSelect?.(id);
+    gesture.current = { kind: 'topic', id, x: e.clientX, y: e.clientY, moved: false, dbl, grouped, moving: [id], ghosts: [] };
+  };
+
+  /** Draws the selection box from where the drag started to the pointer and reports the topics it touches. */
+  const dragBox = (g: Extract<Gesture, { kind: 'box' }>, e: PointerEvent<SVGSVGElement>) => {
+    const r = svgRef.current!.getBoundingClientRect();
+    const x0 = Math.min(g.x, e.clientX) - r.left;
+    const y0 = Math.min(g.y, e.clientY) - r.top;
+    const w = Math.abs(e.clientX - g.x);
+    const h = Math.abs(e.clientY - g.y);
+    const mark = boxRef.current;
+    if (mark) {
+      mark.hidden = false;
+      Object.assign(mark.style, { left: `${x0}px`, top: `${y0}px`, width: `${w}px`, height: `${h}px` });
+    }
+    // The box is in screen pixels; the topics are in map units.
+    const { tx, ty, k } = viewRef.current;
+    const [left, top, right, bottom] = [(x0 - tx) / k, (y0 - ty) / k, (x0 + w - tx) / k, (y0 + h - ty) / k];
+    const kept = new Set(g.base);
+    const ids = [...g.base];
+    for (const b of layout.boxes) {
+      if (!kept.has(b.id) && b.x < right && b.x + b.w > left && b.y < bottom && b.y + b.h > top) ids.push(b.id);
+    }
+    // Every report redraws the map, so only a change in what is touched is reported.
+    const key = ids.join(' ');
+    if (key === g.last) return;
+    g.last = key;
+    onSelectMany?.(ids);
   };
 
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
@@ -205,38 +292,51 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
       applyView({ ...viewRef.current, tx: g.tx + dx, ty: g.ty + dy });
       return;
     }
+    if (g.kind === 'box') {
+      if (!g.moved && Math.hypot(dx, dy) < 4) return;
+      g.moved = true;
+      dragBox(g, e);
+      return;
+    }
     if (!g.moved) {
       if (Math.hypot(dx, dy) < 6 || layout.byId.get(g.id)?.parentId == null) return;
       g.moved = true;
-      const source = worldRef.current?.querySelector(`g.topic[data-id="${g.id}"]`);
-      if (source) {
-        g.ghost = source.cloneNode(true) as SVGGElement;
-        g.ghost.setAttribute('opacity', '0.55');
-        g.ghost.style.pointerEvents = 'none';
-        g.ghost.querySelectorAll('[pointer-events]').forEach((n) => n.setAttribute('pointer-events', 'none'));
-        g.ghost.setAttribute('pointer-events', 'none');
-        overlayRef.current?.appendChild(g.ghost);
-      }
-      // The photo and frame clones live on their own (photo: unfiltered; frame: filtered) layers, not in
-      // the drawing's ghost, so the photo keeps its colours and the frame keeps sitting above it.
-      for (const { world, ghostParent, selector, ghostClass } of sideLayers()) {
-        const sideSource = world?.querySelector(selector(g.id));
-        if (!sideSource) continue;
-        const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        ghost.setAttribute('class', ghostClass);
-        ghost.setAttribute('opacity', '0.55');
-        ghost.appendChild(sideSource.cloneNode(true));
-        ghostParent?.appendChild(ghost);
-        g.sideGhosts.push(ghost);
+      if (g.grouped) g.moving = selectedTops();
+      for (const id of g.moving) {
+        const source = worldRef.current?.querySelector(`g.topic[data-id="${id}"]`);
+        if (source) {
+          const ghost = source.cloneNode(true) as SVGGElement;
+          ghost.setAttribute('opacity', '0.55');
+          ghost.style.pointerEvents = 'none';
+          ghost.querySelectorAll('[pointer-events]').forEach((n) => n.setAttribute('pointer-events', 'none'));
+          ghost.setAttribute('pointer-events', 'none');
+          overlayRef.current?.appendChild(ghost);
+          g.ghosts.push(ghost);
+        }
+        // The photo and frame clones live on their own (photo: unfiltered; frame: filtered) layers, not in
+        // the drawing's ghost, so the photo keeps its colours and the frame keeps sitting above it.
+        for (const { world, ghostParent, selector, ghostClass } of sideLayers()) {
+          const sideSource = world?.querySelector(selector(id));
+          if (!sideSource) continue;
+          const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          ghost.setAttribute('class', ghostClass);
+          ghost.setAttribute('opacity', '0.55');
+          ghost.appendChild(sideSource.cloneNode(true));
+          ghostParent?.appendChild(ghost);
+          g.ghosts.push(ghost);
+        }
       }
     }
     const dragT = `translate(${dx / viewRef.current.k} ${dy / viewRef.current.k})`;
-    g.ghost?.setAttribute('transform', dragT);
-    g.sideGhosts.forEach((el) => el.setAttribute('transform', dragT));
+    g.ghosts.forEach((el) => el.setAttribute('transform', dragT));
     const under = document.elementFromPoint?.(e.clientX, e.clientY)?.closest('g.topic');
     const tid = under?.getAttribute('data-id') ?? null;
-    const moving = layout.byId.get(g.id)!.node;
-    setDrop(tid && tid !== g.id && !isInBranch(moving, tid) ? tid : null);
+    // No dropping a topic on itself or into its own branch; for a group, into any of the moved branches.
+    const inMoved = (id: string) => g.moving.some((m) => {
+      const node = layout.byId.get(m)?.node;
+      return !!node && isInBranch(node, id);
+    });
+    setDrop(tid && !inMoved(tid) ? tid : null);
   };
 
   const endGesture = (e: PointerEvent<SVGSVGElement>, cancelled: boolean) => {
@@ -252,15 +352,21 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
       if (g.link && still && !g.moved && !cancelled) openLink(g.link);
       return;
     }
+    if (g.kind === 'box') {
+      if (boxRef.current) boxRef.current.hidden = true;
+      // A plain click on the background (no box, no Shift) leaves only the current topic selected.
+      if (!g.moved && !cancelled && !e.shiftKey) onSelectMany?.([]);
+      return;
+    }
     if (g.moved) {
-      g.ghost?.remove();
-      g.sideGhosts.forEach((el) => el.remove());
+      g.ghosts.forEach((el) => el.remove());
       const target = dropRef.current;
       setDrop(null);
       if (target) onMove?.(g.id, target);
-    } else if (g.dbl) {
-      onEdit?.(g.id);
+      return;
     }
+    if (g.grouped && !cancelled) onSelect?.(g.id);
+    if (g.dbl) onEdit?.(g.id);
   };
 
   return (
@@ -273,6 +379,10 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
         onPointerMove={onPointerMove}
         onPointerUp={(e) => endGesture(e, false)}
         onPointerCancel={(e) => endGesture(e, true)}
+        onContextMenu={(e) => {
+          // The right button moves the canvas here, and on macOS the menu would open the moment it goes down.
+          if (interactive) e.preventDefault();
+        }}
         onDragOver={(e) => {
           if (interactive && e.dataTransfer.types.includes('Files')) e.preventDefault();
         }}
@@ -311,6 +421,8 @@ export function Canvas({ layout, selectedId, interactive, onToggleFold, onSelect
         <g ref={framesRef} className="frames-world" />
         <g ref={framesGhostRef} className="frames-ghost" />
       </svg>
+      {/* The selection box: screen pixels, moved by hand while dragging so each mouse move costs no render. */}
+      <div ref={boxRef} className="select-box" hidden />
     </div>
   );
 }

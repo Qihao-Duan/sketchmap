@@ -19,6 +19,9 @@ describe('keyToCommand', () => {
     [k('y', { ctrlKey: true }), { type: 'redo' }],
     [k('k', { metaKey: true }), { type: 'link' }],
     [k('K', { ctrlKey: true }), { type: 'link' }],
+    [k('a', { metaKey: true }), { type: 'selectAll' }],
+    [k('A', { ctrlKey: true }), { type: 'selectAll' }],
+    [k('Escape'), { type: 'selectOne' }],
     [k('ArrowLeft'), { type: 'navigate', dir: 'left' }],
     [k('ArrowDown'), { type: 'navigate', dir: 'down' }],
     [k('q'), { type: 'edit', initial: 'q' }],
@@ -38,7 +41,7 @@ describe('keyToCommand', () => {
     expect(keyToCommand(k('4', { altKey: true, code: 'Digit4' }))).toBeNull();
     expect(keyToCommand(k('å', { altKey: true, code: 'KeyA' }))).toBeNull();
     expect(keyToCommand(k('Tab', { shiftKey: true }))).toBeNull();
-    expect(keyToCommand(k('Escape'))).toBeNull();
+    expect(keyToCommand(k('Escape', { metaKey: true }))).toBeNull();
     expect(keyToCommand(k('c', { metaKey: true }))).toBeNull();
   });
 });

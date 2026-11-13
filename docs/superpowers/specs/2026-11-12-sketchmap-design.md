@@ -144,7 +144,11 @@ The **marker set** is 💡 ✅ ⚠️ ❓ ⭐ 📌 🔥 ❌ 📅 👤, one marke
 | Paste multi-line text | Parsed as an outline (headings or nested bullets) and added under the selected topic |
 | Paste or drop an image | Attached to the selected topic, or to the topic you dropped it on |
 | Drag a topic onto another | Moves the whole branch there. Dropping a topic into its own branch is refused. |
-| Wheel, ⌘/Ctrl wheel, drag on background | Pan, zoom, pan |
+| Left-button drag on the background | Draws a selection box: every topic it touches is selected. With Shift it adds to the selection. (XMind's mouse convention, asked for on 2026-11-14.) |
+| Shift-click a topic, ⌘/Ctrl A, Esc | Add the topic to the selection or take it out; select every topic on screen; back to one selected topic |
+| Right- or middle-button drag, wheel, ⌘/Ctrl wheel | Pan, pan, zoom. The right-click menu is suppressed on the editor canvas (on macOS it would open on button-down). |
+
+Several topics selected at once: one of them is the current topic. After a Shift-click that is the topic just added; after a box or select-all it is the topic that was current before, if it is among them, and otherwise the first one in drawing order. Delete removes them all, dragging one moves them all (only the top-most of nested selections move; the root never does), and importance, priority and marker go to all; each is one undo step. Every other action (Tab, Enter, editing, note, link, image, paste, fold) acts on the current topic and, where it creates a topic, leaves only that one selected. The Details panel then shows only importance, priority and marker. In the view-only page, and for a finger on a touch screen, a drag on the background still pans.
 
 How the remaining behaviours work:
 - **Editing text:**

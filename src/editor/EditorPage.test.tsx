@@ -892,3 +892,87 @@ describe('Excalidraw export', () => {
     expect(download).not.toHaveBeenCalled();
   });
 });
+
+describe('Editor: several topics selected', () => {
+  const three: MindMap = {
+    ...map,
+    root: { id: 'root000001', text: 'Root', children: [{ id: 'kidA000001', text: 'Alpha', children: [] }, { id: 'kidB000001', text: 'Beta', children: [] }] },
+  };
+  const selectedOnScreen = () => [...container.querySelectorAll('g.topic.selected')].map((g) => g.getAttribute('data-id')).sort();
+  const hitOf = (id: string) => container.querySelector(`g.topic[data-id="${id}"] rect.hit`)!;
+  const pointer = (el: Element, type: string, init: MouseEventInit = {}) =>
+    act(() => void el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 5, clientY: 5, ...init })));
+  const click = (id: string, init: MouseEventInit = {}) => {
+    pointer(hitOf(id), 'pointerdown', init);
+    pointer(hitOf(id), 'pointerup', init);
+  };
+  const panel = () => container.querySelector('[aria-label="Topic details"]')!;
+
+  it('⌘A selects every topic, Delete removes all but the central one as one step, and ⌘Z brings them back', () => {
+    mount(fakeApi(), three);
+    keydown({ key: 'a', metaKey: true });
+    expect(selectedOnScreen()).toEqual(['kidA000001', 'kidB000001', 'root000001']);
+    keydown({ key: 'Delete' });
+    expect(container.querySelectorAll('g.topic')).toHaveLength(1);
+    keydown({ key: 'z', metaKey: true });
+    expect(container.querySelectorAll('g.topic')).toHaveLength(3);
+  });
+
+  it('Shift-click adds a topic; the panel then covers them all, and a priority goes to each', () => {
+    mount(fakeApi(), three);
+    click('kidA000001');
+    click('kidB000001', { shiftKey: true });
+    expect(selectedOnScreen()).toEqual(['kidA000001', 'kidB000001']);
+    expect(panel().querySelector('h2')!.textContent).toBe('2 topics selected');
+    expect(panel().querySelector('[aria-label="Note"]')).toBeNull();
+    expect(panel().querySelector('[aria-label="Image file"]')).toBeNull();
+    act(() => (panel().querySelector('[aria-label="Priority 2"]') as HTMLButtonElement).click());
+    expect([...container.querySelectorAll('g.badge text')].map((t) => t.textContent)).toEqual(['2', '2']);
+    expect(selectedOnScreen()).toEqual(['kidA000001', 'kidB000001']);
+    keydown({ key: 'z', metaKey: true });
+    expect(container.querySelectorAll('g.badge')).toHaveLength(0);
+  });
+
+  it('Shift-click on a selected topic takes it out again', () => {
+    mount(fakeApi(), three);
+    click('kidA000001');
+    click('kidB000001', { shiftKey: true });
+    click('kidA000001', { shiftKey: true });
+    expect(selectedOnScreen()).toEqual(['kidB000001']);
+    expect(panel().querySelector('h2')!.textContent).toBe('Topic details');
+  });
+
+  it('Escape, a plain click on a topic, and a click on the background go back to one selected topic', () => {
+    mount(fakeApi(), three);
+    keydown({ key: 'a', metaKey: true });
+    keydown({ key: 'Escape' });
+    expect(selectedOnScreen()).toEqual(['root000001']);
+    keydown({ key: 'a', metaKey: true });
+    click('kidB000001');
+    expect(selectedOnScreen()).toEqual(['kidB000001']);
+    keydown({ key: 'a', metaKey: true });
+    const svg = container.querySelector('.canvas svg')!;
+    pointer(svg, 'pointerdown', { clientX: 4000, clientY: 4000 });
+    pointer(svg, 'pointerup', { clientX: 4000, clientY: 4000 });
+    expect(selectedOnScreen()).toEqual(['kidB000001']);
+  });
+
+  it('Tab on several selected topics adds the child to the current one and selects only the new topic', () => {
+    mount(fakeApi(), three);
+    click('kidA000001');
+    click('kidB000001', { shiftKey: true });
+    keydown({ key: 'Tab' });
+    expect(container.querySelectorAll('g.topic')).toHaveLength(4);
+    expect(selectedOnScreen()).toHaveLength(1);
+    expect(container.querySelector('textarea')).not.toBeNull();
+  });
+
+  it('the Delete button is offered for a selection that holds more than the central topic', () => {
+    mount(fakeApi(), three);
+    const del = () => container.querySelector('button[aria-label="Delete topic"], button[title^="Delete"]') as HTMLButtonElement | null;
+    expect(del()).not.toBeNull();
+    expect(del()!.disabled).toBe(true);
+    click('kidA000001', { shiftKey: true });
+    expect(del()!.disabled).toBe(false);
+  });
+});

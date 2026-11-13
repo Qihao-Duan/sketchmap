@@ -25,7 +25,7 @@ import { keyToCommand, type Command } from './keymap';
 import { LinkPrompt } from './LinkPrompt';
 import { navigate } from './navigate';
 import { OutlinePanel } from './OutlinePanel';
-import { editorReducer, initEditor } from './store';
+import { editorReducer, initEditor, selectedIds } from './store';
 import type { View } from './viewport';
 
 const IGNORE_KEYS_IN = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A']);
@@ -280,6 +280,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     }
   };
   const selectedNode = layout.byId.get(state.selectedId)?.node ?? findNode(state.map.root, state.selectedId)?.node ?? null;
+  const selection = selectedIds(state);
 
   const run = useCallback((cmd: Command) => {
     const s = stateRef.current;
@@ -304,6 +305,13 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         return;
       case 'link':
         setLinkFor(s.selectedId);
+        return;
+      case 'selectAll':
+        // Every topic on screen; topics inside a folded branch stay out, like for a box.
+        dispatch({ type: 'selectMany', ids: layoutRef.current.boxes.map((b) => b.id) });
+        return;
+      case 'selectOne':
+        dispatch({ type: 'select', id: s.selectedId });
         return;
       default:
         dispatch({ type: cmd.type });
@@ -495,8 +503,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           ref={canvas}
           layout={layout}
           selectedId={state.selectedId}
+          extraIds={state.extraIds}
           interactive
           onSelect={(id) => dispatch({ type: 'select', id })}
+          onToggleSelect={(id) => dispatch({ type: 'toggleSelect', id })}
+          onSelectMany={(ids) => dispatch({ type: 'selectMany', ids })}
           onEdit={(id) => {
             setEditInitial(null);
             dispatch({ type: 'startEdit', id });
@@ -532,6 +543,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             // React's reconciler would misattribute the two different-typed siblings, leaking a stale <textarea>.
             key={`details-${selectedNode.id}`}
             node={selectedNode}
+            count={selection.length}
             onEmphasis={(emphasis) => {
               const id = selectedNode.id;
               endEdit();
@@ -584,7 +596,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           zoom={view.k}
           canUndo={state.past.length > 0}
           canRedo={state.future.length > 0}
-          canDelete={state.selectedId !== state.map.root.id}
+          canDelete={selection.some((id) => id !== state.map.root.id)}
           onAddChild={() => { endEdit(); dispatch({ type: 'addChild' }); }}
           onAddSibling={() => { endEdit(); dispatch({ type: 'addSibling' }); }}
           onDelete={() => { endEdit(); dispatch({ type: 'delete' }); }}

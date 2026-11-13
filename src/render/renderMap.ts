@@ -10,6 +10,8 @@ export const SELECT_COLOR = '#4263eb';
 
 export interface RenderOptions {
   selectedId?: string | null;
+  /** The other topics of a multi-selection: marked the same way as `selectedId`. */
+  selectedIds?: ReadonlySet<string>;
   dropTargetId?: string | null;
   /** Draws topic images here instead of inline: the canvas's unfiltered photo layer (dark mode leaves photos alone). */
   photos?: SVGGElement;
@@ -69,13 +71,14 @@ export function renderMap(svg: SVGSVGElement, world: SVGGElement, layout: MapLay
 
 function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, opts: RenderOptions) {
   const cls = ['topic'];
-  if (t.id === opts.selectedId) cls.push('selected');
+  const selected = t.id === opts.selectedId || !!opts.selectedIds?.has(t.id);
+  if (selected) cls.push('selected');
   if (t.id === opts.dropTargetId) cls.push('drop');
   const g = el(doc, 'g', { class: cls.join(' '), 'data-id': t.id }, parent);
   el(doc, 'rect', { class: 'hit', x: t.x - 4, y: t.y - 4, width: t.w + 8, height: t.h + 8, fill: 'transparent', 'pointer-events': 'all' }, g);
   const seed = hashSeed(t.id);
 
-  if (t.id === opts.selectedId) {
+  if (selected) {
     g.appendChild(rc.rectangle(t.x - 7, t.y - 6, t.w + 14, t.h + 12, {
       stroke: SELECT_COLOR, strokeWidth: 1.4, roughness: 0.6, fill: '#fff3bf', fillStyle: 'solid', strokeLineDash: [6, 5], seed: seed + 7,
     }));

@@ -60,7 +60,14 @@ Browsers: the editor and the embed need Chrome/Edge 123+, Firefox 120+ or Safari
   - `/` folds or unfolds the branch.
   - ⌘/Ctrl Z undoes; ⌘/Ctrl Shift Z or ⌘/Ctrl Y redoes.
 - **While editing text.** Enter finishes, Shift Enter starts a new line, Esc cancels, and Tab finishes and adds a child.
-- **Mouse.** Drag a topic onto another to move it there. Drag the background or use the wheel to pan; ⌘/Ctrl with the wheel zooms.
+- **Mouse.**
+  - Drag a topic onto another to move it there.
+  - Drag on the background with the left button to draw a box: every topic the box touches is selected. Hold Shift to add to what is already selected.
+  - Drag with the right (or middle) button, or use the wheel or a two-finger scroll, to move the canvas. ⌘/Ctrl with the wheel zooms. The right-click menu is off on the canvas for this reason.
+- **Several topics at once.**
+  - Besides the box, Shift-click adds a topic to the selection or takes it out, and ⌘/Ctrl A selects every topic on screen. Esc, a click on one topic, or a click on the background goes back to one selected topic.
+  - Delete removes all selected topics, and dragging one of them moves them all onto the topic you drop them on. Importance, priority and marker (the panel or Alt ↑ / ↓ / 0–3) go to all of them. Each of these is one undo step.
+  - Everything else (Tab, Enter, editing, the note, links, images, paste, fold) acts on one of them, the current topic: the one the Details panel names.
 - **Layout switch.** Pick **Mind map**, **Logic chart** or **Org chart** from the header; the choice is saved with the map.
 - **Outline.** The **Outline** button opens the map as a Markdown outline: edit the text (or paste one from elsewhere) and **Replace map with this**, or close without applying.
 - **Paste.** An outline or list copied from XMind, Notion or a text editor, pasted anywhere outside a text field, is added under the selected topic. ⌘Z undoes it.
@@ -106,6 +113,7 @@ In dark mode the drawing is inverted the way Excalidraw does it, but images are 
 - Checked on 2026-11-13 by the browser tests in Playwright's WebKit (Safari's engine) and Firefox builds, as well as Chromium: creating and editing a map, the embed inside a Notion-like sandboxed frame, links, drag-to-move, images (added from the panel, dropped, pasted, imported from `.xmind`), SVG, PNG and Excalidraw export, dark mode and `?theme=`. Those builds are not Safari itself or iOS, and the tests paste with a scripted event, not the real clipboard.
 - Not yet checked: Safari itself and iOS; Chinese input (IME) and a real clipboard paste in Safari and Firefox; opening a link from the embed in the Notion desktop and mobile apps; opening the `.excalidraw` export in excalidraw.com. XMind notes and XMind 8 files are imported from the documented format; no real sample with notes or from XMind 8 was available.
 - In the Notion view a note shows only while the pointer is over its icon, so it can't be read on a touch screen. The editor also shows it in the Details panel.
+- The selection box needs a mouse or trackpad. On a touch screen a finger on the editor's background moves the canvas, as it does in the Notion view, where the left button also still moves the canvas.
 - Large maps get slower to edit, because every change redraws the whole map. Measured in headless Chromium on the development machine (2026-11-13), the time from an arrow key to the screen updating was 33 ms at 100 and 300 topics (33 ms is the shortest time this measurement can show), about 68 ms at 1000 and about 118 ms at 2000.
 - The Markdown outline keeps topic text, nesting, Key, priority and markers. Line breaks inside a topic, folded state, topic identity, Highlight, Aside, notes and images are not kept, so replacing the map from the outline removes them (undo brings them back).
 - Pasting a very large outline (thousands of topics) is slow, and a map over 2 MB cannot be saved; undo the paste if that happens.

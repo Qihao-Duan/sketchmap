@@ -9,6 +9,8 @@ export type Command =
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'navigate'; dir: Direction }
+  | { type: 'selectAll' }
+  | { type: 'selectOne' }
   | { type: 'emphasis'; delta: 1 | -1 }
   | { type: 'priority'; value: 0 | 1 | 2 | 3 }
   | { type: 'link' };
@@ -34,6 +36,7 @@ export function keyToCommand(e: KeyInput): Command | null {
     if (key === 'z') return { type: e.shiftKey ? 'redo' : 'undo' };
     if (key === 'y') return { type: 'redo' };
     if (key === 'k') return { type: 'link' };
+    if (key === 'a') return { type: 'selectAll' };
     if (e.key === '/') return { type: 'fold' };
     return null;
   }
@@ -57,6 +60,8 @@ export function keyToCommand(e: KeyInput): Command | null {
       return { type: 'edit' };
     case '/':
       return { type: 'fold' };
+    case 'Escape':
+      return { type: 'selectOne' };
   }
   return e.key.length === 1 ? { type: 'edit', initial: e.key } : null;
 }

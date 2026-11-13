@@ -55,8 +55,8 @@ describe('Canvas', () => {
     expect(h.onSelect).not.toHaveBeenCalled();
   });
 
-  it('pans when dragging the background', () => {
-    mount();
+  it('in the view-only page, dragging the background moves the canvas', () => {
+    mount(false);
     const svg = container.querySelector('svg')!;
     const world = container.querySelector('g.world')!;
     press(svg, 'pointerdown', 100, 100);
@@ -74,11 +74,13 @@ describe('Canvas', () => {
   });
 
   it('stops a pan if the pointerup is lost', () => {
-    mount();
+    mount(false);
     const svg = container.querySelector('svg')!;
     const world = container.querySelector('g.world')!;
     press(svg, 'pointerdown', 100, 100);
     press(svg, 'pointermove', 140, 130, 0);
+    expect(world.getAttribute('transform')).toBe('translate(0 0) scale(1)');
+    press(svg, 'pointermove', 180, 160, 1); // a later move with a button down belongs to no gesture
     expect(world.getAttribute('transform')).toBe('translate(0 0) scale(1)');
   });
 
@@ -369,5 +371,195 @@ describe('Canvas', () => {
         document.elementFromPoint = original;
       }
     });
+  });
+});
+
+describe('Canvas: selecting with a box, moving with the right button', () => {
+  const flat: MapNode = { id: 'r', text: 'Root', children: [{ id: 'a', text: 'A', children: [] }, { id: 'b', text: 'B', children: [] }, { id: 'c', text: 'C', children: [] }] };
+  const flatLayout = computeLayout(flat, (t, s) => t.length * s * 0.5);
+  type Extra = { selectedId?: string | null; extraIds?: string[]; interactive?: boolean };
+
+  function mountFlat({ selectedId = null, extraIds, interactive = true }: Extra = {}) {
+    const h = { onSelect: vi.fn(), onToggleSelect: vi.fn(), onSelectMany: vi.fn(), onEdit: vi.fn(), onMove: vi.fn(), onToggleFold: vi.fn() };
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => createRoot(container).render(<Canvas layout={flatLayout} selectedId={selectedId} extraIds={extraIds} interactive={interactive} {...h} />));
+    return h;
+  }
+  /** A pointer event with any button, modifier or pointer type. Returns the event, to read defaultPrevented. */
+  function fire(el: Element, type: string, x: number, y: number, init: MouseEventInit & { pointerType?: string } = {}) {
+    const { pointerType, ...rest } = init;
+    const ev = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: 0, clientX: x, clientY: y, ...rest });
+    if (pointerType) Object.defineProperty(ev, 'pointerType', { value: pointerType });
+    act(() => void el.dispatchEvent(ev));
+    return ev;
+  }
+  const svgEl = () => container.querySelector('svg')!;
+  const worldT = () => container.querySelector('g.world')!.getAttribute('transform');
+  const box = (id: string) => flatLayout.byId.get(id)!;
+  /** Ids of the topics a screen rectangle touches (the view is not moved in these tests: jsdom has no size). */
+  const touched = (x0: number, y0: number, x1: number, y1: number) =>
+    flatLayout.boxes.filter((b) => b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0).map((b) => b.id);
+  /** A rectangle around one topic, a little larger than it. */
+  const around = (id: string) => {
+    const b = box(id);
+    return [b.x - 3, b.y - 3, b.x + b.w + 3, b.y + b.h + 3] as const;
+  };
+
+  it('in the editor, a left-button drag on the background selects the topics the box touches and leaves the canvas where it is', () => {
+    const h = mountFlat();
+    const [x0, y0, x1, y1] = around('a');
+    const expected = touched(x0, y0, x1, y1);
+    expect(expected).toContain('a');
+    fire(svgEl(), 'pointerdown', x0, y0);
+    fire(svgEl(), 'pointermove', x1, y1, { buttons: 1 });
+    const mark = container.querySelector<HTMLElement>('.select-box')!;
+    expect(mark.hidden).toBe(false);
+    expect([mark.style.left, mark.style.top, mark.style.width, mark.style.height]).toEqual([`${x0}px`, `${y0}px`, `${x1 - x0}px`, `${y1 - y0}px`]);
+    fire(svgEl(), 'pointerup', x1, y1);
+    expect(h.onSelectMany).toHaveBeenLastCalledWith(expected);
+    expect(mark.hidden).toBe(true);
+    expect(worldT()).toBe('translate(0 0) scale(1)');
+    expect(h.onSelect).not.toHaveBeenCalled();
+  });
+
+  it('the box works in any direction and reports again only when the touched topics change', () => {
+    const h = mountFlat();
+    const [x0, y0, x1, y1] = around('b');
+    fire(svgEl(), 'pointerdown', x1, y1);
+    fire(svgEl(), 'pointermove', x0, y0, { buttons: 1 });
+    fire(svgEl(), 'pointermove', x0 - 1, y0 - 1, { buttons: 1 });
+    const calls = h.onSelectMany.mock.calls.map((c) => c[0]);
+    expect(calls.at(-1)).toEqual(touched(x0 - 1, y0 - 1, x1, y1));
+    expect(calls.at(-1)).toContain('b');
+    expect(new Set(calls.map((ids) => ids.join(' '))).size).toBe(calls.length);
+  });
+
+  it('a box that touches nothing, and a plain click on the background, report an empty selection', () => {
+    const h = mountFlat({ selectedId: 'a', extraIds: ['b'] });
+    const far = Math.max(...flatLayout.boxes.map((b) => b.y + b.h)) + 200;
+    fire(svgEl(), 'pointerdown', 0, far);
+    fire(svgEl(), 'pointermove', 30, far + 30, { buttons: 1 });
+    fire(svgEl(), 'pointerup', 30, far + 30);
+    expect(h.onSelectMany).toHaveBeenLastCalledWith([]);
+    h.onSelectMany.mockClear();
+    fire(svgEl(), 'pointerdown', 0, far);
+    fire(svgEl(), 'pointerup', 0, far);
+    expect(h.onSelectMany).toHaveBeenCalledWith([]);
+  });
+
+  it('with Shift held, the box adds to what was selected, and a plain Shift-click on the background changes nothing', () => {
+    const h = mountFlat({ selectedId: 'c', extraIds: ['r'] });
+    const [x0, y0, x1, y1] = around('a');
+    fire(svgEl(), 'pointerdown', x0, y0, { shiftKey: true });
+    fire(svgEl(), 'pointermove', x1, y1, { buttons: 1, shiftKey: true });
+    fire(svgEl(), 'pointerup', x1, y1, { shiftKey: true });
+    expect(h.onSelectMany).toHaveBeenLastCalledWith(['c', 'r', ...touched(x0, y0, x1, y1).filter((id) => id !== 'c' && id !== 'r')]);
+    h.onSelectMany.mockClear();
+    fire(svgEl(), 'pointerdown', 0, 9000, { shiftKey: true });
+    fire(svgEl(), 'pointerup', 0, 9000, { shiftKey: true });
+    expect(h.onSelectMany).not.toHaveBeenCalled();
+  });
+
+  it('in the editor, the right and the middle button move the canvas, from the background or from a topic, and select nothing', () => {
+    const h = mountFlat();
+    fire(svgEl(), 'pointerdown', 100, 100, { button: 2, buttons: 2 });
+    fire(svgEl(), 'pointermove', 140, 130, { buttons: 2 });
+    fire(svgEl(), 'pointerup', 140, 130, { button: 2 });
+    expect(worldT()).toBe('translate(40 30) scale(1)');
+    const onTopic = container.querySelector('g.topic[data-id="a"] rect.hit')!;
+    fire(onTopic, 'pointerdown', 10, 10, { button: 1, buttons: 4 });
+    fire(onTopic, 'pointermove', 20, 5, { buttons: 4 });
+    fire(onTopic, 'pointerup', 20, 5, { button: 1 });
+    expect(worldT()).toBe('translate(50 25) scale(1)');
+    expect(h.onSelect).not.toHaveBeenCalled();
+    expect(h.onSelectMany).not.toHaveBeenCalled();
+    expect(h.onMove).not.toHaveBeenCalled();
+  });
+
+  it('the right-click menu is held back in the editor, where the right button moves the canvas, and left alone in the view-only page', () => {
+    mountFlat();
+    expect(fire(svgEl(), 'contextmenu', 10, 10, { button: 2 }).defaultPrevented).toBe(true);
+    container.remove();
+    mountFlat({ interactive: false });
+    expect(fire(svgEl(), 'contextmenu', 10, 10, { button: 2 }).defaultPrevented).toBe(false);
+  });
+
+  it('in the view-only page the right button does nothing', () => {
+    mountFlat({ interactive: false });
+    fire(svgEl(), 'pointerdown', 100, 100, { button: 2, buttons: 2 });
+    fire(svgEl(), 'pointermove', 140, 130, { buttons: 2 });
+    expect(worldT()).toBe('translate(0 0) scale(1)');
+  });
+
+  it('a finger on the editor background still moves the canvas', () => {
+    const h = mountFlat();
+    fire(svgEl(), 'pointerdown', 100, 100, { pointerType: 'touch' });
+    fire(svgEl(), 'pointermove', 140, 130, { buttons: 1, pointerType: 'touch' });
+    fire(svgEl(), 'pointerup', 140, 130, { pointerType: 'touch' });
+    expect(worldT()).toBe('translate(40 30) scale(1)');
+    expect(h.onSelectMany).not.toHaveBeenCalled();
+  });
+
+  it('Shift-click adds a topic to the selection or takes it out, instead of selecting only it', () => {
+    const h = mountFlat({ selectedId: 'a' });
+    const b = container.querySelector('g.topic[data-id="b"] rect.hit')!;
+    fire(b, 'pointerdown', 10, 10, { shiftKey: true });
+    fire(b, 'pointerup', 10, 10, { shiftKey: true });
+    expect(h.onToggleSelect).toHaveBeenCalledWith('b');
+    expect(h.onSelect).not.toHaveBeenCalled();
+    expect(h.onEdit).not.toHaveBeenCalled();
+  });
+
+  it('draws the selection mark on every selected topic', () => {
+    mountFlat({ selectedId: 'a', extraIds: ['c'] });
+    expect([...container.querySelectorAll('g.topic.selected')].map((g) => g.getAttribute('data-id')).sort()).toEqual(['a', 'c']);
+  });
+
+  it('pressing one of several selected topics keeps them all selected; releasing without a drag selects just that one', () => {
+    const h = mountFlat({ selectedId: 'a', extraIds: ['b'] });
+    const b = container.querySelector('g.topic[data-id="b"] rect.hit')!;
+    fire(b, 'pointerdown', 10, 10);
+    expect(h.onSelect).not.toHaveBeenCalled();
+    fire(b, 'pointerup', 10, 10);
+    expect(h.onSelect).toHaveBeenCalledWith('b');
+  });
+
+  it('dragging one of several selected topics shows a ghost for each and drops them together on the target', () => {
+    const h = mountFlat({ selectedId: 'a', extraIds: ['b'] });
+    const overlay = container.querySelector('g.overlay')!;
+    const hitOf = (id: string) => container.querySelector(`g.topic[data-id="${id}"] rect.hit`)!;
+    const original = document.elementFromPoint;
+    try {
+      document.elementFromPoint = () => hitOf('b');
+      fire(hitOf('a'), 'pointerdown', 10, 10);
+      fire(hitOf('a'), 'pointermove', 60, 60, { buttons: 1 });
+      expect([...overlay.children].map((g) => g.getAttribute('data-id')).sort()).toEqual(['a', 'b']);
+      expect([...overlay.children].map((g) => g.getAttribute('transform'))).toEqual(['translate(50 50)', 'translate(50 50)']);
+      // b is being moved too, so it is no place to drop on
+      expect(container.querySelector('g.topic.drop')).toBeNull();
+      document.elementFromPoint = () => hitOf('c');
+      fire(hitOf('a'), 'pointermove', 70, 70, { buttons: 1 });
+      expect(container.querySelector('g.topic.drop')?.getAttribute('data-id')).toBe('c');
+      fire(hitOf('a'), 'pointerup', 70, 70);
+    } finally {
+      document.elementFromPoint = original;
+    }
+    expect(h.onMove).toHaveBeenCalledWith('a', 'c');
+    expect(h.onSelect).not.toHaveBeenCalled();
+    expect(overlay.children.length).toBe(0);
+  });
+
+  it('a selected topic inside another selected topic gets no ghost of its own, and the central topic never moves', () => {
+    const deep: MapNode = { id: 'r', text: 'Root', children: [{ id: 'a', text: 'A', children: [{ id: 'a1', text: 'A1', children: [] }] }, { id: 'b', text: 'B', children: [] }] };
+    const deepLayout = computeLayout(deep, (t, s) => t.length * s * 0.5);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => createRoot(container).render(<Canvas layout={deepLayout} selectedId="a1" extraIds={['a', 'r']} interactive onToggleFold={() => {}} />));
+    const overlay = container.querySelector('g.overlay')!;
+    const a1 = container.querySelector('g.topic[data-id="a1"] rect.hit')!;
+    fire(a1, 'pointerdown', 10, 10);
+    fire(a1, 'pointermove', 60, 60, { buttons: 1 });
+    expect([...overlay.children].map((g) => g.getAttribute('data-id'))).toEqual(['a']);
   });
 });
