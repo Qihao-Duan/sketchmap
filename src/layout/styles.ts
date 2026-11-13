@@ -70,3 +70,14 @@ export const ORG = { rootGap: 56, colGap: 40, indent: 28, rowGap: 10 } as const;
 
 /** Links in topic text (spec §6). */
 export const LINK_COLOR = '#1971c2';
+
+/** Outline width of a topic's box or underline; Key is ×1.5 (spec §6). */
+export function topicStrokeWidth(kind: TopicKind, emphasis?: Emphasis): number {
+  const base = kind === 'root' ? 2.2 : kind === 'box' ? 1.8 : kind === 'small' ? 1.4 : 1.6;
+  return base * (emphasis === 'key' ? 1.5 : 1);
+}
+
+/** Width of the branch into a topic: wider from the root; Key ×1.45, Aside ×0.8 (spec §6). */
+export function branchStrokeWidth(fromDepth: number, toEmphasis?: Emphasis): number {
+  return (fromDepth === 0 ? 2.4 : 1.6) * (toEmphasis === 'key' ? 1.45 : toEmphasis === 'aside' ? 0.8 : 1);
+}

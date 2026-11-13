@@ -3,7 +3,7 @@ import { IMAGE_KEY_RE } from '../shared/types';
 import type { MapLayout, TopicBox } from '../layout/map';
 import { countDescendants } from '../model/tree';
 import { FONT_STACK } from './fonts';
-import { ASIDE_INK, badgeSize, HIGHLIGHTER, INK, LINK_COLOR, PRIORITY_COLORS } from '../layout/styles';
+import { ASIDE_INK, badgeSize, branchStrokeWidth, HIGHLIGHTER, INK, LINK_COLOR, PRIORITY_COLORS, topicStrokeWidth } from '../layout/styles';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 export const SELECT_COLOR = '#4263eb';
@@ -45,7 +45,7 @@ export function renderMap(svg: SVGSVGElement, world: SVGGElement, layout: MapLay
   const topics = el(doc, 'g', { class: 'topics' }, world);
   for (const b of layout.branches) {
     const em = b.toEmphasis;
-    const width = (b.fromDepth === 0 ? 2.4 : 1.6) * (em === 'key' ? 1.45 : em === 'aside' ? 0.8 : 1);
+    const width = branchStrokeWidth(b.fromDepth, em);
     branches.appendChild(
       rc.path(b.d, {
         stroke: b.color.stroke, strokeWidth: width, roughness: 1, bowing: 0.8, seed: hashSeed(`${b.to}:branch`),
@@ -76,20 +76,19 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
   const r = Math.min(26, Math.min(t.w, t.h) * 0.3);
   const { stroke, fill } = t.color;
   const outline = aside ? ASIDE_INK : stroke;
-  const weight = key ? 1.5 : 1;
   const dash = aside ? { strokeLineDash: [5, 4] } : {};
   // Key: solid fill. Aside: no fill. Otherwise hachure, as by depth.
   const boxFill = (gap: number, fillWeight: number) =>
     key ? { fill, fillStyle: 'solid' } : aside ? {} : { fill, fillStyle: 'hachure', hachureGap: gap, fillWeight, hachureAngle: -41 };
   const shape = roundedRect(t.x, t.y, t.w, t.h, r);
   if (t.style.kind === 'root') {
-    g.appendChild(rc.path(shape, { stroke: outline, strokeWidth: 2.2 * weight, roughness: 1, ...boxFill(7, 1.1), ...dash, seed }));
+    g.appendChild(rc.path(shape, { stroke: outline, strokeWidth: topicStrokeWidth(t.style.kind, em), roughness: 1, ...boxFill(7, 1.1), ...dash, seed }));
   } else if (t.style.kind === 'box') {
-    g.appendChild(rc.path(shape, { stroke: outline, strokeWidth: 1.8 * weight, roughness: 1, ...boxFill(8, 0.9), ...dash, seed }));
+    g.appendChild(rc.path(shape, { stroke: outline, strokeWidth: topicStrokeWidth(t.style.kind, em), roughness: 1, ...boxFill(8, 0.9), ...dash, seed }));
   } else if (t.style.kind === 'small') {
-    g.appendChild(rc.path(shape, { stroke: outline, strokeWidth: 1.4 * weight, roughness: 1, ...dash, seed }));
+    g.appendChild(rc.path(shape, { stroke: outline, strokeWidth: topicStrokeWidth(t.style.kind, em), roughness: 1, ...dash, seed }));
   } else {
-    g.appendChild(rc.line(t.x, t.y + t.h, t.x + t.w, t.y + t.h, { stroke: outline, strokeWidth: 1.6 * weight, roughness: 1, ...dash, seed }));
+    g.appendChild(rc.line(t.x, t.y + t.h, t.x + t.w, t.y + t.h, { stroke: outline, strokeWidth: topicStrokeWidth(t.style.kind, em), roughness: 1, ...dash, seed }));
   }
 
   const { fontSize, lineHeight, padX } = t.style;
