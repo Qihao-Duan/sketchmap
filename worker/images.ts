@@ -54,9 +54,10 @@ export async function uploadImage(mapId: string, request: Request, env: Env): Pr
   const folder = newMapId();
   const file = `${newNodeId()}.${kind.ext}`;
   const key = `img/${folder}/${file}`;
-  await env.MAPS.put(key, bytes, { httpMetadata: { contentType: kind.type } });
-  // Private index (never served): which map owns this image, so deleting the map deletes it.
+  // Private index first (never served): which map owns this image, so deleting the map deletes it. Written before
+  // the image, so a failure in between leaves at most an index entry pointing at nothing, never an untracked image.
   await env.MAPS.put(`imgindex/${mapId}/${folder}/${file}`, new Uint8Array(0));
+  await env.MAPS.put(key, bytes, { httpMetadata: { contentType: kind.type } });
   return json({ key }, { status: 201 });
 }
 
