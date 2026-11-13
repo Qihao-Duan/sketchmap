@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: 'e2e',
@@ -8,6 +8,9 @@ export default defineConfig({
     { name: 'dev', testIgnore: /prod\.spec\.ts/, use: { baseURL: 'http://localhost:5183' } },
     // The built app on the built Worker (vite preview): the real headers, including the production CSP.
     { name: 'prod', testMatch: /prod\.spec\.ts/, use: { baseURL: 'http://localhost:4183' } },
+    // The same browser tests in Playwright's WebKit (Safari's engine) and Firefox builds.
+    { name: 'webkit', testIgnore: /prod\.spec\.ts/, use: { ...devices['Desktop Safari'], baseURL: 'http://localhost:5183' } },
+    { name: 'firefox', testIgnore: /prod\.spec\.ts/, use: { ...devices['Desktop Firefox'], baseURL: 'http://localhost:5183' } },
   ],
   // The test servers use their own ports and storage, started empty each run, so a run never touches the
   // maps of an `npm run dev` the developer has open.

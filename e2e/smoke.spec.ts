@@ -70,7 +70,10 @@ test('the org chart and a pasted outline survive a reload and show in the view',
   await page.evaluate(() => {
     const data = new DataTransfer();
     data.setData('text/plain', '- Alpha\n  - Alpha 1\n- Beta');
-    window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    // Firefox's ClipboardEvent constructor ignores `clipboardData`, so it is attached as a property instead.
+    const paste = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', { value: data });
+    window.dispatchEvent(paste);
   });
   await expect(page.locator('g.topic')).toHaveCount(4);
   await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
@@ -257,7 +260,9 @@ test('an image pasted from the clipboard, or dropped on a topic, lands on that t
     const data = new DataTransfer();
     data.items.add(new File([bytes], 'pic.png', { type: 'image/png' }));
     if (kind === 'paste') {
-      window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      const paste = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, 'clipboardData', { value: data }); // Firefox's constructor ignores it
+      window.dispatchEvent(paste);
     } else {
       const hit = document.querySelector(`g.topic[data-id="${topicId}"] rect.hit`)!;
       hit.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
