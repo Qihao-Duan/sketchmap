@@ -1,4 +1,4 @@
-import { newNodeId } from '../src/model/ids';
+import { newMapId, newNodeId } from '../src/model/ids';
 import { errorResponse, json } from './http';
 import type { Env } from './index';
 
@@ -51,12 +51,16 @@ export async function uploadImage(mapId: string, request: Request, env: Env): Pr
   if (!bytes) return errorResponse(413, 'Image is larger than 5 MB');
   const kind = sniffImage(bytes);
   if (!kind) return errorResponse(415, 'Only PNG, JPEG, WebP and GIF images can be uploaded');
-  const key = `img/${mapId}/${newNodeId()}.${kind.ext}`;
+  const folder = newMapId();
+  const file = `${newNodeId()}.${kind.ext}`;
+  const key = `img/${folder}/${file}`;
   await env.MAPS.put(key, bytes, { httpMetadata: { contentType: kind.type } });
+  // Private index (never served): which map owns this image, so deleting the map deletes it.
+  await env.MAPS.put(`imgindex/${mapId}/${folder}/${file}`, new Uint8Array(0));
   return json({ key }, { status: 201 });
 }
 
-/** GET /img/<mapId>/<file>: public, cached for a year (keys never change), and inert even if opened directly. */
+/** GET /img/<folder>/<file>: public, cached for a year (keys never change), and inert even if opened directly. The folder is a random id, not the map id, so the URL never reveals it. */
 export async function serveImage(pathname: string, env: Env): Promise<Response> {
   const key = pathname.slice(1);
   if (!KEY_RE.test(key)) return new Response('Not found', { status: 404, headers: NOT_FOUND_HEADERS });
@@ -75,7 +79,21 @@ export async function serveImage(pathname: string, env: Env): Promise<Response> 
 
 /** Deletes every image stored for a map (spec §8: clean-up on map delete). */
 export async function deleteImages(mapId: string, env: Env): Promise<void> {
+  // Current images: found through the private index, which maps to their randomly-named folder.
   let cursor: string | undefined;
+  do {
+    const page = await env.MAPS.list({ prefix: `imgindex/${mapId}/`, cursor });
+    if (page.objects.length) {
+      const markers = page.objects.map((o) => o.key);
+      const images = markers.map((k) => `img/${k.slice(`imgindex/${mapId}/`.length)}`);
+      // Two batches, each no larger than one listing page, so neither exceeds R2's per-call delete limit.
+      await env.MAPS.delete(images);
+      await env.MAPS.delete(markers);
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  // Legacy images: stored directly under img/<mapId>/ before the index existed.
+  cursor = undefined;
   do {
     const page = await env.MAPS.list({ prefix: `img/${mapId}/`, cursor });
     if (page.objects.length) await env.MAPS.delete(page.objects.map((o) => o.key));

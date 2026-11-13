@@ -247,6 +247,7 @@ test('an image added from the details panel survives a reload, shows in the view
   await expect(image).toHaveCount(1);
   const href = (await image.getAttribute('href'))!;
   expect(href).toMatch(/^\/img\/[A-Za-z0-9_-]{21}\/[A-Za-z0-9_-]{10}\.(png|jpg)$/);
+  expect(href).not.toContain(id); // the folder is random, not the map id
   expect(href).toMatch(/\.png$/); // the pixel has transparency, so it stays PNG
 
   await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });

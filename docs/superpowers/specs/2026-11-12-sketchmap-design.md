@@ -118,7 +118,7 @@ The **marker set** is 💡 ✅ ⚠️ ❓ ⭐ 📌 🔥 ❌ 📅 👤, one marke
 
 ### Images
 
-- **What's stored:** the topic holds only an R2 key and a display size. The file itself lives in R2 under `img/<mapId>/<nanoid>.<ext>`.
+- **What's stored:** the topic holds only an R2 key and a display size. The file itself lives in R2 under `img/<random>/<nanoid>.<ext>`, where the random folder doesn't reveal the map; a private `imgindex/<mapId>/…` entry ties it to its map for deletion.
 - **Before upload**, the browser re-encodes every image:
   - The longest side is scaled down to at most 2048 px.
   - Images with transparency become PNG; everything else becomes JPEG at quality 0.85.

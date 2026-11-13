@@ -29,7 +29,8 @@ describe('images API', () => {
     const res = await upload(map.id, PNG);
     expect(res.status).toBe(201);
     const { key } = (await res.json()) as { key: string };
-    expect(key).toMatch(new RegExp(`^img/${map.id}/[A-Za-z0-9_-]{10}\\.png$`));
+    expect(key).toMatch(/^img\/[A-Za-z0-9_-]{21}\/[A-Za-z0-9_-]{10}\.png$/);
+    expect(key).not.toContain(map.id);
     const img = await worker.fetch(new Request(`http://x/${key}`), E);
     expect(img.status).toBe(200);
     expect(img.headers.get('Content-Type')).toBe('image/png');
@@ -66,6 +67,15 @@ describe('images API', () => {
     expect((await call(`/api/maps/${map.id}`, { method: 'DELETE' })).status).toBe(204);
     expect((await worker.fetch(new Request(`http://x/${key}`), E)).status).toBe(404);
   });
+
+  it('also deletes a legacy image stored directly under img/<mapId>/ when the map is deleted', async () => {
+    const { map } = await create('Legacy image');
+    const key = `img/${map.id}/legacy.png`;
+    await E.MAPS.put(key, PNG, { httpMetadata: { contentType: 'image/png' } });
+    expect((await worker.fetch(new Request(`http://x/${key}`), E)).status).toBe(200);
+    expect((await call(`/api/maps/${map.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await worker.fetch(new Request(`http://x/${key}`), E)).status).toBe(404);
+  });
 });
 
 describe('images API, edges', () => {
@@ -94,5 +104,10 @@ describe('images API, edges', () => {
     expect((await worker.fetch(new Request(`http://x/${key}`, { method: 'POST' }), E)).status).toBe(405);
     expect((await serveImage('/img/../maps/x.json', E)).status).toBe(404);
     expect((await serveImage(`/maps/${map.id}.json`, E)).status).toBe(404);
+  });
+
+  it('never serves the private imgindex, directly or through a traversal', async () => {
+    expect((await serveImage('/imgindex/x/y/z.png', E)).status).toBe(404);
+    expect((await serveImage('/img/../imgindex/x/y/z.png', E)).status).toBe(404);
   });
 });
