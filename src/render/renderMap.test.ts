@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MapNode } from '../shared/types';
 import { computeLayout } from '../layout/map';
-import { hashSeed, renderMap } from './renderMap';
+import { hashSeed, renderMap, storedImageKey } from './renderMap';
 import { PALETTE } from '../layout/styles';
 
 const measure = (t: string, size: number) => t.length * size * 0.5;
@@ -54,6 +54,31 @@ describe('renderMap', () => {
     expect(hashSeed('abc')).toBe(hashSeed('abc'));
     expect(hashSeed('abc')).not.toBe(hashSeed('abd'));
     expect(hashSeed('')).toBeGreaterThan(0);
+  });
+
+  describe('storedImageKey', () => {
+    it('returns the key when the topic has a stored image', () => {
+      const withImage: MapNode = {
+        id: 'r', text: 'Root',
+        children: [{ id: 'img', text: 'Cat', image: { key: 'img/abcdefghijklmnopqrstu/x.png', w: 200, h: 100 }, children: [] }],
+      };
+      const layout = computeLayout(withImage, measure);
+      expect(storedImageKey(layout.byId.get('img')!)).toBe('img/abcdefghijklmnopqrstu/x.png');
+    });
+
+    it('returns null for a foreign URL key, which the canvas and exports must not draw', () => {
+      const foreign: MapNode = {
+        id: 'r', text: 'Root',
+        children: [{ id: 'img', text: 'Cat', image: { key: 'https://evil.example/x.png', w: 200, h: 100 }, children: [] }],
+      };
+      const layout = computeLayout(foreign, measure);
+      expect(storedImageKey(layout.byId.get('img')!)).toBeNull();
+    });
+
+    it('returns null when the topic has no image', () => {
+      const layout = computeLayout(tree, measure);
+      expect(storedImageKey(layout.byId.get('a')!)).toBeNull();
+    });
   });
 
   it('draws links as blue <a> elements that open in a new tab, each with a sketchy underline', () => {

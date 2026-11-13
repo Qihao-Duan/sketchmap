@@ -81,3 +81,6 @@ export function topicStrokeWidth(kind: TopicKind, emphasis?: Emphasis): number {
 export function branchStrokeWidth(fromDepth: number, toEmphasis?: Emphasis): number {
   return (fromDepth === 0 ? 2.4 : 1.6) * (toEmphasis === 'key' ? 1.45 : toEmphasis === 'aside' ? 0.8 : 1);
 }
+
+/** Stroke widths of a topic's decorations: image frame, priority badge, folded-branch counter. */
+export const DECOR_STROKE = { frame: 1.2, badge: 1.2, foldCounter: 1.3 } as const;

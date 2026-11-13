@@ -3,7 +3,7 @@ import { IMAGE_KEY_RE } from '../shared/types';
 import type { MapLayout, TopicBox } from '../layout/map';
 import { countDescendants } from '../model/tree';
 import { FONT_STACK } from './fonts';
-import { ASIDE_INK, badgeSize, branchStrokeWidth, HIGHLIGHTER, INK, LINK_COLOR, PRIORITY_COLORS, topicStrokeWidth } from '../layout/styles';
+import { ASIDE_INK, badgeSize, branchStrokeWidth, DECOR_STROKE, HIGHLIGHTER, INK, LINK_COLOR, PRIORITY_COLORS, topicStrokeWidth } from '../layout/styles';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 export const SELECT_COLOR = '#4263eb';
@@ -23,6 +23,11 @@ export function hashSeed(s: string): number {
     h = Math.imul(h, 16777619);
   }
   return ((h >>> 0) % 2147483646) + 1;
+}
+
+/** The topic's stored image key when it has one the canvas and exports may draw (only keys of the stored-image form), else null. */
+export function storedImageKey(t: TopicBox): string | null {
+  return t.image && t.node.image && IMAGE_KEY_RE.test(t.node.image.key) ? t.node.image.key : null;
 }
 
 function el<K extends keyof SVGElementTagNameMap>(doc: Document, tag: K, attrs: Record<string, string | number>, parent?: Element) {
@@ -99,13 +104,14 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
   const lineLeft = (i: number) => (centred ? textLeft + (t.textW - t.lineWidths[i]) / 2 : textLeft);
 
   // Only keys of the stored-image form: a hand-edited map can't point the canvas or an export at another site.
-  if (t.image && t.node.image && IMAGE_KEY_RE.test(t.node.image.key)) {
+  const imageKey = storedImageKey(t);
+  if (imageKey && t.image) {
     el(doc, 'image', {
-      class: 'topic-image', href: `/${t.node.image.key}`, x: t.x + t.image.x, y: t.y + t.image.y,
+      class: 'topic-image', href: `/${imageKey}`, x: t.x + t.image.x, y: t.y + t.image.y,
       width: t.image.w, height: t.image.h, preserveAspectRatio: 'xMidYMid slice',
     }, g);
     g.appendChild(rc.rectangle(t.x + t.image.x, t.y + t.image.y, t.image.w, t.image.h, {
-      stroke: t.color.stroke, strokeWidth: 1.2, roughness: 0.9, seed: seed + 6,
+      stroke: t.color.stroke, strokeWidth: DECOR_STROKE.frame, roughness: 0.9, seed: seed + 6,
     }));
   }
 
@@ -158,7 +164,7 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
     const cy = t.y + t.textTop + lineHeight / 2;
     const color = PRIORITY_COLORS[t.node.priority];
     const badge = el(doc, 'g', { class: 'badge' }, g);
-    badge.appendChild(rc.circle(cx, cy, d, { fill: color, fillStyle: 'solid', stroke: color, strokeWidth: 1.2, roughness: 0.8, seed: seed + 50 }));
+    badge.appendChild(rc.circle(cx, cy, d, { fill: color, fillStyle: 'solid', stroke: color, strokeWidth: DECOR_STROKE.badge, roughness: 0.8, seed: seed + 50 }));
     el(doc, 'text', {
       x: cx, y: cy + d * 0.22, 'font-size': Math.round(d * 0.62), 'font-weight': 800,
       'font-family': 'system-ui, sans-serif', 'text-anchor': 'middle', fill: '#ffffff',
@@ -184,7 +190,7 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
     const folded = !!t.node.collapsed;
     const fg = el(doc, 'g', { class: folded ? 'fold folded' : 'fold', 'data-fold': t.id }, g);
     if (folded) {
-      fg.appendChild(rc.circle(cx, oy, 20, { stroke, strokeWidth: 1.3, roughness: 0.7, fill, fillStyle: 'solid', seed: seed + 9 }));
+      fg.appendChild(rc.circle(cx, oy, 20, { stroke, strokeWidth: DECOR_STROKE.foldCounter, roughness: 0.7, fill, fillStyle: 'solid', seed: seed + 9 }));
       const count = el(doc, 'text', { x: cx, y: oy + 4, 'font-size': 11.5, 'text-anchor': 'middle', 'font-weight': 700, 'font-family': 'system-ui, sans-serif', fill: INK }, fg);
       count.textContent = String(countDescendants(t.node));
     } else {
