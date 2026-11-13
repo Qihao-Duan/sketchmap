@@ -276,7 +276,7 @@ export function DetailsPanel({ node, onEmphasis, onPriority, onMarker, onNote, o
         <input
           ref={imageInput}
           type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
+          accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg"
           aria-label="Image file"
           className="image-file-input"
           onChange={(e) => {

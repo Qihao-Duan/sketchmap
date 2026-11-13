@@ -29,4 +29,20 @@ describe('DetailsPanel image row', () => {
     for (const s of ['S', 'M', 'L']) expect(byText(s).disabled, s).toBe(true);
     expect(byText('Uploading…').disabled).toBe(true);
   });
+
+  it('lets the file picker offer SVG files too (they are drawn into PNG)', () => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    const noop = vi.fn();
+    act(() =>
+      createRoot(container).render(
+        <DetailsPanel
+          node={{ id: 'a', text: 'Cat', children: [] }}
+          onEmphasis={noop} onPriority={noop} onMarker={noop} onNote={noop}
+          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop}
+        />,
+      ),
+    );
+    expect(container.querySelector('input[aria-label="Image file"]')!.getAttribute('accept')).toContain('image/svg+xml');
+  });
 });
