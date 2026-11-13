@@ -55,8 +55,12 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   await page.goto('/');
   const script = (await page.locator('script[type="module"][src]').first().getAttribute('src'))!;
   expect((await page.request.get(script)).headers()['cache-control']).toBe('public, max-age=31536000, immutable');
-  const font = await page.evaluate(() => performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).find((p) => p.startsWith('/fonts/')));
-  expect(font).toBeTruthy();
-  expect((await page.request.get(font!)).headers()['cache-control']).toBe('public, max-age=31536000, immutable');
+  // The list page is loaded lazily, and its hand-drawn heading asks for the font only once it is drawn.
+  await expect(page.getByRole('heading', { name: 'Your maps' })).toBeVisible();
+  const fontPath = () =>
+    page.evaluate(() => performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).find((p) => p.startsWith('/fonts/')) ?? null);
+  await expect.poll(fontPath).not.toBeNull();
+  const font = (await fontPath())!;
+  expect((await page.request.get(font)).headers()['cache-control']).toBe('public, max-age=31536000, immutable');
   expect((await page.request.get('/')).headers()['cache-control'] ?? '').not.toContain('immutable');
 });
