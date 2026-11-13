@@ -290,6 +290,9 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
   - The map is kept as a local draft in `localStorage`.
   - Retries back off over 2, 4, 8 … up to 60 s, and the status shows "Not saved, retrying".
   - On reload, the editor offers to restore a draft that's newer than the server copy.
+  - When the browser reports that the connection is back, a retry that is waiting runs at once.
+- **A read fails** (loading a map or the map list): after a network error or a 5xx answer the request is tried once more, 0.4 s later, before the error is shown. Writes are never repeated this way; saving has its own retries above.
+- **Browser storage is blocked:** the list and the editor fall back to a store that lives as long as the page. The owner key is asked for on every page, and no draft of unsaved changes survives a reload. The embed uses no browser storage at all.
 - **409 conflict** (for example, two tabs open): a dialog offers "Load the newer version" or "Keep mine and overwrite".
 - **Image problems:** a non-image, an oversized file or a failed upload shows a toast that says why. The topic doesn't change.
 - **Unknown map on the view page:** a plain "This map doesn't exist or was deleted" page.
@@ -311,6 +314,8 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
   - Attach an image.
   - Reload: everything persisted.
   - `/m/:id` renders inside an `<iframe>` on a local test page.
+  - Paste an image, drop one on a topic, and import an `.xmind` file that carries one.
+  - The suite runs in Chromium, WebKit and Firefox against the dev server, and once against the production build with its real headers. The test servers have their own ports and their own storage, emptied at each start.
 - **Manual check** for each release: embed `/m/:id` in a real Notion page in the browser and in the desktop app; click a link in the embed (browser and desktop app).
 
 ## 11. Delivery in four steps
@@ -331,6 +336,10 @@ Each step ends with something usable in Notion.
    - images (upload, R2, S/M/L)
    - `.excalidraw` export
    - dark-mode polish
+
+### After the four steps
+
+A fifth, hardening step followed (`docs/superpowers/plans/2026-11-13-step5-hardening.md`): blocked browser storage, retrying when back online, one retry for reads, exports that include text still being typed, year-long caching of hashed files, isolated browser tests, and the browser tests in WebKit and Firefox. It added no features.
 
 ## 12. Open questions
 
