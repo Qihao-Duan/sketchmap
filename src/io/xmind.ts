@@ -1,4 +1,5 @@
 import { newNodeId } from '../model/ids';
+import { MAX_SOURCE_IMAGE_BYTES } from './imagePrep';
 import { escapeLabel, linkWhole, normalizeHref } from '../shared/rich';
 import { LIMITS, type LayoutKind, type MapNode } from '../shared/types';
 import { MAX_OUTLINE_DEPTH } from './markdown';
@@ -126,6 +127,7 @@ function recordImage(image: unknown, nodeId: string, ctx: BuildCtx): void {
   const src = (image as { src?: unknown }).src;
   if (typeof src !== 'string' || !src.startsWith('xap:resources/')) return;
   const name = src.slice('xap:resources/'.length);
+  if (!name || name.length > 255) return; // not a resource name any real file uses
   if (/\.svg$/i.test(name)) {
     ctx.dropped.svgImages++;
     return;
@@ -134,8 +136,12 @@ function recordImage(image: unknown, nodeId: string, ctx: BuildCtx): void {
     ctx.dropped.imagesOverLimit++;
     return;
   }
-  const width = (image as { width?: unknown }).width;
-  const height = (image as { height?: unknown }).height;
+  const w = (image as { width?: unknown }).width;
+  const h = (image as { height?: unknown }).height;
+  // Use XMind's display size only when both sides are usable; otherwise the image's own size is used later.
+  const sized = typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0 && Number.isFinite(w) && Number.isFinite(h);
+  const width = sized ? w : undefined;
+  const height = sized ? h : undefined;
   ctx.images.push({
     nodeId,
     resource: `resources/${name}`,
@@ -485,7 +491,6 @@ export async function importXmind(bytes: Uint8Array): Promise<XmindImport> {
 
 /** Reads the `resources/<name>` entries `importXmind` recorded on `XmindImport.images`, out of the same archive. */
 export async function readXmindResources(bytes: Uint8Array, names: string[]): Promise<Map<string, Uint8Array>> {
-  // 30 MB, not readZip's 20 MB default: matches prepareImage's own raw-upload cap, so a resource large enough to
-  // be prepared isn't rejected first by this read.
-  return readZip(bytes, names, 30_000_000);
+  // The same cap as prepareImage's source-file limit, so a resource that could be prepared isn't refused first here.
+  return readZip(bytes, names, MAX_SOURCE_IMAGE_BYTES);
 }

@@ -248,3 +248,13 @@ describe('readXmindResources', () => {
     expect(got.has('resources/b.svg')).toBe(false);
   });
 });
+
+describe('xmind image sizes', () => {
+  it('records an image size only when both width and height are positive numbers', () => {
+    const one = (image: object) => fromXmindJson([{ id: 's', rootTopic: { id: 'r', title: 'R', children: { attached: [{ id: 'a', title: 'A', image }] } } }]).images[0];
+    expect(one({ src: 'xap:resources/a.png', width: 120, height: 60 })).toMatchObject({ width: 120, height: 60 });
+    expect(one({ src: 'xap:resources/a.png', width: 120 })).not.toHaveProperty('width');
+    expect(one({ src: 'xap:resources/a.png', width: 0, height: 60 })).not.toHaveProperty('height');
+    expect(fromXmindJson([{ id: 's', rootTopic: { id: 'r', title: 'R', image: { src: `xap:resources/${'x'.repeat(300)}.png` } } }]).images).toEqual([]);
+  });
+});

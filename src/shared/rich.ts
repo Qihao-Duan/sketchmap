@@ -70,6 +70,16 @@ export function parseRich(text: string): { plain: string; links: RichLink[] } {
       i += 2;
       continue;
     }
+    // Markdown image syntax ![alt](url) stays plain text in v1 (spec §9): neither a link nor a bare URL.
+    if (c === '!' && text[i + 1] === '[') {
+      LINK.lastIndex = i + 1;
+      const m = LINK.exec(text);
+      if (m) {
+        plain += `!${m[0]}`;
+        i += 1 + m[0].length;
+        continue;
+      }
+    }
     if (c === '[') {
       LINK.lastIndex = i;
       const m = LINK.exec(text);

@@ -5,7 +5,9 @@ export const IMAGE_SIZES = { S: 120, M: 200, L: 300 } as const;
 
 const MIN_PX = 16;
 const MAX_PX = 2048;
-const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+/** Largest image file accepted for preparation (before re-encoding shrinks it). */
+export const MAX_SOURCE_IMAGE_BYTES = 30 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = MAX_SOURCE_IMAGE_BYTES;
 const MAX_ENCODED_BYTES = 5 * 1024 * 1024;
 const JPEG_QUALITY = 0.85;
 const SNIFF_BYTES = 512;

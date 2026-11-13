@@ -190,6 +190,45 @@ describe('ListPage', () => {
     expect(status.textContent).toContain('1 image could not be added');
   });
 
+  it('one oversized image resource fails only itself; the other image is still added', async () => {
+    localStorage.setItem('sketchmap:owner-key', 'k');
+    const calls = stubApi();
+    const saved: unknown[] = [];
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init = {}) => {
+      if (init.method === 'PUT') {
+        saved.push(JSON.parse(String(init.body)));
+        return Response.json(JSON.parse(String(init.body)), { headers: { ETag: '"e2"' } });
+      }
+      return base(url, init);
+    });
+    await render();
+    const xmind = await makeZip([
+      { name: 'content.json', deflate: false, data: JSON.stringify([{ id: 's', class: 'sheet', title: 'S', rootTopic: { id: 'r', title: 'Trip', children: { attached: [
+        { id: 'a', title: 'Good', image: { src: 'xap:resources/a.png' } },
+        { id: 'b', title: 'Huge', image: { src: 'xap:resources/b.png' } },
+      ] } } }]) },
+      { name: 'resources/a.png', deflate: false, data: new Uint8Array([1, 2, 3]) },
+      { name: 'resources/b.png', deflate: false, data: new Uint8Array([4, 5, 6]) },
+    ]);
+    // Claim resources/b.png is 2 GB uncompressed, so reading it (alone) is refused.
+    const v = new DataView(xmind.buffer, xmind.byteOffset);
+    const cdStart = v.getUint32(xmind.length - 22 + 16, true);
+    const dec = new TextDecoder();
+    for (let p = cdStart; p < xmind.length - 22; ) {
+      const nameLen = v.getUint16(p + 28, true);
+      if (dec.decode(xmind.subarray(p + 46, p + 46 + nameLen)) === 'resources/b.png') v.setUint32(p + 24, 0x7fffffff, true);
+      p += 46 + nameLen + v.getUint16(p + 30, true) + v.getUint16(p + 32, true);
+    }
+    const input = container.querySelector('input[aria-label="XMind file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File([xmind] as BlobPart[], 'trip.xmind')] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => {});
+    expect(calls.filter(([m, u]) => m === 'POST' && u.endsWith('/images'))).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ root: { children: [{ text: 'Good', image: { key: stubKey } }, { text: 'Huge' }] } });
+    expect(container.querySelector('.import-result')!.textContent).toContain('1 image could not be added');
+  });
+
   it('pluralises the topic count in the import summary, down to one', async () => {
     localStorage.setItem('sketchmap:owner-key', 'k');
     stubApi();

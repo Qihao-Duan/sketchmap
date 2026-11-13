@@ -90,15 +90,10 @@ export function ListPage({ go = (url: string) => location.assign(url) }: { go?: 
 
       let failedImages = 0;
       if (result.images.length > 0) {
-        let resources: Map<string, Uint8Array>;
-        try {
-          resources = await readXmindResources(bytes, result.images.map((img) => img.resource));
-        } catch {
-          resources = new Map(); // every image below fails with "resource not found", counted the same way
-        }
         for (const img of result.images) {
           try {
-            const raw = resources.get(img.resource);
+            // One resource at a time: an oversized or damaged one fails only itself.
+            const raw = (await readXmindResources(bytes, [img.resource])).get(img.resource);
             if (!raw) throw new Error('resource not found in the archive');
             const prepared = await prepareImage(new Blob([raw] as BlobPart[]));
             const { key } = await api.uploadImage(map.id, prepared.blob);

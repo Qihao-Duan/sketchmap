@@ -111,3 +111,10 @@ describe('links keep their source', () => {
     expect(normalizeHref('mailto:a@b.c')).toBeNull();
   });
 });
+
+describe('Markdown image syntax', () => {
+  it('stays plain text: neither a link nor a bare URL (spec §9, v1)', () => {
+    expect(parseRich('see ![](https://a.com/img/x.png) here')).toEqual({ plain: 'see ![](https://a.com/img/x.png) here', links: [] });
+    expect(parseRich('![alt](https://a.com/p.png)').links).toEqual([]);
+  });
+});
