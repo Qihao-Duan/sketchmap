@@ -120,6 +120,46 @@ test('importance, priority, marker and note survive a reload and show in the vie
   await check();
   await page.goto(`/m/${id}`);
   await check();
+
+  // In the view a click on the note icon opens the whole note in a card; Escape puts it away.
+  await page.locator('g.note-icon').click();
+  await expect(page.locator('.note-card .note-text')).toHaveText('Remember this');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.note-card')).toHaveCount(0);
+});
+
+test.describe('on a touch screen', () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 700 } });
+
+  test('a tap on the note icon in the view shows the note, and a tap elsewhere puts it away', async ({ page }) => {
+    const id = await openNewMap(page);
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('Alpha');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('g.topic')).toHaveCount(2);
+    // The Details panel starts folded on a screen this narrow.
+    const details = page.getByRole('button', { name: 'Show topic details' });
+    if (await details.isVisible()) await details.click();
+    await page.getByLabel('Note').fill('Gate B12\nBoards 9:40');
+    await page.getByLabel('Note').blur();
+    // The badge can still read "Saved" from the save before, so ask the server whether the note has arrived.
+    await expect
+      .poll(async () => (await (await page.request.get(`/api/maps/${id}`)).json()).root.children[0]?.note, { timeout: 10_000 })
+      .toBe('Gate B12\nBoards 9:40');
+
+    await page.goto(`/m/${id}`);
+    const icon = (await page.locator('g.note-icon rect').boundingBox())!;
+    await page.touchscreen.tap(icon.x + icon.width / 2, icon.y + icon.height / 2);
+    const card = page.locator('.note-card');
+    await expect(card.locator('.note-text')).toHaveText('Gate B12\nBoards 9:40');
+    // The card stays inside the small page.
+    const box = (await card.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    expect(box.y + box.height).toBeLessThanOrEqual(700);
+    await page.touchscreen.tap(20, 680);
+    await expect(card).toHaveCount(0);
+  });
 });
 
 test('a link made with Cmd/Ctrl K survives a reload and opens from the view', async ({ page, context }) => {

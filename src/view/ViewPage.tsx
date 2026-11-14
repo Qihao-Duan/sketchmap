@@ -1,10 +1,10 @@
 import { produce } from 'immer';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, createApi } from '../api/client';
 import { Canvas, type CanvasHandle } from '../editor/Canvas';
 import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
-import { allText, toggleCollapsed } from '../model/tree';
+import { allText, findNode, toggleCollapsed } from '../model/tree';
 import { canvasMeasure, ensureFonts } from '../render/fonts';
 import type { MindMap } from '../shared/types';
 
@@ -16,6 +16,53 @@ export function MapView({ map, measureFactory = canvasMeasure }: { map: MindMap;
   const [fontsReady, setFontsReady] = useState(false);
   const canvas = useRef<CanvasHandle>(null);
   const layout = useMemo(() => layoutMap(local.root, local.layout, measure), [local.root, local.layout, measure]);
+  // The note being read: its topic, and where its icon is inside this page (to hang the card on).
+  const [open, setOpen] = useState<{ id: string; x: number; top: number; bottom: number } | null>(null);
+  const view = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const noteText = open ? findNode(local.root, open.id)?.node.note?.trim() : undefined;
+
+  // A hover tooltip can't be opened on a touch screen, so a tap on the icon shows the note in a card.
+  const showNote = (id: string, icon: Element) => {
+    if (open?.id === id) {
+      setOpen(null); // a second tap on the same icon puts it away
+      return;
+    }
+    const page = view.current!.getBoundingClientRect();
+    const r = icon.getBoundingClientRect();
+    setOpen({ id, x: r.left - page.left, top: r.top - page.top, bottom: r.bottom - page.top });
+  };
+
+  // Keep the card inside the page (an embed can be small): under the icon when it fits there, else above it.
+  useLayoutEffect(() => {
+    const el = card.current;
+    const page = view.current;
+    if (!open || !el || !page) return;
+    const left = Math.max(8, Math.min(open.x - 12, page.clientWidth - el.offsetWidth - 8));
+    const below = open.bottom + 8;
+    const above = open.top - 8 - el.offsetHeight;
+    const top = below + el.offsetHeight <= page.clientHeight - 8 || above < 8 ? below : above;
+    el.style.left = `${left}px`;
+    el.style.top = `${Math.max(8, top)}px`;
+  }, [open, noteText]);
+
+  // Escape, or a press anywhere else, puts the card away. A press on a note icon is left to showNote.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(null);
+    };
+    const onPress = (e: Event) => {
+      const target = e.target as Element | null;
+      if (!target?.closest?.('.note-card, [data-note]')) setOpen(null);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onPress, true);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onPress, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     let alive = true;
@@ -39,16 +86,25 @@ export function MapView({ map, measureFactory = canvasMeasure }: { map: MindMap;
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const toggle = (id: string) =>
+  const toggle = (id: string) => {
+    setOpen(null);
     setLocal((m) =>
       produce(m, (d) => {
         toggleCollapsed(d.root, id);
       }),
     );
+  };
 
   return (
-    <div className="view">
-      <Canvas ref={canvas} layout={layout} selectedId={null} interactive={false} onToggleFold={toggle} fitMaxK={1.5} />
+    <div className="view" ref={view}>
+      {/* The card hangs on a place on screen, so it goes away when the map moves under it. */}
+      <Canvas ref={canvas} layout={layout} selectedId={null} interactive={false} onToggleFold={toggle} onNote={showNote} onViewChange={() => setOpen(null)} fitMaxK={1.5} />
+      {open && noteText && (
+        <div ref={card} className="note-card" role="dialog" aria-label="Note" style={{ left: open.x, top: open.bottom + 8 }}>
+          <button type="button" className="note-close" aria-label="Close note" onClick={() => setOpen(null)}>×</button>
+          <p className="note-text">{noteText}</p>
+        </div>
+      )}
       <div className="view-bar">
         <span className="pill">View only</span>
         <a className="edit-link" href={`/e/${map.id}`} target="_blank" rel="noopener">Edit in a tab ↗</a>

@@ -241,6 +241,18 @@ describe('renderMap', () => {
       expect(topic(drawn(), 'k').querySelector('g.badge, g.note-icon')).toBeNull();
     });
 
+    it('the note icon names its topic; where notes open on a tap it can also be reached with the Tab key', () => {
+      const plain = topic(drawn(), 'p').querySelector('g.note-icon')!;
+      expect(plain.getAttribute('data-note')).toBe('p');
+      expect(plain.hasAttribute('tabindex')).toBe(false);
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const world = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      svg.appendChild(world);
+      renderMap(svg, world, computeLayout(decorated, measure), { selectedId: null, noteButtons: true });
+      const button = topic(world, 'p').querySelector('g.note-icon')!;
+      expect([button.getAttribute('tabindex'), button.getAttribute('role'), button.getAttribute('aria-label')]).toEqual(['0', 'button', 'Show note']);
+    });
+
     it('branches into Key topics are 1.45× wider, into Aside topics 0.8× and dashed', () => {
       const w = drawn();
       const layout = computeLayout(decorated, measure);

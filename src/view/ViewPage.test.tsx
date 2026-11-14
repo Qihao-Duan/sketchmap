@@ -36,6 +36,67 @@ describe('MapView', () => {
     expect(container.querySelector('g.topic.selected')).toBeNull();
   });
 
+  describe('notes', () => {
+    const long = `First line\nSecond line ${'x'.repeat(1200)} END`;
+    const noted: MindMap = {
+      ...map,
+      root: { id: 'r', text: 'Plan', children: [
+        { id: 'a', text: 'A', note: 'Bring the tickets', children: [{ id: 'a1', text: 'A1', children: [] }] },
+        { id: 'b', text: 'B', note: long, children: [] },
+      ] },
+    };
+    const tap = (el: Element) => {
+      act(() => void el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 5, clientY: 5 })));
+      act(() => void el.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0, clientX: 5, clientY: 5 })));
+    };
+    const iconOf = (id: string) => container.querySelector(`g.note-icon[data-note="${id}"] rect`)!;
+    const card = () => container.querySelector('.note-card');
+
+    it('a tap on a note icon shows the whole note in a card; a second tap puts it away', async () => {
+      await render(<MapView map={noted} measureFactory={measure} />);
+      expect(card()).toBeNull();
+      tap(iconOf('a'));
+      expect(card()!.getAttribute('role')).toBe('dialog');
+      expect(card()!.querySelector('.note-text')!.textContent).toBe('Bring the tickets');
+      tap(iconOf('a'));
+      expect(card()).toBeNull();
+    });
+
+    it('shows a long note in full (the hover tooltip stops at 1000 characters) and switches when another icon is tapped', async () => {
+      await render(<MapView map={noted} measureFactory={measure} />);
+      tap(iconOf('a'));
+      tap(iconOf('b'));
+      expect(container.querySelectorAll('.note-card')).toHaveLength(1);
+      expect(card()!.querySelector('.note-text')!.textContent).toBe(long);
+    });
+
+    it('goes away on Escape, on its close button, and on a press anywhere outside it', async () => {
+      await render(<MapView map={noted} measureFactory={measure} />);
+      tap(iconOf('a'));
+      act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+      expect(card()).toBeNull();
+      tap(iconOf('a'));
+      act(() => (card()!.querySelector('button[aria-label="Close note"]') as HTMLButtonElement).click());
+      expect(card()).toBeNull();
+      tap(iconOf('a'));
+      act(() => void card()!.querySelector('.note-text')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
+      expect(card()).not.toBeNull(); // a press inside the card (to select text, to scroll) keeps it
+      act(() => void container.querySelector('.view-bar')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
+      expect(card()).toBeNull();
+    });
+
+    it('goes away when the map under it changes: a fold, or the canvas being moved', async () => {
+      await render(<MapView map={noted} measureFactory={measure} />);
+      tap(iconOf('b'));
+      press(container.querySelector('[data-fold="a"] rect')!);
+      expect(card()).toBeNull();
+      tap(iconOf('b'));
+      const svg = container.querySelector('svg')!;
+      act(() => void svg.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true })));
+      expect(card()).toBeNull();
+    });
+  });
+
   it('folds branches locally without touching the network', async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
