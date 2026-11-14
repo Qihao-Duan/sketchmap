@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiError, createApi, type ApiClient } from '../api/client';
+import { fetchSession } from '../auth/access';
 import { clearOwnerKey, getOwnerKey, setOwnerKey } from '../auth/ownerKey';
 import { SignIn } from '../auth/SignIn';
 import { useAccess } from '../auth/useAccess';
@@ -57,8 +58,10 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [conflict, setConflict] = useState(false);
   const [dialogError, setDialogError] = useState<string>();
   const [askKey, setAskKey] = useState(false);
-  /** Set when the user follows the Google link out of the sign-in dialog with their changes safely kept. */
+  /** Set when the user follows the Google link out of the sign-in dialog, in this tab, with their changes safely kept. */
   const leavingToSignIn = useRef(false);
+  /** For a key user's refused save: whether the site offers Google too (asked once the save is refused). */
+  const [keyUserGoogle, setKeyUserGoogle] = useState<boolean | null>(null);
   const [copied, setCopied] = useState(false);
   const [exportError, setExportError] = useState<string>();
   const [rejectedMessage, setRejectedMessage] = useState<string>();
@@ -120,6 +123,19 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     [api, etag, storage],
   );
   useEffect(() => () => saver.dispose(), [saver]);
+
+  // The sign-in dialog opened or closed. Closed: whatever it was going to do is over. Opened for a key user:
+  // ask whether the site also offers Google; the dialog waits for the answer, so its layout doesn't jump.
+  useEffect(() => {
+    leavingToSignIn.current = false;
+    setKeyUserGoogle(null);
+    if (!askKey || googleSession) return;
+    let alive = true;
+    void fetchSession(null).then((s) => alive && setKeyUserGoogle(s.google));
+    return () => {
+      alive = false;
+    };
+  }, [askKey, googleSession]);
 
   // Autosave every user change (server echoes don't bump `revision`).
   const lastRevision = useRef(state.revision);
@@ -459,14 +475,19 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const editing = state.editing;
   const editBox = editing ? layout.byId.get(editing.id) : undefined;
 
-  // What the sign-in dialog says after a refused save. Signing in with Google leaves this page, so it matters
-  // whether this browser really holds a copy of the changes (it does not when site data is blocked or full).
-  const draftKept = askKey && readDraft(storage, initial.id) !== null;
-  const signInAgainMessage = !googleSession
-    ? 'The owner key was rejected. Enter it again to keep saving.'
+  // The sign-in dialog after a refused save. Signing in with Google leaves this page, so it matters whether
+  // this browser holds a copy of the changes as they are now (not when site data is blocked or full, and not
+  // when only an older copy got written before storage filled up).
+  const offerGoogle = askKey && (googleSession || keyUserGoogle === true);
+  const dialogReady = askKey && (googleSession || keyUserGoogle !== null);
+  const kept = offerGoogle ? readDraft(storage, initial.id) : null;
+  const draftKept = !!kept && JSON.stringify([kept.map.root, kept.map.layout]) === JSON.stringify([state.map.root, state.map.layout]);
+  const refused = googleSession ? 'Your sign-in has ended.' : 'The owner key was rejected.';
+  const signInAgainMessage = !offerGoogle
+    ? `${refused} Enter it again to keep saving.`
     : draftKept
-      ? 'Your sign-in has ended. Sign in again to keep saving. Your changes are kept in this browser and offered back when you return.'
-      : 'Your sign-in has ended. Signing in again leaves this page, and this browser could not keep a copy of your changes. Copy what you need first (Copy as Markdown), then sign in again.';
+      ? `${refused} Sign in again to keep saving. Your changes are kept in this browser and offered back when you return.`
+      : `${refused} Signing in with Google leaves this page, and this browser could not keep a copy of your changes. Copy what you need first (Copy as Markdown), or use the owner key.`;
 
   return (
     <div className="editor">
@@ -645,14 +666,16 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         />
       </main>
       {conflict && <ConflictDialog onLoadNewer={loadNewer} onKeepMine={keepMine} error={dialogError} />}
-      {askKey && (
+      {dialogReady && (
         <div className="dialog-backdrop">
           <SignIn
-            google={googleSession}
+            google={offerGoogle}
             next={`/e/${initial.id}`}
             message={signInAgainMessage}
-            onGoogle={() => {
-              leavingToSignIn.current = draftKept;
+            onGoogle={(e) => {
+              // Only a plain click leaves this page; a ⌘/Ctrl, Shift or middle click opens Google elsewhere.
+              const sameTab = e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+              leavingToSignIn.current = sameTab && draftKept;
             }}
             onKey={(key) => {
               setOwnerKey(key);

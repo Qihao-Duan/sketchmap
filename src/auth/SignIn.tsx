@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react';
 import { googleSignInUrl } from './access';
 import { KeyPrompt } from './KeyPrompt';
 
@@ -10,8 +11,8 @@ interface Props {
   onKey(key: string): void;
   /** Shown as "Try again" when the server could not be asked whether this browser is signed in. */
   onRetry?(): void;
-  /** The Google link was followed: the page is about to be left. */
-  onGoogle?(): void;
+  /** The Google link was clicked (a plain click leaves this page; a ⌘/Ctrl or middle click opens a new tab). */
+  onGoogle?(e: MouseEvent<HTMLAnchorElement>): void;
 }
 
 /** The sign-in page: Google first when the site offers it, with the owner key always available. */

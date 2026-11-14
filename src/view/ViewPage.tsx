@@ -16,18 +16,30 @@ interface Box {
 }
 
 const MARGIN = 8;
+/** A card shorter than this (about two lines) is not worth keeping its icon in sight for. */
+const MIN_ROOM = 40;
 
 /**
- * Where a note card goes, in page coordinates: under its icon when it fits there, else above it, else as low
- * as the page allows; never past an edge (8 px to spare), and when it is taller than the page, from the top.
+ * Where a note card goes, in page coordinates, 8 px clear of every edge: under its icon when it fits there,
+ * else above it. When it fits on neither side, on the side with more room, made that short (`maxHeight`; it
+ * scrolls), so the icon it belongs to stays in sight. Only on a page too short for even that does it cover
+ * the icon, as low as it can.
  */
-export function placeNoteCard(page: { width: number; height: number }, icon: Box, card: { width: number; height: number }): { left: number; top: number } {
+export function placeNoteCard(
+  page: { width: number; height: number },
+  icon: Box,
+  card: { width: number; height: number },
+): { left: number; top: number; maxHeight: number | null } {
   const left = Math.max(MARGIN, Math.min(icon.left - 12, page.width - card.width - MARGIN));
   const below = icon.bottom + MARGIN;
-  const above = icon.top - MARGIN - card.height;
-  const lowest = page.height - MARGIN - card.height;
-  const top = below <= lowest ? below : above >= MARGIN ? above : lowest;
-  return { left, top: Math.max(MARGIN, top) };
+  const roomBelow = page.height - MARGIN - below;
+  const roomAbove = icon.top - 2 * MARGIN;
+  if (card.height <= roomBelow) return { left, top: below, maxHeight: null };
+  if (card.height <= roomAbove) return { left, top: icon.top - MARGIN - card.height, maxHeight: null };
+  if (Math.max(roomBelow, roomAbove) >= MIN_ROOM) {
+    return roomBelow >= roomAbove ? { left, top: below, maxHeight: roomBelow } : { left, top: MARGIN, maxHeight: roomAbove };
+  }
+  return { left, top: Math.max(MARGIN, page.height - MARGIN - card.height), maxHeight: null };
 }
 
 export function MapView({ map, measureFactory = canvasMeasure }: { map: MindMap; measureFactory?: () => Measure }) {
@@ -69,6 +81,7 @@ export function MapView({ map, measureFactory = canvasMeasure }: { map: MindMap;
     }
     const el = card.current;
     if (!el) return;
+    el.style.maxHeight = ''; // measure the card at its own height first
     const at = placeNoteCard(
       { width: page.clientWidth, height: page.clientHeight },
       { left: r.left - p.left, top: r.top - p.top, right: r.right - p.left, bottom: r.bottom - p.top },
@@ -76,13 +89,15 @@ export function MapView({ map, measureFactory = canvasMeasure }: { map: MindMap;
     );
     el.style.left = `${at.left}px`;
     el.style.top = `${at.top}px`;
+    el.style.maxHeight = at.maxHeight === null ? '' : `${at.maxHeight}px`;
   };
 
   useLayoutEffect(() => {
     if (openId) placeCard(openId, false);
   }, [openId, noteText]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Escape, or a press anywhere else, puts the card away. A press on a note icon is left to showNote.
+  // Escape, or a press anywhere but on the card or its own icon, puts the card away. A press on another
+  // note's icon does too: released there without a drag, it then opens that note (showNote).
   useEffect(() => {
     if (!openId) return;
     const onKey = (e: KeyboardEvent) => {
@@ -90,7 +105,9 @@ export function MapView({ map, measureFactory = canvasMeasure }: { map: MindMap;
     };
     const onPress = (e: Event) => {
       const target = e.target as Element | null;
-      if (!target?.closest?.('.note-card, [data-note]')) setOpenId(null);
+      if (target?.closest?.('.note-card')) return;
+      if (target?.closest?.('[data-note]')?.getAttribute('data-note') === openId) return;
+      setOpenId(null);
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('pointerdown', onPress, true);

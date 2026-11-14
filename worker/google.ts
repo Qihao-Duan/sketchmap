@@ -105,7 +105,8 @@ async function finish(request: Request, env: Env, tokenFetch: typeof fetch): Pro
   const now = Date.now();
   if (url.searchParams.has('error')) return giveUp('cancelled');
 
-  // The cookie proves this browser started the attempt; the state ties Google's answer to that attempt.
+  // The cookie (only this host can set a `__Host-` cookie) holds the attempt started in this browser; the
+  // state Google sends back must be that attempt's.
   const pending = decodeJson(readCookie(request, SIGNIN_COOKIE)) as Partial<Pending> | null;
   const whole = pending && [pending.state, pending.nonce, pending.verifier, pending.next].every((v) => typeof v === 'string' && v) && typeof pending.exp === 'number';
   if (!pending || !whole || !(pending.exp! * 1000 > now)) return giveUp('expired');

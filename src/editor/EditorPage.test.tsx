@@ -1003,15 +1003,57 @@ describe('Editor: several topics selected', () => {
 describe('getting into the editor', () => {
   const stored = { ...map, root: { id: 'root000001', text: 'Root', children: [{ id: 'kidA000001', text: 'Alpha', children: [] }] } };
   /** A server that knows one map. `session` is what /api/session answers. */
-  function stubServer(session: object) {
+  /** Saves are refused (401), as when a session has ended. */
+  function stubServer(session: object | (() => Response)) {
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
       calls.push(`${init.method ?? 'GET'} ${url}`);
-      if (url === '/api/session') return Response.json(session);
+      if (url === '/api/session') return typeof session === 'function' ? session() : Response.json(session);
+      if (init.method === 'PUT') return Response.json({ error: 'Unauthorized' }, { status: 401 });
       return new Response(JSON.stringify(stored), { headers: { ETag: '"e1"' } });
     }));
     return calls;
   }
+  async function editAndWait() {
+    keydown({ key: 'Tab' });
+    type(container.querySelector('textarea')!, 'A');
+    keydown({ key: 'Enter' }, container.querySelector('textarea')!);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    await act(async () => {});
+  }
+
+  it('opened with a Google session, a refused save offers Google again at once', async () => {
+    stubServer({ signedIn: true, email: 'me@example.com', google: true });
+    await open();
+    await editAndWait();
+    const dialog = container.querySelector('.dialog-backdrop')!;
+    expect(dialog.querySelector('a.google-button')).not.toBeNull();
+    expect(dialog.querySelector('[role="alert"]')!.textContent).toMatch(/^Your sign-in has ended\./);
+  });
+
+  it('opened with the owner key on a site that offers Google, a refused key offers Google as well as the key', async () => {
+    localStorage.setItem('sketchmap:owner-key', 'old-key');
+    const calls = stubServer({ signedIn: false, email: null, google: true });
+    await open();
+    await editAndWait();
+    const dialog = container.querySelector('.dialog-backdrop')!;
+    expect(calls).toContain('GET /api/session');
+    expect(dialog.querySelector('a.google-button')).not.toBeNull();
+    expect(dialog.querySelector('#owner-key')).not.toBeNull();
+    expect(dialog.querySelector('[role="alert"]')!.textContent).toMatch(/^The owner key was rejected\./);
+  });
+
+  it('when the sign-in check cannot reach the server, says so and offers Try again, which opens the map once it answers', async () => {
+    let up = false;
+    stubServer(() => (up ? Response.json({ signedIn: true, email: 'me@example.com', google: true }) : Response.json({ error: 'Bad gateway' }, { status: 502 })));
+    await open();
+    expect(container.querySelector('[role="alert"]')!.textContent).toMatch(/Couldn’t reach the server/);
+    up = true;
+    const retry = container.querySelector('button.retry') as HTMLButtonElement;
+    await act(async () => retry.click());
+    await act(async () => {});
+    expect(container.querySelectorAll('g.topic')).toHaveLength(2);
+  });
   async function open() {
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -1078,7 +1120,36 @@ describe('getting into the editor', () => {
       expect(leaveWarning()).toBe(false);
     });
 
-    it('when this browser could not keep a copy, says so instead, and leaving still warns', async () => {
+    it('when this browser kept only an older copy (it filled up), says the changes are not kept, and leaving still warns', async () => {
+      // The first draft (the new, still empty topic) is written; then storage is full and the text "A" is not.
+      const data = new Map<string, string>();
+      const full = {
+        getItem: (k: string) => data.get(k) ?? null,
+        setItem: (k: string, v: string) => { if (data.size > 0) throw new Error('quota'); data.set(k, v); },
+        removeItem: (k: string) => void data.delete(k), clear: () => data.clear(), key: () => null, get length() { return data.size; },
+      } as Storage;
+      const dialog = await editAndBeRefused(full);
+      expect(data.size).toBe(1); // an older copy is there
+      expect(dialog.querySelector('[role="alert"]')!.textContent).toMatch(/could not keep a copy of your changes\. Copy what you need first/);
+      follow(dialog.querySelector('a.google-button')!);
+      expect(leaveWarning()).toBe(true);
+    });
+
+    it('opening Google in a new tab (⌘/Ctrl-click) leaves the warning in place, and so does staying after all', async () => {
+      const dialog = await editAndBeRefused();
+      const link = dialog.querySelector('a.google-button')!;
+      link.addEventListener('click', (e) => e.preventDefault());
+      act(() => void link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true })));
+      expect(leaveWarning()).toBe(true);
+      follow(link);
+      expect(leaveWarning()).toBe(false);
+      // Back to the key instead: the dialog closes, and the page warns again while changes are unsaved.
+      typeInput(dialog.querySelector('#owner-key') as HTMLInputElement, 'k');
+      act(() => void dialog.querySelector('.key-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+      expect(leaveWarning()).toBe(true);
+    });
+
+    it('when this browser could not keep any copy, says so instead, and leaving still warns', async () => {
       const blocked = { getItem: () => null, setItem: () => { throw new Error('quota'); }, removeItem: () => {}, clear: () => {}, key: () => null, length: 0 } as Storage;
       const dialog = await editAndBeRefused(blocked);
       expect(dialog.querySelector('[role="alert"]')!.textContent).toMatch(/could not keep a copy of your changes\. Copy what you need first/);

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createRoot, type Root } from 'react-dom/client';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MindMap } from '../shared/types';
@@ -102,7 +102,13 @@ describe('MapView', () => {
         vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
           return rect(this.closest('[data-note]') ? iconBox : page);
         });
+        // The page is 400 × 400 and the card 200 × 80.
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400);
+        vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(200);
+        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(80);
       });
+      const at = () => [(card() as HTMLElement).style.left, (card() as HTMLElement).style.top];
       afterEach(() => vi.restoreAllMocks());
       const wheel = () =>
         act(() => void container.querySelector('svg')!.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true })));
@@ -118,13 +124,54 @@ describe('MapView', () => {
         expect(card()).toBeNull();
       });
 
-      it('stays with its icon while the map moves or is redrawn, and goes away once the icon has left the page', async () => {
+      it('opens under its icon', async () => {
         await render(<MapView map={noted} measureFactory={measure} />);
         tap(iconOf('b'));
+        expect(at()).toEqual(['88px', '128px']);
+      });
+
+      it('moves with its icon when the map moves, and goes away once the icon has left the page', async () => {
+        await render(<MapView map={noted} measureFactory={measure} />);
+        tap(iconOf('b'));
+        iconBox = { left: 150, top: 160, right: 170, bottom: 180 };
         wheel();
-        expect(card()).not.toBeNull();
+        expect(at()).toEqual(['138px', '188px']);
         iconBox = { left: 500, top: 100, right: 520, bottom: 120 }; // moved off the right edge
         wheel();
+        expect(card()).toBeNull();
+      });
+
+      it('stays open and follows its icon when the map is redrawn under it (new data, or the fonts arriving)', async () => {
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        const root: Root = createRoot(container);
+        await act(async () => root.render(<MapView map={noted} measureFactory={measure} />));
+        tap(iconOf('b'));
+        const drawnBefore = container.querySelector('g.topic[data-id="b"]');
+        iconBox = { left: 120, top: 100, right: 140, bottom: 120 };
+        await act(async () => root.render(<MapView map={{ ...noted, title: 'Plan, saved again' }} measureFactory={measure} />));
+        expect(container.querySelector('g.topic[data-id="b"]')).not.toBe(drawnBefore); // really redrawn
+        expect(card()).not.toBeNull();
+        expect(at()).toEqual(['108px', '128px']);
+        act(() => root.unmount());
+      });
+
+      it('goes away on a fold, even though its own icon is still on the page', async () => {
+        await render(<MapView map={noted} measureFactory={measure} />);
+        tap(iconOf('b'));
+        press(container.querySelector('[data-fold="a"] rect')!);
+        expect(card()).toBeNull();
+      });
+
+      it('a press on another note’s icon puts it away: a tap there opens that note, a drag from there opens nothing', async () => {
+        await render(<MapView map={noted} measureFactory={measure} />);
+        tap(iconOf('b'));
+        tap(iconOf('a'));
+        expect(card()!.querySelector('.note-text')!.textContent).toBe('Bring the tickets');
+        const fromB = iconOf('b');
+        act(() => void fromB.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 5, clientY: 5 })));
+        act(() => void fromB.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, buttons: 1, clientX: 105, clientY: 5 })));
+        act(() => void fromB.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0, clientX: 105, clientY: 5 })));
         expect(card()).toBeNull();
       });
     });
@@ -135,7 +182,7 @@ describe('MapView', () => {
     const icon = (left: number, top: number) => ({ left, top, right: left + 20, bottom: top + 22 });
 
     it('puts the card under its icon, a little to the left of it', () => {
-      expect(placeNoteCard(page, icon(100, 200), { width: 200, height: 80 })).toEqual({ left: 88, top: 230 });
+      expect(placeNoteCard(page, icon(100, 200), { width: 200, height: 80 })).toEqual({ left: 88, top: 230, maxHeight: null });
     });
 
     it('keeps the card inside the page on the right and the left, with 8 px to spare', () => {
@@ -144,13 +191,19 @@ describe('MapView', () => {
     });
 
     it('goes above the icon when it does not fit under it', () => {
-      expect(placeNoteCard(page, icon(100, 600), { width: 200, height: 120 })).toEqual({ left: 88, top: 600 - 8 - 120 });
+      expect(placeNoteCard(page, icon(100, 600), { width: 200, height: 120 })).toEqual({ left: 88, top: 600 - 8 - 120, maxHeight: null });
     });
 
-    it('when it fits neither under nor above, sits as low as the page allows: never past the bottom, never above the top', () => {
-      const short = { width: 720, height: 420 };
-      expect(placeNoteCard(short, icon(300, 200), { width: 320, height: 294 }).top).toBe(420 - 8 - 294);
-      expect(placeNoteCard({ width: 390, height: 300 }, icon(100, 140), { width: 320, height: 400 }).top).toBe(8);
+    it('when it fits neither under nor above, takes the side with more room and gets shorter (it scrolls), so its icon stays in sight', () => {
+      // 720 × 420, icon at 200–222: 182 px free under it, 184 above → above, 184 tall.
+      expect(placeNoteCard({ width: 720, height: 420 }, icon(300, 200), { width: 320, height: 294 })).toEqual({ left: 288, top: 8, maxHeight: 184 });
+      // 390 × 260, icon at 60–82: 162 px under it, 44 above → under, 162 tall.
+      expect(placeNoteCard({ width: 390, height: 260 }, icon(100, 60), { width: 320, height: 182 })).toEqual({ left: 62, top: 90, maxHeight: 162 });
+    });
+
+    it('only on a page too short for even two lines beside the icon does it cover the icon, as low as it can', () => {
+      // 600 × 120, icon at 50–72: 32 px under it, 34 above, both under 40.
+      expect(placeNoteCard({ width: 600, height: 120 }, icon(100, 50), { width: 320, height: 84 })).toEqual({ left: 88, top: 120 - 8 - 84, maxHeight: null });
     });
   });
 
