@@ -35,8 +35,11 @@ interface Props {
 
 type Gesture =
   | { kind: 'pan'; x: number; y: number; tx: number; ty: number; link: string | null; moved: boolean }
-  /** `base`: what Shift keeps selected while the box adds to it. `last`: the selection last reported. */
-  | { kind: 'box'; x: number; y: number; base: string[]; last: string | null; moved: boolean }
+  /**
+   * `base`: what Shift keeps selected while the box adds to it. `origin`: the current topic when the drag
+   * began, which stays selected when the box touches nothing. `last`: the selection last reported.
+   */
+  | { kind: 'box'; x: number; y: number; base: string[]; origin: string | null; last: string | null; moved: boolean }
   /** `grouped`: the pressed topic is one of several selected ones, so a drag moves them all (`moving`). */
   | { kind: 'topic'; id: string; x: number; y: number; moved: boolean; dbl: boolean; grouped: boolean; moving: string[]; ghosts: SVGGElement[] }
   | { kind: 'link'; x: number; y: number; href: string; moved: boolean };
@@ -149,6 +152,34 @@ export function Canvas({
     return () => svg.removeEventListener('wheel', onWheel);
   }, [interactive]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // On Windows and Linux the right-click menu opens when the button is released, wherever the pointer is
+  // by then (the Details panel, the toolbar), so the canvas's own handler can't stop it. A right-button drag
+  // therefore holds the menu back for the whole page until shortly after the release.
+  const menuHeld = useRef(false);
+  const menuTimer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!interactive) return;
+    const hold = (e: MouseEvent) => {
+      if (menuHeld.current) e.preventDefault();
+    };
+    window.addEventListener('contextmenu', hold, true);
+    return () => {
+      window.removeEventListener('contextmenu', hold, true);
+      window.clearTimeout(menuTimer.current);
+    };
+  }, [interactive]);
+  const holdMenu = () => {
+    window.clearTimeout(menuTimer.current);
+    menuHeld.current = true;
+  };
+  const letMenuGo = () => {
+    if (!menuHeld.current) return;
+    window.clearTimeout(menuTimer.current);
+    menuTimer.current = window.setTimeout(() => {
+      menuHeld.current = false;
+    }, 300);
+  };
+
   const setDrop = (id: string | null) => {
     if (dropRef.current !== id) {
       dropRef.current = id;
@@ -202,6 +233,7 @@ export function Canvas({
       gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, link, moved: false };
     };
     if (panButton) {
+      if (e.button === 2) holdMenu();
       startPan(null);
       return;
     }
@@ -226,7 +258,7 @@ export function Canvas({
       }
       svgRef.current?.setPointerCapture?.(e.pointerId);
       const base = e.shiftKey && selectedId ? [selectedId, ...extraIds] : [];
-      gesture.current = { kind: 'box', x: e.clientX, y: e.clientY, base, last: null, moved: false };
+      gesture.current = { kind: 'box', x: e.clientX, y: e.clientY, base, origin: selectedId, last: null, moved: false };
       return;
     }
     const id = topic.getAttribute('data-id')!;
@@ -265,6 +297,9 @@ export function Canvas({
     for (const b of layout.boxes) {
       if (!kept.has(b.id) && b.x < right && b.x + b.w > left && b.y < bottom && b.y + b.h > top) ids.push(b.id);
     }
+    // The editor follows every report, so once the box has selected a topic that topic is its current one.
+    // A box that has let go of everything therefore names the topic that was current before the drag.
+    if (!ids.length && g.origin) ids.push(g.origin);
     // Every report redraws the map, so only a change in what is touched is reported.
     const key = ids.join(' ');
     if (key === g.last) return;
@@ -279,6 +314,7 @@ export function Canvas({
       // The browser never delivered pointerup/pointercancel (e.g. released off-window); recover quietly.
       releaseGesture(g);
       gesture.current = null;
+      letMenuGo();
       return;
     }
     const dx = e.clientX - g.x;
@@ -342,6 +378,7 @@ export function Canvas({
   const endGesture = (e: PointerEvent<SVGSVGElement>, cancelled: boolean) => {
     const g = gesture.current;
     gesture.current = null;
+    letMenuGo();
     if (!g) return;
     const still = Math.hypot(e.clientX - g.x, e.clientY - g.y) < 6;
     if (g.kind === 'link') {
@@ -365,7 +402,9 @@ export function Canvas({
       if (target) onMove?.(g.id, target);
       return;
     }
-    if (g.grouped && !cancelled) onSelect?.(g.id);
+    // A press on one of several selected topics that never became a drag: a click selects just that topic.
+    // A press that travelled without dragging anything (the central topic can't be moved) changes nothing.
+    if (g.grouped && !cancelled && still) onSelect?.(g.id);
     if (g.dbl) onEdit?.(g.id);
   };
 

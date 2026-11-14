@@ -960,19 +960,25 @@ describe('Editor: several topics selected', () => {
   it('Tab on several selected topics adds the child to the current one and selects only the new topic', () => {
     mount(fakeApi(), three);
     click('kidA000001');
-    click('kidB000001', { shiftKey: true });
+    click('kidB000001', { shiftKey: true }); // Beta is now the current topic
     keydown({ key: 'Tab' });
     expect(container.querySelectorAll('g.topic')).toHaveLength(4);
     expect(selectedOnScreen()).toHaveLength(1);
-    expect(container.querySelector('textarea')).not.toBeNull();
+    type(container.querySelector('textarea')!, 'Child');
+    keydown({ key: 'Enter' }, container.querySelector('textarea')!);
+    act(() => ([...container.querySelectorAll('button')].find((b) => b.textContent === 'Outline') as HTMLButtonElement).click());
+    const outline = (container.querySelector('textarea[aria-label="Outline text"]') as HTMLTextAreaElement).value;
+    expect(outline).toMatch(/- Alpha\n- Beta\n {2}- Child\n/);
   });
 
-  it('the Delete button is offered for a selection that holds more than the central topic', () => {
+  it('the Delete button is offered when the central topic is the current one but other topics are selected with it', () => {
     mount(fakeApi(), three);
-    const del = () => container.querySelector('button[aria-label="Delete topic"], button[title^="Delete"]') as HTMLButtonElement | null;
-    expect(del()).not.toBeNull();
-    expect(del()!.disabled).toBe(true);
-    click('kidA000001', { shiftKey: true });
-    expect(del()!.disabled).toBe(false);
+    const del = () => container.querySelector('button[title^="Delete topic"]') as HTMLButtonElement;
+    expect(del().disabled).toBe(true); // the central topic alone can't be deleted
+    keydown({ key: 'a', metaKey: true }); // the central topic stays the current one
+    expect(panel().querySelector('h2')!.textContent).toBe('3 topics selected');
+    expect(del().disabled).toBe(false);
+    act(() => del().click());
+    expect(container.querySelectorAll('g.topic')).toHaveLength(1);
   });
 });

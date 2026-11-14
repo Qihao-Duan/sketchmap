@@ -96,6 +96,34 @@ function keepSelection(map: MindMap, id: string): string {
   return T.findNode(map.root, id) ? id : map.root.id;
 }
 
+/** Every topic hidden inside a folded branch, mapped to the outermost folded topic that hides it. */
+function hiddenBy(root: MapNode): Map<string, string> {
+  const out = new Map<string, string>();
+  const walk = (node: MapNode, hider: string | null) => {
+    const h = hider ?? (node.collapsed ? node.id : null);
+    for (const child of node.children) {
+      if (h) out.set(child.id, h);
+      walk(child, h);
+    }
+  };
+  walk(root, null);
+  return out;
+}
+
+/**
+ * A selection never rests on a topic that a fold hides, so Delete or a drag can't reach a topic nobody
+ * sees. Hidden topics leave the selection; if that empties it, the folded topic above the current one
+ * becomes the selected one.
+ */
+function onlyVisible(state: EditorState): EditorState {
+  const hidden = hiddenBy(state.map.root);
+  const all = selectedIds(state);
+  if (!all.some((id) => hidden.has(id))) return state;
+  const [first, ...rest] = all.filter((id) => !hidden.has(id));
+  if (first === undefined) return { ...state, selectedId: hidden.get(state.selectedId)!, extraIds: NONE };
+  return { ...state, selectedId: first, extraIds: rest.length ? rest : NONE };
+}
+
 /** Importance from lowest to highest; undefined is Normal. */
 const IMPORTANCE: ReadonlyArray<Emphasis | undefined> = ['aside', undefined, 'highlight', 'key'];
 
@@ -348,7 +376,9 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
 }
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
-  const next = reduce(state, action);
+  const reduced = reduce(state, action);
+  // Only a change to the topics can fold a branch over the selection (a fold, an undo, a redo).
+  const next = reduced.map.root === state.map.root ? reduced : onlyVisible(reduced);
   // Anything except another note edit (or a save echo) ends a note-typing session.
   if (next.lastEdit === undefined || action.type === 'setNote' || action.type === 'serverSaved') return next;
   return { ...next, lastEdit: undefined };

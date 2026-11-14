@@ -379,11 +379,20 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
   const flatLayout = computeLayout(flat, (t, s) => t.length * s * 0.5);
   type Extra = { selectedId?: string | null; extraIds?: string[]; interactive?: boolean };
 
+  // Unmounted after each test (and before a second mount): a canvas listens on the window while it lives.
+  let mounted: ReturnType<typeof createRoot> | null = null;
+  const unmount = () => {
+    act(() => mounted?.unmount());
+    mounted = null;
+  };
+  afterEach(unmount);
   function mountFlat({ selectedId = null, extraIds, interactive = true }: Extra = {}) {
+    unmount();
     const h = { onSelect: vi.fn(), onToggleSelect: vi.fn(), onSelectMany: vi.fn(), onEdit: vi.fn(), onMove: vi.fn(), onToggleFold: vi.fn() };
     container = document.createElement('div');
     document.body.appendChild(container);
-    act(() => createRoot(container).render(<Canvas layout={flatLayout} selectedId={selectedId} extraIds={extraIds} interactive={interactive} {...h} />));
+    mounted = createRoot(container);
+    act(() => mounted!.render(<Canvas layout={flatLayout} selectedId={selectedId} extraIds={extraIds} interactive={interactive} {...h} />));
     return h;
   }
   /** A pointer event with any button, modifier or pointer type. Returns the event, to read defaultPrevented. */
@@ -435,17 +444,68 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
     expect(new Set(calls.map((ids) => ids.join(' '))).size).toBe(calls.length);
   });
 
-  it('a box that touches nothing, and a plain click on the background, report an empty selection', () => {
+  it('a box that touches nothing leaves only the topic that was current when the drag began; so does a plain click on the background', () => {
     const h = mountFlat({ selectedId: 'a', extraIds: ['b'] });
     const far = Math.max(...flatLayout.boxes.map((b) => b.y + b.h)) + 200;
     fire(svgEl(), 'pointerdown', 0, far);
     fire(svgEl(), 'pointermove', 30, far + 30, { buttons: 1 });
     fire(svgEl(), 'pointerup', 30, far + 30);
-    expect(h.onSelectMany).toHaveBeenLastCalledWith([]);
+    expect(h.onSelectMany).toHaveBeenLastCalledWith(['a']);
     h.onSelectMany.mockClear();
     fire(svgEl(), 'pointerdown', 0, far);
     fire(svgEl(), 'pointerup', 0, far);
-    expect(h.onSelectMany).toHaveBeenCalledWith([]);
+    expect(h.onSelectMany).toHaveBeenCalledWith([]); // "nothing more": the editor keeps its current topic
+  });
+
+  it('a box dragged over a topic and back off it gives the selection back to the topic that was current before', () => {
+    // The editor follows every report, so by the time the box leaves b, b is its current topic: the canvas
+    // has to name the earlier one itself.
+    const h = mountFlat({ selectedId: 'c' });
+    const [x0, y0, x1] = around('b');
+    const far = Math.max(...flatLayout.boxes.map((b) => b.y + b.h)) + 200;
+    fire(svgEl(), 'pointerdown', x0, far);
+    fire(svgEl(), 'pointermove', x1, y0, { buttons: 1 });
+    expect(h.onSelectMany.mock.calls.at(-1)![0]).toContain('b');
+    fire(svgEl(), 'pointermove', x0 + 20, far + 20, { buttons: 1 });
+    fire(svgEl(), 'pointerup', x0 + 20, far + 20);
+    expect(h.onSelectMany).toHaveBeenLastCalledWith(['c']);
+  });
+
+  it('dragging from the central topic, which never moves, keeps a multi-selection; a still click on it selects just it', () => {
+    const h = mountFlat({ selectedId: 'r', extraIds: ['a', 'b'] });
+    const r = container.querySelector('g.topic[data-id="r"] rect.hit')!;
+    fire(r, 'pointerdown', 10, 10);
+    fire(r, 'pointermove', 90, 40, { buttons: 1 });
+    fire(r, 'pointerup', 90, 40);
+    expect(h.onSelect).not.toHaveBeenCalled();
+    expect(h.onMove).not.toHaveBeenCalled();
+    fire(r, 'pointerdown', 10, 10);
+    fire(r, 'pointerup', 11, 10);
+    expect(h.onSelect).toHaveBeenCalledWith('r');
+  });
+
+  it('while the right button drags, and just after, the right-click menu is held back anywhere on the page (it opens on release on Windows and Linux)', () => {
+    vi.useFakeTimers();
+    try {
+      mountFlat();
+      const menuOn = (el: Element) => fire(el, 'contextmenu', 5, 5, { button: 2 }).defaultPrevented;
+      expect(menuOn(document.body)).toBe(false); // no drag yet: the page keeps its menu
+      fire(svgEl(), 'pointerdown', 100, 100, { button: 2, buttons: 2 });
+      fire(svgEl(), 'pointermove', 400, 300, { buttons: 2 });
+      expect(menuOn(document.body)).toBe(true);
+      fire(svgEl(), 'pointerup', 400, 300, { button: 2 });
+      expect(menuOn(document.body)).toBe(true); // released over a panel: the menu event follows the release
+      act(() => void vi.advanceTimersByTime(400));
+      expect(menuOn(document.body)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the view-only page never holds the menu back', () => {
+    mountFlat({ interactive: false });
+    fire(svgEl(), 'pointerdown', 100, 100, { button: 2, buttons: 2 });
+    expect(fire(document.body, 'contextmenu', 5, 5, { button: 2 }).defaultPrevented).toBe(false);
   });
 
   it('with Shift held, the box adds to what was selected, and a plain Shift-click on the background changes nothing', () => {
@@ -555,7 +615,8 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
     const deepLayout = computeLayout(deep, (t, s) => t.length * s * 0.5);
     container = document.createElement('div');
     document.body.appendChild(container);
-    act(() => createRoot(container).render(<Canvas layout={deepLayout} selectedId="a1" extraIds={['a', 'r']} interactive onToggleFold={() => {}} />));
+    mounted = createRoot(container);
+    act(() => mounted!.render(<Canvas layout={deepLayout} selectedId="a1" extraIds={['a', 'r']} interactive onToggleFold={() => {}} />));
     const overlay = container.querySelector('g.overlay')!;
     const a1 = container.querySelector('g.topic[data-id="a1"] rect.hit')!;
     fire(a1, 'pointerdown', 10, 10);

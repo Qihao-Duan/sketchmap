@@ -427,6 +427,32 @@ describe('selecting several topics', () => {
     expect(selectedIds(reduce(start(['a', 'b']), { type: 'pasteNodes', nodes: [{ id: 'p', text: 'P', children: [] }] }))).toEqual(['p']);
   });
 
+  it('folding a branch takes the topics it hides out of the selection, so nothing unseen is deleted or moved', () => {
+    let s = start(['a1', 'b', 'c']);
+    s = reduce(s, { type: 'toggleFold', id: 'a' });
+    expect(selectedIds(s)).toEqual(['b', 'c']);
+    s = reduce(s, { type: 'delete' });
+    expect(kids(s, 'r')).toEqual(['a']);
+    expect(kids(s, 'a')).toEqual(['a1', 'a2']);
+  });
+
+  it('when a fold hides every selected topic, the folded topic becomes the selected one', () => {
+    let s = reduce(initEditor(wide()), { type: 'select', id: 'a1' });
+    s = reduce(s, { type: 'toggleFold', id: 'a' });
+    expect(selectedIds(s)).toEqual(['a']);
+    s = reduce(start(['a1', 'a2']), { type: 'toggleFold', id: 'a' });
+    expect(selectedIds(s)).toEqual(['a']);
+  });
+
+  it('an undo that folds a branch again also takes its topics out of the selection', () => {
+    const map = wide();
+    map.root.children[0].collapsed = true;
+    let s = reduce(initEditor(map), { type: 'toggleFold', id: 'a' }); // unfolded
+    s = reduce(s, { type: 'selectMany', ids: ['a2', 'b'] });
+    s = reduce(s, { type: 'undo' }); // folded again
+    expect(selectedIds(s)).toEqual(['b']);
+  });
+
   it('undo keeps the selected topics that still exist', () => {
     let s = reduce(reduce(initEditor(wide()), { type: 'select', id: 'a' }), { type: 'addChild' });
     s = reduce(s, { type: 'commitEdit', text: 'New' });

@@ -102,7 +102,10 @@ describe('several topics at once', () => {
     expect(removeNodes(big(), ['a', 'b', 'c'], 'b')).toBe('r');
   });
 
-  it('removeNodes starts from the removed branch that holds the anchor', () => {
+  it('removeNodes starts from the removed branch that holds the anchor, not from the first removed one', () => {
+    // Removed branches: a1 (first) and b. The anchor b1 sits inside b, so the next topic is b's sibling c;
+    // starting from a1 instead would give a2.
+    expect(removeNodes(big(), ['a1', 'b', 'b1'], 'b1')).toBe('c');
     expect(removeNodes(big(), ['a', 'a1', 'c'], 'a1')).toBe('b');
   });
 
