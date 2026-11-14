@@ -8,7 +8,7 @@ import { buildSvg, download } from '../io/exportImage';
 import { ImageError, prepareImage } from '../io/imagePrep';
 import type { MindMap } from '../shared/types';
 import { draftKey } from './autosave';
-import { Editor } from './EditorPage';
+import { Editor, EditorPage } from './EditorPage';
 
 // jsdom can't decode images (createImageBitmap/OffscreenCanvas aren't implemented): stub prepareImage,
 // keeping the real displaySize/IMAGE_SIZES so the rest of the image flow behaves like production.
@@ -980,5 +980,68 @@ describe('Editor: several topics selected', () => {
     expect(del().disabled).toBe(false);
     act(() => del().click());
     expect(container.querySelectorAll('g.topic')).toHaveLength(1);
+  });
+});
+
+describe('getting into the editor', () => {
+  const stored = { ...map, root: { id: 'root000001', text: 'Root', children: [{ id: 'kidA000001', text: 'Alpha', children: [] }] } };
+  /** A server that knows one map. `session` is what /api/session answers. */
+  function stubServer(session: object) {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+      calls.push(`${init.method ?? 'GET'} ${url}`);
+      if (url === '/api/session') return Response.json(session);
+      return new Response(JSON.stringify(stored), { headers: { ETag: '"e1"' } });
+    }));
+    return calls;
+  }
+  async function open() {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<EditorPage id={stored.id} />));
+    await act(async () => {});
+    await act(async () => {});
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('with a Google session and no key, opens the map', async () => {
+    const calls = stubServer({ signedIn: true, email: 'me@example.com', google: true });
+    await open();
+    expect(calls.slice(0, 2)).toEqual(['GET /api/session', `GET /api/maps/${stored.id}`]);
+    expect(container.querySelectorAll('g.topic')).toHaveLength(2);
+  });
+
+  it('signed out, offers Google with this map as the page to come back to, and loads nothing', async () => {
+    const calls = stubServer({ signedIn: false, email: null, google: true });
+    await open();
+    expect((container.querySelector('a.google-button') as HTMLAnchorElement).getAttribute('href')).toBe(`/auth/google?next=%2Fe%2F${stored.id}`);
+    expect(calls).toEqual(['GET /api/session']);
+  });
+
+  it('with a stored key, opens the map at once without asking about a session', async () => {
+    localStorage.setItem('sketchmap:owner-key', 'k');
+    const calls = stubServer({ signedIn: false, email: null, google: true });
+    await open();
+    expect(calls).toEqual([`GET /api/maps/${stored.id}`]);
+    expect(container.querySelectorAll('g.topic')).toHaveLength(2);
+  });
+
+  it('when a save is refused in a Google session, the dialog offers Google again and says the changes are kept', async () => {
+    stubServer({ signedIn: false, email: null, google: true });
+    vi.useFakeTimers();
+    try {
+      mount(fakeApi({ saveMap: vi.fn(async () => { throw new ApiError(401, 'Unauthorized'); }) }));
+      keydown({ key: 'Tab' });
+      type(container.querySelector('textarea')!, 'A');
+      keydown({ key: 'Enter' }, container.querySelector('textarea')!);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      const dialog = container.querySelector('.dialog-backdrop')!;
+      expect(dialog.querySelector('[role="alert"]')!.textContent).toMatch(/sign-in has ended.*changes are kept in this browser/);
+      expect((dialog.querySelector('a.google-button') as HTMLAnchorElement).getAttribute('href')).toBe(`/auth/google?next=%2Fe%2F${map.id}`);
+      expect(dialog.querySelector('#owner-key')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

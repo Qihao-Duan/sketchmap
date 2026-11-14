@@ -1,19 +1,26 @@
 import { useState } from 'react';
 
-export function KeyPrompt({ onSubmit, error }: { onSubmit: (key: string) => void; error?: string }) {
+interface Props {
+  onSubmit: (key: string) => void;
+  error?: string;
+  /** Just the field and the button, for use inside the sign-in page: no heading, and no grabbing of the keyboard. */
+  compact?: boolean;
+}
+
+export function KeyPrompt({ onSubmit, error, compact = false }: Props) {
   const [value, setValue] = useState('');
   return (
     <form
-      className="key-prompt"
+      className={compact ? 'key-form' : 'key-prompt'}
       onSubmit={(e) => {
         e.preventDefault();
         if (value.trim()) onSubmit(value.trim());
       }}
     >
-      <h1>Enter your owner key</h1>
-      <p>This browser asks once. It's the secret you set with <code>wrangler secret put OWNER_KEY</code>.</p>
+      {!compact && <h1>Enter your owner key</h1>}
+      {!compact && <p>This browser asks once. It's the secret you set with <code>wrangler secret put OWNER_KEY</code>.</p>}
       <label htmlFor="owner-key">Owner key</label>
-      <input id="owner-key" type="password" autoComplete="current-password" autoFocus value={value} onChange={(e) => setValue(e.target.value)} />
+      <input id="owner-key" type="password" autoComplete="current-password" autoFocus={!compact} value={value} onChange={(e) => setValue(e.target.value)} />
       {error && <p role="alert" className="error">{error}</p>}
       <button type="submit">Continue</button>
     </form>

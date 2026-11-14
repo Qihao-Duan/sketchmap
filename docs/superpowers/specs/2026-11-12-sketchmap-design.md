@@ -61,13 +61,27 @@ worker/      Cloudflare Worker: API routes, auth, R2 access, security headers
 
 | Route | What it is |
 |---|---|
-| `/` | Your maps (title, last edited), plus "New map". Needs the owner key. |
-| `/e/:id` | The editor. Needs the owner key. |
+| `/` | Your maps (title, last edited), plus "New map". Needs the owner key or a Google sign-in. |
+| `/e/:id` | The editor. Needs the owner key or a Google sign-in. |
 | `/m/:id` | The read-only view used as the Notion embed. Public to anyone with the link. |
 
 The owner key is a long random secret, stored as a Worker secret. Each browser asks for it once and then keeps it in `localStorage`. The one exception is the local dev server on the developer's own machine: it reads its local key from `.dev.vars` and hands it to the page, so the local site never asks. A build never carries a key, and neither does a dev server opened to other machines.
 
 Map IDs are 21-character nanoids, so view links can't be guessed. Without the key, a visitor can only view maps whose link they have.
+
+### Sign in with Google (added 2026-11-14)
+
+Asked for so that a new machine needs no key. It is for the owner's own Google account(s), not for the public: the map list is still one list. The owner key stays as the fallback and for local development and tests.
+
+- **Switched on by three Worker secrets:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `OWNER_EMAILS` (the allowed addresses). Until all are set, `/auth/google` answers 404 and the sign-in page shows only the owner key.
+- **Flow:** the OpenID Connect authorization-code flow, run by the Worker, so no Google script loads in the page and the strict CSP is unchanged. `GET /auth/google?next=<path>` redirects to Google with a random `state`, a `nonce` and a PKCE challenge, kept meanwhile in a sealed ten-minute cookie. `GET /auth/google/callback` checks the cookie and the `state`, trades the code for an ID token at Google's token endpoint, and checks its `iss`, `aud`, `exp`, `nonce`, `email_verified` and that the email is on the list.
+- **The ID token's signature is not checked.** The Worker receives it straight from Google's token endpoint over TLS, authenticated with the client secret. Google's OpenID Connect guide says of exactly this case that "you can be confident that the token you receive really comes from Google and is valid", and OpenID Connect Core 3.1.3.7 allows TLS server validation in place of the signature check. The token never passes through the browser.
+- **Session:** a cookie `__Host-sm_session` (HttpOnly, Secure, SameSite=Lax, 30 days) holding the account id, the email and the end time, signed with HMAC-SHA-256. The signing key is derived (HKDF) from `OWNER_KEY`, so there is no further secret, and changing the owner key ends every session. Each request also re-checks that the email is still on the list.
+- **Requests from other sites:** a browser attaches the cookie to requests other sites cause. So a cookie-authorised request that changes data must carry an `Origin` header equal to the site's own origin; otherwise it is refused like an unsigned one. Requests with the owner key in the `Authorization` header need no such check. The pages must therefore never be served with `Referrer-Policy: no-referrer`, under which browsers send `Origin: null` on same-site writes.
+- **After sign-in** the browser returns to `next`, accepted only when it is a path on this site. A failed sign-in returns to `/?signin=<reason>` and the page says why in words.
+- **`GET /api/session`** tells the page whether it is signed in, as whom, and whether Google is offered. **`POST /auth/logout`** clears the cookie.
+- **Owner of a map:** R2 custom metadata `owner = google:<account id>`, set when a map is created in a Google session, or on its first save in one if it had none. It lives beside the map, not in its JSON, so no client can set it. Nothing reads it yet; it is recorded now so that per-account map lists later need no guessing.
+- **Not built:** sign-up for other people, per-account map lists, and sign-in on the local dev server over plain http in Safari (which takes no Secure cookie there; local development uses the key).
 
 ## 3. Data model
 
@@ -254,7 +268,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
   - Maps are stored at `maps/<id>.json` in R2, with title and updatedAt in custom metadata.
   - Saves use R2's conditional `put` (`onlyIf` with the etag) for the 409 check.
   - Listing uses R2 `list({ include: ['customMetadata'] })`, which returns each map's metadata (confirmed in Miniflare). Because `put` replaces custom metadata, every save resends title, updatedAt and version.
-- **Auth:** `Authorization: Bearer <owner key>`, compared in constant time. Wrong or missing key → 401, with no hint about whether the map exists.
+- **Auth:** `Authorization: Bearer <owner key>`, compared in constant time, or a Google session cookie (section 2, "Sign in with Google"). Wrong or missing key → 401, with no hint about whether the map exists.
 - **Inputs are validated server-side:**
   - The schema is checked with a small zod schema.
   - Link targets are never stored separately: they are derived from topic text by `parseRich`, which yields only http(s) URLs.

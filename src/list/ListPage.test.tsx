@@ -28,11 +28,18 @@ const click = (text: string) => act(async () => { button(text).click(); });
 
 const stubKey = `img/${id}/stub.png`;
 
-function stubApi() {
+/** `session`: what /api/session answers. `listStatus`: the status of the map list (401 = key or session refused). */
+function stubApi({ session = { signedIn: false, email: null, google: false }, listStatus = 200 }: { session?: object | (() => object); listStatus?: number } = {}) {
   const calls: Array<[string, string]> = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET';
     calls.push([method, url]);
+    if (url === '/api/session') return Response.json(typeof session === 'function' ? session() : session);
+    if (url === '/auth/logout') {
+      if (typeof session !== 'function') Object.assign(session, { signedIn: false, email: null });
+      return new Response(null, { status: 204 });
+    }
+    if (url === '/api/maps' && method === 'GET' && listStatus !== 200) return Response.json({ error: 'Unauthorized' }, { status: listStatus });
     if (method === 'POST' && url.endsWith('/images')) return Response.json({ key: stubKey });
     if (method === 'POST') return Response.json({ id, title: 'Central topic', layout: 'map', version: 1, updatedAt: 't', root: { id: 'r', text: 'Central topic', children: [] } }, { status: 201 });
     if (method === 'DELETE') return new Response(null, { status: 204 });
@@ -53,6 +60,61 @@ describe('ListPage', () => {
     stubApi();
     await render();
     expect(container.querySelector('#owner-key')).not.toBeNull();
+  });
+
+  it('with a Google session and no key, goes straight to the maps, names the account, and signs out on request', async () => {
+    const calls = stubApi({ session: { signedIn: true, email: 'me@example.com', google: true } });
+    await render();
+    expect(container.querySelector('#owner-key')).toBeNull();
+    expect(container.textContent).toContain('Weekly plan');
+    expect(container.querySelector('.account')!.textContent).toBe('me@example.com');
+    expect(calls.find(([, url]) => url === '/api/maps')).toBeTruthy();
+    await click('Sign out');
+    await act(async () => {});
+    expect(calls).toContainEqual(['POST', '/auth/logout']);
+    expect(container.textContent).not.toContain('Weekly plan');
+    expect((container.querySelector('a.google-button') as HTMLAnchorElement).getAttribute('href')).toBe('/auth/google?next=%2F');
+  });
+
+  it('signed out, where Google is offered: shows the Google link and asks for no maps', async () => {
+    const calls = stubApi({ session: { signedIn: false, email: null, google: true } });
+    await render();
+    expect(container.querySelector('a.google-button')).not.toBeNull();
+    expect(container.querySelector('#owner-key')).not.toBeNull(); // the owner key stays available
+    expect(calls.some(([, url]) => url === '/api/maps')).toBe(false);
+  });
+
+  it('says why a Google sign-in failed, once, and tidies the address', async () => {
+    history.replaceState(null, '', '/?signin=notallowed');
+    try {
+      stubApi({ session: { signedIn: false, email: null, google: true } });
+      await render();
+      expect(container.querySelector('[role="alert"]')!.textContent).toMatch(/isn’t allowed to edit/);
+      expect(location.pathname + location.search).toBe('/');
+    } finally {
+      history.replaceState(null, '', '/');
+    }
+  });
+
+  it('when a stored key is refused, forgets it and shows the sign-in page with the reason', async () => {
+    localStorage.setItem('sketchmap:owner-key', 'old-key');
+    stubApi({ listStatus: 401 });
+    await render();
+    await act(async () => {});
+    expect(localStorage.getItem('sketchmap:owner-key')).toBeNull();
+    expect(container.querySelector('#owner-key')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')!.textContent).toBe('That owner key was rejected. Check it and try again.');
+  });
+
+  it('when a Google session has ended, says so and offers Google again', async () => {
+    // The cookie runs out between the first look (signed in) and the map list (refused): the second look says so.
+    let looks = 0;
+    stubApi({ session: () => ({ signedIn: ++looks === 1, email: looks === 1 ? 'me@example.com' : null, google: true }), listStatus: 401 });
+    await render();
+    await act(async () => {});
+    expect(looks).toBe(2);
+    expect(container.querySelector('[role="alert"]')!.textContent).toBe('Your sign-in has ended. Sign in again.');
+    expect(container.querySelector('a.google-button')).not.toBeNull();
   });
 
   it('lists maps and opens a new one after creating it', async () => {

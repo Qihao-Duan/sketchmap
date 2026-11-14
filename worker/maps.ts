@@ -1,3 +1,4 @@
+import { ownerId, type Who } from './auth';
 import type { Env } from './index';
 import { API_HEADERS, errorResponse, json } from './http';
 import { MapValidationError, parseMindMap } from '../src/shared/schema';
@@ -8,8 +9,13 @@ import { deleteImages } from './images';
 
 const ID_RE = /^[A-Za-z0-9_-]{21}$/;
 const objectKey = (id: string) => `maps/${id}.json`;
-// R2 `put` replaces custom metadata, so every write sends all three fields.
-const metadata = (m: MindMap) => ({ title: m.title, updatedAt: m.updatedAt, version: String(m.version) });
+// R2 `put` replaces custom metadata, so every write sends every field. `owner` is the Google account a map
+// belongs to (`google:<account id>`). It is kept here, beside the map and out of its JSON, so no client can set
+// it; nothing reads it yet. It is recorded from the start so that giving each account its own maps later needs
+// no guessing about who made what.
+const metadata = (m: MindMap, owner: string | undefined) => ({
+  title: m.title, updatedAt: m.updatedAt, version: String(m.version), ...(owner ? { owner } : {}),
+});
 const CONFLICT = 'The map changed since you loaded it';
 
 export async function listMaps(env: Env): Promise<Response> {
@@ -30,7 +36,7 @@ export async function listMaps(env: Env): Promise<Response> {
   return json(out);
 }
 
-export async function createMap(request: Request, env: Env): Promise<Response> {
+export async function createMap(request: Request, env: Env, who: Who): Promise<Response> {
   let text = 'Central topic';
   try {
     const body = (await request.json()) as { title?: unknown };
@@ -42,7 +48,7 @@ export async function createMap(request: Request, env: Env): Promise<Response> {
   const map: MindMap = { id: newMapId(), title: plainTitle(root), layout: 'map', version: 1, updatedAt: new Date().toISOString(), root };
   const obj = await env.MAPS.put(objectKey(map.id), JSON.stringify(map), {
     httpMetadata: { contentType: 'application/json' },
-    customMetadata: metadata(map),
+    customMetadata: metadata(map, ownerId(who)),
   });
   return json(map, { status: 201, headers: { ETag: obj!.httpEtag } });
 }
@@ -56,7 +62,7 @@ export async function getMap(id: string, env: Env): Promise<Response> {
   });
 }
 
-export async function saveMap(id: string, request: Request, env: Env): Promise<Response> {
+export async function saveMap(id: string, request: Request, env: Env, who: Who): Promise<Response> {
   if (!ID_RE.test(id)) return errorResponse(404, 'Not found');
   const ifMatch = request.headers.get('If-Match');
   if (!ifMatch) return errorResponse(428, 'If-Match header required');
@@ -85,7 +91,8 @@ export async function saveMap(id: string, request: Request, env: Env): Promise<R
   const obj = await env.MAPS.put(objectKey(id), JSON.stringify(saved), {
     onlyIf: { etagMatches: etag },
     httpMetadata: { contentType: 'application/json' },
-    customMetadata: metadata(saved),
+    // A map keeps its owner; one without an owner (made with the owner key) gets the account that first saves it.
+    customMetadata: metadata(saved, current.customMetadata?.owner ?? ownerId(who)),
   });
   if (!obj) return errorResponse(409, CONFLICT); // someone saved between head() and put()
   return json(saved, { headers: { ETag: obj.httpEtag } });

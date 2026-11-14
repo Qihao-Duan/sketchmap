@@ -58,8 +58,15 @@ describe('with browser storage blocked', () => {
 
   it('shows the list page (asking for the owner key) instead of crashing', async () => {
     const { ListPage } = await import('./list/ListPage');
-    act(() => createRoot(mountPoint()).render(<ListPage go={() => {}} />));
-    expect(container.querySelector('#owner-key')).not.toBeNull();
+    // No key can be stored, so the page first asks the server whether a session is open; here it isn't.
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ signedIn: false, email: null, google: false })));
+    try {
+      await act(async () => createRoot(mountPoint()).render(<ListPage go={() => {}} />));
+      await act(async () => {});
+      expect(container.querySelector('#owner-key')).not.toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('opens the editor and draws the map', async () => {

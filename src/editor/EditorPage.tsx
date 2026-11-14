@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiError, createApi, type ApiClient } from '../api/client';
-import { KeyPrompt } from '../auth/KeyPrompt';
+import { fetchSession } from '../auth/access';
 import { getOwnerKey, setOwnerKey } from '../auth/ownerKey';
+import { SignIn } from '../auth/SignIn';
+import { useAccess } from '../auth/useAccess';
 import { buildExcalidraw, EXCALIDRAW_MIME, excalidrawLosses } from '../io/excalidraw';
 import { buildSvg, download, fileName, svgToPng, visibleText } from '../io/exportImage';
 import { parseHtmlOutline } from '../io/htmlOutline';
@@ -54,6 +56,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [conflict, setConflict] = useState(false);
   const [dialogError, setDialogError] = useState<string>();
   const [askKey, setAskKey] = useState(false);
+  const [googleOffered, setGoogleOffered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [exportError, setExportError] = useState<string>();
   const [rejectedMessage, setRejectedMessage] = useState<string>();
@@ -111,6 +114,16 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     [api, etag, storage],
   );
   useEffect(() => () => saver.dispose(), [saver]);
+
+  // A save was refused (401): find out whether the sign-in dialog can offer Google besides the owner key.
+  useEffect(() => {
+    if (!askKey) return;
+    let alive = true;
+    void fetchSession(null).then((s) => alive && setGoogleOffered(s.google));
+    return () => {
+      alive = false;
+    };
+  }, [askKey]);
 
   // Autosave every user change (server echoes don't bump `revision`).
   const lastRevision = useRef(state.revision);
@@ -626,9 +639,15 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       {conflict && <ConflictDialog onLoadNewer={loadNewer} onKeepMine={keepMine} error={dialogError} />}
       {askKey && (
         <div className="dialog-backdrop">
-          <KeyPrompt
-            error="The owner key was rejected. Enter it again to keep saving."
-            onSubmit={(key) => {
+          <SignIn
+            google={googleOffered}
+            next={`/e/${initial.id}`}
+            message={
+              getOwnerKey()
+                ? 'The owner key was rejected. Enter it again to keep saving.'
+                : 'Your sign-in has ended. Sign in again to keep saving; your changes are kept in this browser and offered back afterwards.'
+            }
+            onKey={(key) => {
               setOwnerKey(key);
               setAskKey(false);
               saver.resume(saver.currentEtag);
@@ -648,12 +667,13 @@ type Load =
 
 export function EditorPage({ id }: { id: string }) {
   const api = useMemo(() => createApi(() => getOwnerKey()), []);
-  const [hasKey, setHasKey] = useState(() => !!getOwnerKey());
+  const { access, enterKey } = useAccess();
+  const signedIn = access.state === 'in';
   const [attempt, setAttempt] = useState(0);
   const [load, setLoad] = useState<Load>({ status: 'loading' });
 
   useEffect(() => {
-    if (!hasKey) return;
+    if (!signedIn) return;
     let alive = true;
     setLoad({ status: 'loading' });
     api.getMap(id).then(
@@ -663,17 +683,13 @@ export function EditorPage({ id }: { id: string }) {
     return () => {
       alive = false;
     };
-  }, [api, id, hasKey, attempt]);
+  }, [api, id, signedIn, attempt]);
 
-  if (!hasKey) {
+  if (access.state === 'checking') return <p className="center muted">Loading…</p>;
+  if (access.state === 'out') {
     return (
       <div className="center">
-        <KeyPrompt
-          onSubmit={(key) => {
-            setOwnerKey(key);
-            setHasKey(true);
-          }}
-        />
+        <SignIn google={access.google} next={`/e/${id}`} message={access.message} onKey={enterKey} />
       </div>
     );
   }

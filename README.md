@@ -12,7 +12,7 @@ npm run dev                                  # opens on http://localhost:5173
 
 On your own machine the local site signs you in by itself: `npm run dev` reads the key from `.dev.vars` and hands it to the page, so `http://localhost:5173` never asks for it. This applies only to that local server. The deployed site, and `npm run preview`, ask for the owner key once per browser. A dev server opened to other devices with `--host` asks for it too.
 
-Tests: `npm test` (unit), `npm run test:worker` (API on a local R2), `npm run test:e2e` (browser; run `npx playwright install` once first). The browser tests run in Chromium, WebKit and Firefox, and once against the production build. They start their own servers on ports 5183 and 4183 with their own empty storage, so they never touch the maps of a `npm run dev` you have open.
+Tests: `npm test` (unit), `npm run test:worker` (API on a local R2), `npm run test:e2e` (browser; run `npx playwright install` once first). The browser tests run in Chromium, WebKit and Firefox, and once against the production build. They start their own servers on ports 5183 and 4183 with their own empty storage and their own settings, so they never touch the maps of a `npm run dev` you have open and need no `.dev.vars`.
 
 ## Deploy to Cloudflare
 
@@ -35,6 +35,34 @@ curl -sI https://sketchmap.<account>.workers.dev/assets/index-XXXXXXXX.js | grep
 ```
 
 Every page is served with a strict Content-Security-Policy (same-origin scripts only); `npx playwright test` checks it against the production build. Scripts, styles and fonts are cached by the browser for a year: a script or style gets a new name whenever its content changes, and the build fails if a font file ever changes under the same name. Pages and map data are fetched fresh every time.
+
+## Sign in with Google (optional)
+
+Out of the box the owner key is the only way in. You can add **Sign in with Google** for your own Google account: on a new machine you click the button and you are in, with no key to carry. The owner key keeps working beside it.
+
+Set it up once:
+
+1. In the Google Cloud console open **Google Auth Platform → Clients** (`https://console.developers.google.com/auth/clients`) and create or pick a project. If it asks you to register the app first, give it an app name, your email as support and developer contact, and the audience **External**.
+2. On the **Audience** page leave the status at **Testing** and add your own Google address as a test user. Testing allows up to 100 listed accounts. Google's seven-day expiry for test users does not apply to a sign-in that asks only for `openid` and `email`, which is all this app asks.
+3. **Create client**, type **Web application**. Under **Authorized redirect URIs** add exactly `https://sketchmap.<account>.workers.dev/auth/google/callback` (https, no slash at the end). Google says a change here can take from five minutes to a few hours to apply.
+4. Copy the client ID and the client secret. The secret is shown in full only this once.
+5. Store three secrets on the Worker. Each command asks for the value, and nothing is written to the repo:
+
+   ```bash
+   npx wrangler secret put GOOGLE_CLIENT_ID
+   npx wrangler secret put GOOGLE_CLIENT_SECRET
+   npx wrangler secret put OWNER_EMAILS       # your Google address; for several, separate them with commas
+   ```
+
+6. Open the site. The sign-in page now shows **Sign in with Google**, with the owner key one click below it.
+
+How it behaves:
+
+- Only the addresses in `OWNER_EMAILS` get in, and only when Google says the address is verified. Any other account is told it isn't allowed.
+- A sign-in lasts 30 days in that browser. **Sign out** on the map list ends it at once. Taking an address out of `OWNER_EMAILS` ends its sign-ins, and changing `OWNER_KEY` ends all of them.
+- A map made while signed in records your Google account as its owner. Nothing uses that yet; it is there so that each account can have its own maps later without guessing who made what.
+- Until all three secrets are set, nothing changes: the site shows the owner-key page as before.
+- The local server (`npm run dev`) still signs you in by itself.
 
 ## Put a map in Notion
 
@@ -112,6 +140,7 @@ In dark mode the drawing is inverted the way Excalidraw does it, but images are 
 - Checked on 2026-11-12: the `/m/…` embed loads in Notion in the browser (Chrome) and in the Notion desktop app. Edits made with **Edit in a tab** show up after reloading the Notion page, and a normal mouse wheel over the embed scrolls the page.
 - Checked on 2026-11-13 by the browser tests in Playwright's WebKit (Safari's engine) and Firefox builds, as well as Chromium: creating and editing a map, the embed inside a Notion-like sandboxed frame, links, drag-to-move, images (added from the panel, dropped, pasted, imported from `.xmind`), SVG, PNG and Excalidraw export, dark mode and `?theme=`. Those builds are not Safari itself or iOS, and the tests paste with a scripted event, not the real clipboard.
 - Not yet checked: Safari itself and iOS; Chinese input (IME) and a real clipboard paste in Safari and Firefox; opening a link from the embed in the Notion desktop and mobile apps; opening the `.excalidraw` export in excalidraw.com. XMind notes and XMind 8 files are imported from the documented format; no real sample with notes or from XMind 8 was available.
+- Sign in with Google is tested against a stand-in for Google (the Worker tests play Google's token endpoint, and the browser tests start from the session a sign-in ends in). It has not yet been tried against Google itself, which needs your own OAuth client.
 - In the Notion view a note shows only while the pointer is over its icon, so it can't be read on a touch screen. The editor also shows it in the Details panel.
 - The selection box needs a mouse or trackpad. On a touch screen a finger on the editor's background moves the canvas, as it does in the Notion view, where the left button also still moves the canvas.
 - Large maps get slower to edit, because every change redraws the whole map. Measured in headless Chromium on the development machine (2026-11-13), the time from an arrow key to the screen updating was 33 ms at 100 and 300 topics (33 ms is the shortest time this measurement can show), about 68 ms at 1000 and about 118 ms at 2000.

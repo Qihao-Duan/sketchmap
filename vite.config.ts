@@ -7,7 +7,8 @@ import { mayHandOverLocalKey } from './src/auth/localKey';
 
 // The browser tests set SKETCHMAP_STATE so their servers keep maps in their own folder, never in the
 // developer's local storage (.wrangler/state). Those servers also skip the debugger port, which two
-// servers starting together would fight over.
+// servers starting together would fight over, and take their Worker settings (with the test variables
+// beside them) from `<that folder>/config`, written by e2e/server/prepare.mjs.
 const testState = process.env.SKETCHMAP_STATE;
 
 // On the developer's own machine `npm run dev` signs the page in by itself: it reads the local key from
@@ -30,5 +31,9 @@ function readLocalOwnerKey(): string | null {
 }
 
 export default defineConfig({
-  plugins: [react(), localOwnerKey(), cloudflare(testState ? { persistState: { path: testState }, inspectorPort: false } : {})],
+  plugins: [
+    react(),
+    localOwnerKey(),
+    cloudflare(testState ? { configPath: `${testState}/config/wrangler.jsonc`, persistState: { path: `${testState}/state` }, inspectorPort: false } : {}),
+  ],
 });

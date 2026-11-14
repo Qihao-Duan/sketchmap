@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, createApi } from '../api/client';
-import { KeyPrompt } from '../auth/KeyPrompt';
-import { clearOwnerKey, getOwnerKey, setOwnerKey } from '../auth/ownerKey';
+import { getOwnerKey } from '../auth/ownerKey';
+import { SignIn } from '../auth/SignIn';
+import { useAccess } from '../auth/useAccess';
 import { displaySize, prepareImage } from '../io/imagePrep';
 import { importXmind, readXmindResources, XmindError } from '../io/xmind';
 import { findNode } from '../model/tree';
@@ -10,7 +11,7 @@ import type { MapSummary } from '../shared/types';
 
 export function ListPage({ go = (url: string) => location.assign(url) }: { go?: (url: string) => void }) {
   const api = useMemo(() => createApi(() => getOwnerKey()), []);
-  const [hasKey, setHasKey] = useState(() => !!getOwnerKey());
+  const { access, enterKey, rejected, signOut } = useAccess();
   const [maps, setMaps] = useState<MapSummary[] | null>(null);
   const [error, setError] = useState<string>();
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -20,36 +21,36 @@ export function ListPage({ go = (url: string) => location.assign(url) }: { go?: 
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fail = useCallback((e: unknown) => {
-    if (e instanceof ApiError && e.status === 401) {
-      clearOwnerKey();
-      setHasKey(false);
-      setError('That owner key was rejected. Check it and try again.');
-    } else {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
+    // 401: the key or the session is no good any more. The sign-in page says so and offers the way back in.
+    if (e instanceof ApiError && e.status === 401) rejected();
+    else setError(e instanceof Error ? e.message : String(e));
+  }, [rejected]);
 
   const refresh = useCallback(() => {
     api.listMaps().then(setMaps, fail);
   }, [api, fail]);
 
+  const signedIn = access.state === 'in';
   useEffect(() => {
-    if (hasKey) refresh();
-  }, [hasKey, refresh]);
+    if (signedIn) refresh();
+  }, [signedIn, refresh]);
 
   useEffect(() => {
     document.title = 'Your maps · Sketchmap';
   }, []);
 
-  if (!hasKey) {
+  if (access.state === 'checking') return <p className="center muted">Loading…</p>;
+  if (access.state === 'out') {
     return (
       <div className="center">
-        <KeyPrompt
-          error={error}
-          onSubmit={(key) => {
-            setOwnerKey(key);
+        <SignIn
+          google={access.google}
+          next="/"
+          message={access.message}
+          onKey={(key) => {
             setError(undefined);
-            setHasKey(true);
+            setMaps(null);
+            enterKey(key);
           }}
         />
       </div>
@@ -133,6 +134,12 @@ export function ListPage({ go = (url: string) => location.assign(url) }: { go?: 
         <h1>Your maps</h1>
         <button type="button" className="primary" onClick={create}>New map</button>
         <button type="button" disabled={importing} onClick={() => fileRef.current?.click()}>{importing ? 'Importing…' : 'Import .xmind'}</button>
+        {access.email && (
+          <>
+            <span className="muted account">{access.email}</span>
+            <button type="button" onClick={() => { setMaps(null); void signOut(); }}>Sign out</button>
+          </>
+        )}
         <input
           ref={fileRef}
           type="file"

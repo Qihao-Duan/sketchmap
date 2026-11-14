@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { makeZip } from '../src/test/zipFixture';
 import { PNG_2x2 } from './fixtures/pixel';
-import { openNewMap } from './helpers';
+import { seal, SESSION_COOKIE } from '../worker/session';
+import { enterOwnerKey, openNewMap } from './helpers';
 
 // The same sandbox Notion puts on a generic /embed iframe (observed on a public notion.site page, 2026-11-12).
 const NOTION_SANDBOX =
@@ -13,8 +14,7 @@ const hexToRgb = (hex: string): [number, number, number] => [
 
 test('create a map, edit it, reload it, and see it inside a Notion-like embed', async ({ page, baseURL }) => {
   await page.goto('/');
-  await page.getByLabel('Owner key').fill('dev-owner-key');
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await enterOwnerKey(page);
   await page.getByRole('button', { name: 'New map' }).click();
   await page.waitForURL(/\/e\/[A-Za-z0-9_-]{21}$/);
   const id = page.url().split('/e/')[1];
@@ -280,8 +280,7 @@ test('a link opens from inside a Notion-sandboxed iframe (pins allow-popups)', a
 
 test('an .xmind file imports as a new map, with links, notes and priority, and shows in the view', async ({ page }) => {
   await page.goto('/');
-  await page.getByLabel('Owner key').fill('dev-owner-key');
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await enterOwnerKey(page);
   const xmind = await makeZip([{ name: 'content.json', data: JSON.stringify([{
     id: 's', class: 'sheet', title: 'S', rootTopic: { id: 'r', title: 'Imported trip', structureClass: 'org.xmind.ui.logic.right', children: { attached: [
       { id: 'a', title: 'Booking', href: 'https://example.com/book', markers: [{ markerId: 'priority-2' }], notes: { plain: { content: 'Ask about breakfast' } } },
@@ -336,8 +335,7 @@ test('an image pasted from the clipboard, or dropped on a topic, lands on that t
 
 test('an .xmind file with an image imports the image too', async ({ page }) => {
   await page.goto('/');
-  await page.getByLabel('Owner key').fill('dev-owner-key');
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await enterOwnerKey(page);
   const xmind = await makeZip([
     { name: 'content.json', data: JSON.stringify([{
       id: 's', class: 'sheet', title: 'S',
@@ -517,4 +515,63 @@ test('?theme= forces the embed light or dark, whatever the system says', async (
   await page.goto(`/m/${id}`); // no override: follows the (dark) system
   await expect(page.locator('g.topic')).toHaveCount(1);
   expect(await filter()).toContain('invert');
+});
+
+test('a Google session (no owner key) lists, creates, saves and deletes maps, and signing out ends it', async ({ page, context, baseURL, browserName }) => {
+  // Signed out, the page offers Google, and that link really leads to Google with this site's client id.
+  await page.goto('/');
+  const link = page.getByRole('link', { name: 'Sign in with Google' });
+  await expect(link).toHaveAttribute('href', '/auth/google?next=%2F');
+  const toGoogle = await page.request.get('/auth/google?next=%2F', { maxRedirects: 0 });
+  expect(toGoogle.status()).toBe(302);
+  const target = new URL(toGoogle.headers()['location']);
+  expect([target.origin, target.searchParams.get('client_id'), target.searchParams.get('redirect_uri')]).toEqual([
+    'https://accounts.google.com', 'e2e-client.apps.googleusercontent.com', `${baseURL}/auth/google/callback`,
+  ]);
+
+  // Google itself can't be part of a test, so the session it would end in is made here, the way the Worker
+  // makes it: sealed with the test server's owner key, for the one account on that server's list.
+  const session = await seal({ sub: 'e2e-account', email: 'owner@e2e.example', exp: Math.floor(Date.now() / 1000) + 3600 }, 'dev-owner-key', 'session');
+  // Given by host and path, not by address: Chromium refuses to be handed a Secure cookie for an http address,
+  // though like the others it then sends it to this local server.
+  await context.addCookies([{ name: SESSION_COOKIE, value: session, domain: 'localhost', path: '/', httpOnly: true, secure: true, sameSite: 'Lax' }]);
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Your maps' })).toBeVisible();
+  await expect(page.locator('.account')).toHaveText('owner@e2e.example');
+  expect(await page.evaluate(() => localStorage.getItem('sketchmap:owner-key'))).toBeNull();
+
+  // Every write below carries the cookie and nothing else; the Worker accepts it only from this site's own pages.
+  await page.getByRole('button', { name: 'New map' }).click();
+  await page.waitForURL(/\/e\/[A-Za-z0-9_-]{21}$/);
+  const id = page.url().split('/e/')[1];
+  await expect(page.locator('g.topic')).toHaveCount(1);
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Signed in');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+  await page.reload();
+  await expect(page.locator('g.topic')).toHaveCount(2);
+
+  // The same request from another site's page is refused, cookie or not.
+  const foreign = await page.request.post('/api/maps', { headers: { Origin: 'https://evil.example' }, data: {} });
+  expect(foreign.status()).toBe(401);
+
+  await page.goto('/');
+  const row = page.locator('ul.maps li', { has: page.locator(`a[href="/e/${id}"]`) });
+  await row.getByRole('button', { name: 'Delete…' }).click();
+  await row.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.locator(`a[href="/e/${id}"]`)).toHaveCount(0);
+
+  // Signing out answers with a Secure cookie that clears the session. WebKit takes no Secure cookie over the
+  // plain http of this local test server (it does over https, where the site really runs), so there the
+  // cookie is removed by hand and only what follows is checked.
+  if (browserName === 'webkit') {
+    await context.clearCookies();
+    await page.reload();
+  } else {
+    await page.getByRole('button', { name: 'Sign out' }).click();
+  }
+  await expect(page.getByRole('link', { name: 'Sign in with Google' })).toBeVisible();
+  await page.goto(`/e/${id}`);
+  await expect(page.getByRole('link', { name: 'Sign in with Google' })).toHaveAttribute('href', `/auth/google?next=%2Fe%2F${id}`);
 });
