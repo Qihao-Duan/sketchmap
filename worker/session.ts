@@ -1,6 +1,7 @@
-// Signed cookies: the session a Google sign-in starts, and the short-lived note the sign-in keeps while
-// the browser is away at Google. Both are "<base64url(JSON)>.<base64url(HMAC-SHA-256)>": anyone can read
-// them, only this Worker can make or change one.
+// Cookies: the session a Google sign-in starts, and the short-lived note the sign-in keeps while the
+// browser is away at Google. The session is "<base64url(JSON)>.<base64url(HMAC-SHA-256)>": anyone can
+// read it, only this Worker can make or change one. The sign-in note is plain base64url(JSON), unsigned:
+// see worker/google.ts for why.
 
 /** `__Host-`: the browser accepts the cookie only from this exact host, over HTTPS, for the whole site. */
 export const SESSION_COOKIE = '__Host-sm_session';
@@ -77,12 +78,26 @@ export async function unseal(token: string | null, ownerKey: string, purpose: st
   return ok ? parseJson(decoder.decode(body)) : null;
 }
 
+/**
+ * The value of the cookie named exactly `name`. Only plain spaces and tabs count as padding: trimming
+ * every kind of Unicode space would let a cookie called "<some other space>__Host-…", which a browser
+ * accepts from a sibling site, pass for the `__Host-` one that only this host can set.
+ */
 export function readCookie(request: Request, name: string): string | null {
+  const pad = /^[ \t]+|[ \t]+$/g;
   for (const part of (request.headers.get('Cookie') ?? '').split(';')) {
     const eq = part.indexOf('=');
-    if (eq > 0 && part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
+    if (eq > 0 && part.slice(0, eq).replace(pad, '') === name) return part.slice(eq + 1).replace(pad, '');
   }
   return null;
+}
+
+/** Plain base64url(JSON), for a cookie that needs no protecting. */
+export const encodeJson = (value: unknown): string => base64url(encoder.encode(JSON.stringify(value)));
+
+export function decodeJson(token: string | null): unknown {
+  const bytes = token ? fromBase64url(token) : null;
+  return bytes ? parseJson(decoder.decode(bytes)) : null;
 }
 
 /**

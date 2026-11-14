@@ -7,7 +7,7 @@ export const STATUS_TEXT: Record<SaveStatus, string> = {
   saving: 'Saving…',
   retrying: 'Not saved, retrying',
   conflict: 'Not saved: conflict',
-  unauthorized: 'Not saved: owner key needed',
+  unauthorized: 'Not saved: sign in again',
   rejected: 'Not saved: rejected by the server',
 };
 

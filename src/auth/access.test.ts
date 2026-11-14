@@ -12,13 +12,19 @@ describe('fetchSession', () => {
     expect(f).toHaveBeenLastCalledWith('/api/session', {});
   });
 
-  it('counts anything else as signed out, without throwing: an error status, a body of another shape, no connection', async () => {
+  it('counts a clear answer of another shape as signed out', async () => {
     const out = { signedIn: false, email: null, google: false };
-    expect(await fetchSession(null, answering({ error: 'Internal error' }, 500))).toEqual(out);
     expect(await fetchSession(null, answering([{ id: 'a map list, not a session' }]))).toEqual(out);
-    expect(await fetchSession(null, answering('<html>not json</html>'))).toEqual(out);
     expect(await fetchSession(null, answering({ signedIn: 'yes', email: 7, google: 1 }))).toEqual(out);
-    expect(await fetchSession(null, vi.fn<typeof fetch>(async () => { throw new TypeError('offline'); }))).toEqual(out);
+    expect(await fetchSession(null, answering({ error: 'Not found' }, 404))).toEqual(out);
+  });
+
+  it('says so when the server gave no usable answer, without throwing: its own error, no connection, not JSON', async () => {
+    const unknown = { signedIn: false, email: null, google: false, unreachable: true };
+    expect(await fetchSession(null, answering({ error: 'Internal error' }, 500))).toEqual(unknown);
+    expect(await fetchSession(null, answering('<html>bad gateway</html>', 502))).toEqual(unknown);
+    expect(await fetchSession(null, answering('<html>not json</html>'))).toEqual(unknown);
+    expect(await fetchSession(null, vi.fn<typeof fetch>(async () => { throw new TypeError('offline'); }))).toEqual(unknown);
   });
 
   it('keeps "Google is offered" even when nobody is signed in', async () => {
@@ -27,11 +33,12 @@ describe('fetchSession', () => {
 });
 
 describe('signOut', () => {
-  it('posts to the sign-out address and stays quiet when that fails', async () => {
-    const f = answering('', 204);
-    await signOut(f);
+  it('posts to the sign-out address and reports whether the server confirmed it', async () => {
+    const f = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+    expect(await signOut(f)).toBe(true);
     expect(f).toHaveBeenCalledWith('/auth/logout', { method: 'POST' });
-    await expect(signOut(vi.fn<typeof fetch>(async () => { throw new TypeError('offline'); }))).resolves.toBeUndefined();
+    expect(await signOut(answering({ error: 'Internal error' }, 500))).toBe(false);
+    expect(await signOut(vi.fn<typeof fetch>(async () => { throw new TypeError('offline'); }))).toBe(false);
   });
 });
 

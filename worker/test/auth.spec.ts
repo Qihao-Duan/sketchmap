@@ -2,7 +2,8 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import worker, { type Env } from '../index';
 import { handleAuth } from '../google';
-import { seal, SESSION_COOKIE, SESSION_DAYS, SIGNIN_COOKIE } from '../session';
+import { safeNext } from '../google';
+import { readCookie, seal, SESSION_COOKIE, SESSION_DAYS, SIGNIN_COOKIE } from '../session';
 import type { MindMap } from '../../src/shared/types';
 
 const E = env as unknown as Env; // no Google settings: the owner key is the only way in
@@ -13,7 +14,8 @@ const G: Env = { ...E, GOOGLE_CLIENT_ID: CLIENT, GOOGLE_CLIENT_SECRET: 'client-s
 const SITE = 'https://maps.test';
 const nowSec = () => Math.floor(Date.now() / 1000);
 
-const b64url = (text: string) => btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+/** base64url of the text's UTF-8 bytes (btoa alone takes only Latin-1). */
+const b64url = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 /** Shaped like Google's ID token. The signature part is never checked: see worker/google.ts. */
 const idToken = (claims: Record<string, unknown>) => `${b64url('{"alg":"RS256"}')}.${b64url(JSON.stringify(claims))}.sig`;
 const setCookies = (res: Response) => res.headers.getSetCookie();
@@ -103,15 +105,18 @@ describe('signing in with Google', () => {
     ]);
     // PKCE: the verifier we send now hashes to the challenge we gave Google at the start.
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(form.get('code_verifier')!)));
-    expect(b64url(String.fromCharCode(...digest))).toBe(toGoogle.searchParams.get('code_challenge'));
+    expect(btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')).toBe(toGoogle.searchParams.get('code_challenge'));
 
     const me = await withSession(session, '/api/session');
     expect(await me.json()).toEqual({ signedIn: true, email: 'me@example.com', google: true });
   });
 
-  it('compares the allowed emails without regard to case', async () => {
+  it('compares the allowed emails without regard to the case of plain letters, and of nothing else', async () => {
     const { session } = await signIn({ claims: { email: 'ME@example.COM' } });
     expect(await (await withSession(session, '/api/session')).json()).toMatchObject({ signedIn: true, email: 'me@example.com' });
+    // U+212A KELVIN SIGN lower-cases to "k" in Unicode: a listed "k…" address must not match it.
+    const kelvin = await signIn({ claims: { email: '\u212Aate@example.com' }, e: { ...G, OWNER_EMAILS: 'kate@example.com' } });
+    expect([kelvin.back.headers.get('Location'), kelvin.session]).toEqual(['/?signin=notallowed', null]);
   });
 
   it.each([
@@ -127,7 +132,8 @@ describe('signing in with Google', () => {
     ['the user pressing Cancel at Google', { query: 'error=access_denied&state=x' }, 'cancelled'],
     ['no code coming back', { query: 'state=x' }, 'failed'],
     ['no sign-in cookie', { cookie: null }, 'expired'],
-    ['a sign-in cookie that was changed', { cookie: 'eyJzdGF0ZSI6IngifQ.AAAA' }, 'expired'],
+    ['a sign-in cookie that is not what we set', { cookie: 'not-base64-json!' }, 'expired'],
+    ['a sign-in cookie with other contents', { cookie: b64url(JSON.stringify({ hello: 'world' })) }, 'expired'],
   ] as const)('refuses %s and starts no session', async (_name, how, reason) => {
     const { back, session } = await signIn(how as Parameters<typeof signIn>[0]);
     expect([back.status, back.headers.get('Location')]).toEqual([302, `/?signin=${reason}`]);
@@ -135,9 +141,24 @@ describe('signing in with Google', () => {
   });
 
   it('refuses a sign-in cookie that is older than ten minutes', async () => {
-    const stale = await seal({ state: 's', nonce: 'n', verifier: 'v', next: '/', exp: nowSec() - 1 }, KEY, 'signin');
+    const stale = b64url(JSON.stringify({ state: 's', nonce: 'n', verifier: 'v', next: '/', exp: nowSec() - 1 }));
     const { back, session } = await signIn({ cookie: stale, state: 's' });
     expect(back.headers.get('Location')).toBe('/?signin=expired');
+    expect(session).toBeNull();
+  });
+
+  it('gives a visitor nothing made with the owner key: the sign-in cookie is plain, so it is no test for guessed keys', async () => {
+    const { start } = await signIn();
+    const value = cookieValue(start, SIGNIN_COOKIE)!;
+    expect(value).not.toContain('.'); // no signature part
+    expect(Object.keys(JSON.parse(atob(value.replace(/-/g, '+').replace(/_/g, '/')))).sort()).toEqual(['exp', 'next', 'nonce', 'state', 'verifier']);
+  });
+
+  it('a made-up sign-in cookie cannot stand in for Google: it still needs a code Google accepts for our client', async () => {
+    const mine = b64url(JSON.stringify({ state: 's', nonce: 'n', verifier: 'v', next: '/', exp: nowSec() + 300 }));
+    const { back, session, tokenFetch } = await signIn({ cookie: mine, state: 's', tokenStatus: 400 });
+    expect(tokenFetch).toHaveBeenCalledTimes(1);
+    expect(back.headers.get('Location')).toBe('/?signin=failed');
     expect(session).toBeNull();
   });
 
@@ -151,6 +172,16 @@ describe('signing in with Google', () => {
       expect((await signIn({ next })).back.headers.get('Location')).toBe('/');
     },
   );
+
+  it('checks the address after the URL parser has tidied it, in one pass', () => {
+    const site = 'https://maps.test';
+    for (const next of ['/.//evil.example', '/..//evil.example/x', '/./\\evil.example', '/a/..//evil.example', '/%2e//evil.example']) {
+      const out = safeNext(next, site);
+      expect([next, new URL(out, site).origin, /^\/(?![/\\])/.test(out)]).toEqual([next, site, true]);
+    }
+    expect(safeNext('/.//evil.example', site)).toBe('/');
+    expect(safeNext('/e/abc/../def?x=1', site)).toBe('/e/def?x=1');
+  });
 
   it('keeps a normal page address, with its query', async () => {
     expect((await signIn({ next: '/e/abcdefghijklmnopqrstu?theme=dark' })).back.headers.get('Location')).toBe('/e/abcdefghijklmnopqrstu?theme=dark');
@@ -190,6 +221,18 @@ describe('a Google session', () => {
       expect([bad.slice(0, 12), (await withSession(bad, '/api/maps')).status]).toEqual([bad.slice(0, 12), 401]);
     }
     expect((await withSession(session, '/api/maps')).status).toBe(200);
+  });
+
+  it('is read only from the cookie with exactly our name', async () => {
+    const { session } = await signIn();
+    const named = (name: string) => worker.fetch(new Request(`${SITE}/api/maps`, { headers: { Cookie: `other=1; ${name}=${session}; more=2` } }), G);
+    expect((await named(SESSION_COOKIE)).status).toBe(200);
+    for (const name of ['sm_session', '__Secure-sm_session', `${SESSION_COOKIE}x`, `x${SESSION_COOKIE}`]) expect([name, (await named(name)).status]).toEqual([name, 401]);
+    // A look-alike name that differs only by a Unicode space in front must not pass for the `__Host-` cookie.
+    const req = (name: string) => new Request(SITE, { headers: { Cookie: `a=1;${name}=v; b=2` } });
+    expect(readCookie(req(SESSION_COOKIE), SESSION_COOKIE)).toBe('v');
+    expect(readCookie(req(` \t${SESSION_COOKIE}`), SESSION_COOKIE)).toBe('v'); // plain spaces and tabs are separators
+    for (const space of ['\u00a0', '\u2000', '\u3000', '\ufeff']) expect(readCookie(req(`${space}${SESSION_COOKIE}`), SESSION_COOKIE)).toBeNull();
   });
 
   it('ends when the account is taken off the list, or Google sign-in is switched off', async () => {

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiError, createApi, type ApiClient } from '../api/client';
-import { fetchSession } from '../auth/access';
-import { getOwnerKey, setOwnerKey } from '../auth/ownerKey';
+import { clearOwnerKey, getOwnerKey, setOwnerKey } from '../auth/ownerKey';
 import { SignIn } from '../auth/SignIn';
 import { useAccess } from '../auth/useAccess';
 import { buildExcalidraw, EXCALIDRAW_MIME, excalidrawLosses } from '../io/excalidraw';
@@ -40,9 +39,11 @@ export interface EditorProps {
   api: ApiClient;
   measureFactory?: () => Measure;
   storage?: Storage;
+  /** The page was opened with a Google session, not the owner key: a refused save then offers Google again. */
+  googleSession?: boolean;
 }
 
-export function Editor({ initial, etag, api, measureFactory = canvasMeasure, storage = browserStorage() }: EditorProps) {
+export function Editor({ initial, etag, api, measureFactory = canvasMeasure, storage = browserStorage(), googleSession = false }: EditorProps) {
   const [state, dispatch] = useReducer(editorReducer, initial, initEditor);
   const factory = useRef(measureFactory);
   const [measure, setMeasure] = useState<Measure>(() => factory.current());
@@ -56,7 +57,8 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const [conflict, setConflict] = useState(false);
   const [dialogError, setDialogError] = useState<string>();
   const [askKey, setAskKey] = useState(false);
-  const [googleOffered, setGoogleOffered] = useState(false);
+  /** Set when the user follows the Google link out of the sign-in dialog with their changes safely kept. */
+  const leavingToSignIn = useRef(false);
   const [copied, setCopied] = useState(false);
   const [exportError, setExportError] = useState<string>();
   const [rejectedMessage, setRejectedMessage] = useState<string>();
@@ -106,7 +108,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         (s, message) => {
           setStatus(s);
           if (s === 'conflict') setConflict(true);
-          if (s === 'unauthorized') setAskKey(true);
+          if (s === 'unauthorized') {
+            // A key that was refused is of no further use; kept, it would be sent again with every request.
+            clearOwnerKey();
+            setAskKey(true);
+          }
           if (s === 'rejected') setRejectedMessage(message);
         },
         (saved) => dispatch({ type: 'serverSaved', map: saved.map }),
@@ -114,16 +120,6 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     [api, etag, storage],
   );
   useEffect(() => () => saver.dispose(), [saver]);
-
-  // A save was refused (401): find out whether the sign-in dialog can offer Google besides the owner key.
-  useEffect(() => {
-    if (!askKey) return;
-    let alive = true;
-    void fetchSession(null).then((s) => alive && setGoogleOffered(s.google));
-    return () => {
-      alive = false;
-    };
-  }, [askKey]);
 
   // Autosave every user change (server echoes don't bump `revision`).
   const lastRevision = useRef(state.revision);
@@ -139,6 +135,9 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       if (document.visibilityState === 'hidden') void saver.flush();
     };
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      // On the way to Google from the sign-in dialog, with the changes kept in this browser: nothing to
+      // warn about, and nothing to send (the save would only be refused again).
+      if (leavingToSignIn.current) return;
       const unsaved = statusRef.current !== 'saved';
       const editingOpen = stateRef.current.editing != null;
       if (!unsaved && !editingOpen) return;
@@ -460,6 +459,15 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const editing = state.editing;
   const editBox = editing ? layout.byId.get(editing.id) : undefined;
 
+  // What the sign-in dialog says after a refused save. Signing in with Google leaves this page, so it matters
+  // whether this browser really holds a copy of the changes (it does not when site data is blocked or full).
+  const draftKept = askKey && readDraft(storage, initial.id) !== null;
+  const signInAgainMessage = !googleSession
+    ? 'The owner key was rejected. Enter it again to keep saving.'
+    : draftKept
+      ? 'Your sign-in has ended. Sign in again to keep saving. Your changes are kept in this browser and offered back when you return.'
+      : 'Your sign-in has ended. Signing in again leaves this page, and this browser could not keep a copy of your changes. Copy what you need first (Copy as Markdown), then sign in again.';
+
   return (
     <div className="editor">
       <header className="editor-bar">
@@ -640,13 +648,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       {askKey && (
         <div className="dialog-backdrop">
           <SignIn
-            google={googleOffered}
+            google={googleSession}
             next={`/e/${initial.id}`}
-            message={
-              getOwnerKey()
-                ? 'The owner key was rejected. Enter it again to keep saving.'
-                : 'Your sign-in has ended. Sign in again to keep saving; your changes are kept in this browser and offered back afterwards.'
-            }
+            message={signInAgainMessage}
+            onGoogle={() => {
+              leavingToSignIn.current = draftKept;
+            }}
             onKey={(key) => {
               setOwnerKey(key);
               setAskKey(false);
@@ -667,7 +674,7 @@ type Load =
 
 export function EditorPage({ id }: { id: string }) {
   const api = useMemo(() => createApi(() => getOwnerKey()), []);
-  const { access, enterKey } = useAccess();
+  const { access, enterKey, recheck } = useAccess();
   const signedIn = access.state === 'in';
   const [attempt, setAttempt] = useState(0);
   const [load, setLoad] = useState<Load>({ status: 'loading' });
@@ -689,7 +696,7 @@ export function EditorPage({ id }: { id: string }) {
   if (access.state === 'out') {
     return (
       <div className="center">
-        <SignIn google={access.google} next={`/e/${id}`} message={access.message} onKey={enterKey} />
+        <SignIn google={access.google} next={`/e/${id}`} message={access.message} onRetry={access.unreachable ? recheck : undefined} onKey={enterKey} />
       </div>
     );
   }
@@ -703,5 +710,5 @@ export function EditorPage({ id }: { id: string }) {
       </div>
     );
   }
-  return <Editor initial={load.map} etag={load.etag} api={api} />;
+  return <Editor initial={load.map} etag={load.etag} api={api} googleSession={access.email !== null} />;
 }

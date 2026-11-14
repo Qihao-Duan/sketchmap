@@ -59,7 +59,8 @@ Set it up once:
 How it behaves:
 
 - Only the addresses in `OWNER_EMAILS` get in, and only when Google says the address is verified. Any other account is told it isn't allowed.
-- A sign-in lasts 30 days in that browser. **Sign out** on the map list ends it at once. Taking an address out of `OWNER_EMAILS` ends its sign-ins, and changing `OWNER_KEY` ends all of them.
+- Use a Gmail address if you can. Google ties a Gmail address to one account for good; an address at another domain can change hands (a lapsed domain, a recycled mailbox), and whoever then makes a Google account with it would get in.
+- A sign-in lasts 30 days in that browser. **Sign out** on the map list removes it from that browser; if the server can't be reached, the page says so and stays signed in. Sign out does not cancel a copy of the sign-in taken from the device: that lasts until it runs out. To end every sign-in at once, change `OWNER_KEY` (then enter the new key where you use it). Taking an address out of `OWNER_EMAILS` ends that address's sign-ins.
 - A map made while signed in records your Google account as its owner. Nothing uses that yet; it is there so that each account can have its own maps later without guessing who made what.
 - Until all three secrets are set, nothing changes: the site shows the owner-key page as before.
 - The local server (`npm run dev`) still signs you in by itself.

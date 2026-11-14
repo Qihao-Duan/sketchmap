@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
 import { buildExcalidraw } from '../io/excalidraw';
@@ -32,6 +32,14 @@ vi.mock('../io/exportImage', async (importOriginal) => {
 const map: MindMap = { id: 'abcdefghijklmnopqrstu', title: 'Root', layout: 'map', version: 1, updatedAt: 't', root: { id: 'root000001', text: 'Root', children: [] } };
 const measure = () => (t: string, s: number) => t.length * s * 0.5;
 let container: HTMLDivElement;
+// Every editor a test mounts is unmounted afterwards. An editor left alive keeps listening for keys on the
+// window and keeps saving, so it would act on the next test's key presses and clear the shared local draft.
+const roots: Root[] = [];
+function rootIn(el: HTMLElement): Root {
+  const root = createRoot(el);
+  roots.push(root);
+  return root;
+}
 
 function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
   return {
@@ -45,7 +53,7 @@ function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
 function mount(api: ApiClient, initial: MindMap = map, etag = '"e1"') {
   container = document.createElement('div');
   document.body.appendChild(container);
-  act(() => createRoot(container).render(<Editor initial={initial} etag={etag} api={api} measureFactory={measure} />));
+  act(() => rootIn(container).render(<Editor initial={initial} etag={etag} api={api} measureFactory={measure} />));
 }
 const keydown = (init: KeyboardEventInit, target: EventTarget = window) =>
   act(() => void target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })));
@@ -126,7 +134,11 @@ beforeEach(() => {
   vi.mocked(buildExcalidraw).mockResolvedValue({ json: '{"type":"excalidraw"}', missingImages: 0 });
   vi.mocked(download).mockReset();
 });
-afterEach(() => { container.remove(); vi.useRealTimers(); });
+afterEach(() => {
+  act(() => roots.splice(0).forEach((root) => root.unmount()));
+  container.remove();
+  vi.useRealTimers();
+});
 
 describe('Editor', () => {
   it('Tab adds a child, typing + Enter names it, and it autosaves 1 s later', async () => {
@@ -244,8 +256,13 @@ describe('Editor', () => {
     keydown({ key: 'Tab' });
     type(container.querySelector('textarea')!, 'Child');
     keydown({ key: 'Enter' }, container.querySelector('textarea')!);
+    localStorage.setItem('sketchmap:owner-key', 'stale-key');
     await advance(1000);
-    expect(container.textContent).toContain('owner key');
+    const dialog = container.querySelector('.dialog-backdrop')!;
+    expect(dialog.querySelector('[role="alert"]')!.textContent).toBe('The owner key was rejected. Enter it again to keep saving.');
+    expect(dialog.querySelector('a.google-button')).toBeNull();
+    expect(container.querySelector('[data-testid="save-status"]')!.textContent).toBe('Not saved: sign in again');
+    expect(localStorage.getItem('sketchmap:owner-key')).toBeNull(); // the refused key is dropped at once
     const input = container.querySelector('#owner-key') as HTMLInputElement;
     expect(input).not.toBeNull();
     typeInput(input, 'new-owner-key');
@@ -998,7 +1015,7 @@ describe('getting into the editor', () => {
   async function open() {
     container = document.createElement('div');
     document.body.appendChild(container);
-    await act(async () => createRoot(container).render(<EditorPage id={stored.id} />));
+    await act(async () => rootIn(container).render(<EditorPage id={stored.id} />));
     await act(async () => {});
     await act(async () => {});
   }
@@ -1026,22 +1043,47 @@ describe('getting into the editor', () => {
     expect(container.querySelectorAll('g.topic')).toHaveLength(2);
   });
 
-  it('when a save is refused in a Google session, the dialog offers Google again and says the changes are kept', async () => {
-    stubServer({ signedIn: false, email: null, google: true });
-    vi.useFakeTimers();
-    try {
-      mount(fakeApi({ saveMap: vi.fn(async () => { throw new ApiError(401, 'Unauthorized'); }) }));
+  describe('when a save is refused in a Google session', () => {
+    const refusing = () => fakeApi({ saveMap: vi.fn(async () => { throw new ApiError(401, 'Unauthorized'); }) });
+    async function editAndBeRefused(storage?: Storage) {
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      act(() => rootIn(container).render(<Editor initial={map} etag={'"e1"'} api={refusing()} measureFactory={measure} googleSession storage={storage} />));
       keydown({ key: 'Tab' });
       type(container.querySelector('textarea')!, 'A');
       keydown({ key: 'Enter' }, container.querySelector('textarea')!);
       await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
-      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-      const dialog = container.querySelector('.dialog-backdrop')!;
-      expect(dialog.querySelector('[role="alert"]')!.textContent).toMatch(/sign-in has ended.*changes are kept in this browser/);
-      expect((dialog.querySelector('a.google-button') as HTMLAnchorElement).getAttribute('href')).toBe(`/auth/google?next=%2Fe%2F${map.id}`);
-      expect(dialog.querySelector('#owner-key')).not.toBeNull();
-    } finally {
-      vi.useRealTimers();
+      return container.querySelector('.dialog-backdrop')!;
     }
+    /** Whether the browser would ask "Leave site?". */
+    const leaveWarning = () => {
+      const ev = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    const follow = (link: Element) => {
+      link.addEventListener('click', (e) => e.preventDefault()); // jsdom has no navigation
+      act(() => void link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+    };
+    beforeEach(() => vi.useFakeTimers());
+
+    it('the dialog offers Google at once, back to this map, and says the changes are kept; following the link then raises no "Leave site?"', async () => {
+      const dialog = await editAndBeRefused();
+      const link = dialog.querySelector('a.google-button') as HTMLAnchorElement;
+      expect(link.getAttribute('href')).toBe(`/auth/google?next=%2Fe%2F${map.id}`);
+      expect(dialog.querySelector('[role="alert"]')!.textContent).toMatch(/^Your sign-in has ended\. Sign in again to keep saving\. Your changes are kept in this browser/);
+      expect(dialog.querySelector('#owner-key')).not.toBeNull();
+      expect(leaveWarning()).toBe(true); // unsaved work, and nobody is leaving on purpose yet
+      follow(link);
+      expect(leaveWarning()).toBe(false);
+    });
+
+    it('when this browser could not keep a copy, says so instead, and leaving still warns', async () => {
+      const blocked = { getItem: () => null, setItem: () => { throw new Error('quota'); }, removeItem: () => {}, clear: () => {}, key: () => null, length: 0 } as Storage;
+      const dialog = await editAndBeRefused(blocked);
+      expect(dialog.querySelector('[role="alert"]')!.textContent).toMatch(/could not keep a copy of your changes\. Copy what you need first/);
+      follow(dialog.querySelector('a.google-button')!);
+      expect(leaveWarning()).toBe(true);
+    });
   });
 });

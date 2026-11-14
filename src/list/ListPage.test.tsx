@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { prepareImage } from '../io/imagePrep';
@@ -29,13 +29,18 @@ const click = (text: string) => act(async () => { button(text).click(); });
 const stubKey = `img/${id}/stub.png`;
 
 /** `session`: what /api/session answers. `listStatus`: the status of the map list (401 = key or session refused). */
-function stubApi({ session = { signedIn: false, email: null, google: false }, listStatus = 200 }: { session?: object | (() => object); listStatus?: number } = {}) {
+type Stub = { session?: object | (() => object | Response); listStatus?: number; logout?: () => Response };
+function stubApi({ session = { signedIn: false, email: null, google: false }, listStatus = 200, logout }: Stub = {}) {
   const calls: Array<[string, string]> = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET';
     calls.push([method, url]);
-    if (url === '/api/session') return Response.json(typeof session === 'function' ? session() : session);
+    if (url === '/api/session') {
+      const answer = typeof session === 'function' ? session() : session;
+      return answer instanceof Response ? answer : Response.json(answer);
+    }
     if (url === '/auth/logout') {
+      if (logout) return logout();
       if (typeof session !== 'function') Object.assign(session, { signedIn: false, email: null });
       return new Response(null, { status: 204 });
     }
@@ -74,6 +79,72 @@ describe('ListPage', () => {
     expect(calls).toContainEqual(['POST', '/auth/logout']);
     expect(container.textContent).not.toContain('Weekly plan');
     expect((container.querySelector('a.google-button') as HTMLAnchorElement).getAttribute('href')).toBe('/auth/google?next=%2F');
+  });
+
+  it.each([
+    ['the server answers with an error', () => Response.json({ error: 'Internal error' }, { status: 500 })],
+    ['there is no connection', () => { throw new TypeError('offline'); }],
+  ])('when signing out is not confirmed (%s), stays signed in and says so', async (_name, logout) => {
+    const calls = stubApi({ session: { signedIn: true, email: 'me@example.com', google: true }, logout: logout as () => Response });
+    await render();
+    await click('Sign out');
+    await act(async () => {});
+    expect(calls).toContainEqual(['POST', '/auth/logout']);
+    expect(container.textContent).toContain('Weekly plan');
+    expect(container.querySelector('.account')!.textContent).toBe('me@example.com');
+    expect(container.querySelector('[role="alert"]')!.textContent).toMatch(/Couldn’t sign out.*still signed in/);
+  });
+
+  it('when the server cannot be asked, says so and offers to try again, which works once it answers', async () => {
+    let up = false;
+    stubApi({ session: () => (up ? { signedIn: true, email: 'me@example.com', google: true } : Response.json({ error: 'Internal error' }, { status: 503 })) });
+    await render();
+    expect(container.querySelector('[role="alert"]')!.textContent).toMatch(/Couldn’t reach the server/);
+    expect(container.textContent).not.toContain('Weekly plan');
+    up = true;
+    await click('Try again');
+    await act(async () => {});
+    expect(container.textContent).toContain('Weekly plan');
+  });
+
+  it('a server that says "signed in" but refuses the list ends at the sign-in page, not in a loop', async () => {
+    const calls = stubApi({ session: { signedIn: true, email: 'me@example.com', google: true }, listStatus: 401 });
+    await render();
+    for (let i = 0; i < 5; i++) await act(async () => {});
+    expect(container.querySelector('[role="alert"]')!.textContent).toBe('Your sign-in has ended. Sign in again.');
+    expect(container.querySelector('a.google-button')).not.toBeNull();
+    expect(calls.filter(([, url]) => url === '/api/session')).toHaveLength(2);
+    expect(calls.filter(([, url]) => url === '/api/maps')).toHaveLength(1);
+  });
+
+  describe('in development, where React runs every effect twice', () => {
+    const renderStrict = async () => {
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      await act(async () => createRoot(container).render(<StrictMode><ListPage go={vi.fn()} /></StrictMode>));
+      for (let i = 0; i < 4; i++) await act(async () => {});
+    };
+
+    it('still says why a Google sign-in failed', async () => {
+      history.replaceState(null, '', '/?signin=notallowed');
+      try {
+        stubApi({ session: { signedIn: false, email: null, google: true } });
+        await renderStrict();
+        expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+        expect(container.querySelector('[role="alert"]')!.textContent).toMatch(/isn’t allowed to edit/);
+        expect(location.search).toBe('');
+      } finally {
+        history.replaceState(null, '', '/');
+      }
+    });
+
+    it('two refusals of a stored key still blame the key, not a sign-in that never was', async () => {
+      localStorage.setItem('sketchmap:owner-key', 'old-key');
+      const calls = stubApi({ listStatus: 401 });
+      await renderStrict();
+      expect(calls.filter(([, url]) => url === '/api/maps').length).toBeGreaterThanOrEqual(2);
+      expect(container.querySelector('[role="alert"]')!.textContent).toBe('That owner key was rejected. Check it and try again.');
+    });
   });
 
   it('signed out, where Google is offered: shows the Google link and asks for no maps', async () => {

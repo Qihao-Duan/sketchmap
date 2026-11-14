@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 interface Props {
   onSubmit: (key: string) => void;
   error?: string;
   /** Just the field and the button, for use inside the sign-in page: no heading, and no grabbing of the keyboard. */
   compact?: boolean;
+  /** Anything to put under the button. */
+  children?: ReactNode;
 }
 
-export function KeyPrompt({ onSubmit, error, compact = false }: Props) {
+export function KeyPrompt({ onSubmit, error, compact = false, children }: Props) {
   const [value, setValue] = useState('');
   return (
     <form
@@ -23,6 +25,7 @@ export function KeyPrompt({ onSubmit, error, compact = false }: Props) {
       <input id="owner-key" type="password" autoComplete="current-password" autoFocus={!compact} value={value} onChange={(e) => setValue(e.target.value)} />
       {error && <p role="alert" className="error">{error}</p>}
       <button type="submit">Continue</button>
+      {children}
     </form>
   );
 }

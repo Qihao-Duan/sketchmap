@@ -5,7 +5,7 @@
 
 import type { Env } from './index';
 import { errorResponse } from './http';
-import { base64url, fromBase64url, parseJson, readCookie, seal, SESSION_COOKIE, SESSION_DAYS, setCookie, SIGNIN_COOKIE, unseal } from './session';
+import { base64url, decodeJson, encodeJson, fromBase64url, parseJson, readCookie, seal, SESSION_COOKIE, SESSION_DAYS, setCookie, SIGNIN_COOKIE } from './session';
 
 const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -13,7 +13,15 @@ const ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
 /** How long the browser may stay at Google before the attempt lapses. */
 const SIGNIN_SECONDS = 600;
 
-/** What the sign-in keeps, in a sealed cookie, while the browser is away at Google. */
+/**
+ * What the sign-in keeps, in a cookie, while the browser is away at Google.
+ *
+ * The cookie is not signed. Any visitor can start a sign-in, so a signature here would hand everyone
+ * something made with a key derived from the owner key: a way to test guessed owner keys offline. And a
+ * signature would protect nothing. The cookie only has to be one that other sites cannot plant, which its
+ * `__Host-` name gives; the visitor changing their own copy gains them nothing, because the session still
+ * depends on Google accepting the code for our client and naming an account on the list.
+ */
 interface Pending {
   state: string;
   nonce: string;
@@ -22,9 +30,12 @@ interface Pending {
   exp: number;
 }
 
+/** Lower-cases A–Z only. Unicode lower-casing would also turn look-alikes (the Kelvin sign) into plain letters. */
+export const lowerAscii = (text: string): string => text.replace(/[A-Z]/g, (c) => c.toLowerCase());
+
 /** The Google accounts allowed to edit, lower-cased. Set with `wrangler secret put OWNER_EMAILS`, separated by commas or spaces. */
 export function allowedEmails(env: Pick<Env, 'OWNER_EMAILS'>): Set<string> {
-  return new Set((env.OWNER_EMAILS ?? '').toLowerCase().split(/[\s,]+/).filter(Boolean));
+  return new Set(lowerAscii(env.OWNER_EMAILS ?? '').split(/[\s,]+/).filter(Boolean));
 }
 
 /** Google sign-in is on only when everything it needs is set; until then the owner key is the only way in. */
@@ -39,7 +50,9 @@ export function safeNext(next: string | null, origin: string): string {
   if (!next || next.length > 200 || !next.startsWith('/') || /^\/[/\\]/.test(next) || /[\\\u0000-\u001f\u007f]/.test(next)) return '/';
   try {
     const url = new URL(next, origin);
-    return url.origin === origin ? url.pathname + url.search : '/';
+    // The parser tidies the path ("/.//x" becomes "//x"), so the result is checked again, not the input.
+    const tidy = url.pathname + url.search;
+    return url.origin === origin && /^\/(?![/\\])/.test(tidy) ? tidy : '/';
   } catch {
     return '/';
   }
@@ -76,7 +89,7 @@ async function start(request: Request, env: Env): Promise<Response> {
     code_challenge_method: 'S256',
     prompt: 'select_account',
   }).toString();
-  return redirect(to.toString(), [setCookie(SIGNIN_COOKIE, await seal(pending, env.OWNER_KEY, 'signin'), SIGNIN_SECONDS)]);
+  return redirect(to.toString(), [setCookie(SIGNIN_COOKIE, encodeJson(pending), SIGNIN_SECONDS)]);
 }
 
 /** The claims of an ID token, unverified: see `finish` for why reading them this way is sound here. */
@@ -93,8 +106,9 @@ async function finish(request: Request, env: Env, tokenFetch: typeof fetch): Pro
   if (url.searchParams.has('error')) return giveUp('cancelled');
 
   // The cookie proves this browser started the attempt; the state ties Google's answer to that attempt.
-  const pending = (await unseal(readCookie(request, SIGNIN_COOKIE), env.OWNER_KEY, 'signin')) as Pending | null;
-  if (!pending || typeof pending.state !== 'string' || !(pending.exp * 1000 > now)) return giveUp('expired');
+  const pending = decodeJson(readCookie(request, SIGNIN_COOKIE)) as Partial<Pending> | null;
+  const whole = pending && [pending.state, pending.nonce, pending.verifier, pending.next].every((v) => typeof v === 'string' && v) && typeof pending.exp === 'number';
+  if (!pending || !whole || !(pending.exp! * 1000 > now)) return giveUp('expired');
   const code = url.searchParams.get('code');
   if (!code || url.searchParams.get('state') !== pending.state) return giveUp('failed');
 
@@ -109,7 +123,7 @@ async function finish(request: Request, env: Env, tokenFetch: typeof fetch): Pro
         client_id: env.GOOGLE_CLIENT_ID!,
         client_secret: env.GOOGLE_CLIENT_SECRET!,
         redirect_uri: `${url.origin}/auth/google/callback`,
-        code_verifier: pending.verifier,
+        code_verifier: pending.verifier!,
       }).toString(),
     });
     if (!res.ok) return giveUp('failed');
@@ -130,10 +144,10 @@ async function finish(request: Request, env: Env, tokenFetch: typeof fetch): Pro
   if (typeof iss !== 'string' || !ISSUERS.has(iss) || aud !== env.GOOGLE_CLIENT_ID) return giveUp('failed');
   if (typeof exp !== 'number' || !(exp * 1000 > now) || nonce !== pending.nonce) return giveUp('failed');
   if (typeof sub !== 'string' || !sub || typeof email !== 'string' || !email || !verified) return giveUp('failed');
-  if (!allowedEmails(env).has(email.toLowerCase())) return giveUp('notallowed');
+  if (!allowedEmails(env).has(lowerAscii(email))) return giveUp('notallowed');
 
-  const session = { sub, email: email.toLowerCase(), exp: Math.floor(now / 1000) + SESSION_DAYS * 86400 };
-  return redirect(safeNext(pending.next, url.origin), [
+  const session = { sub, email: lowerAscii(email), exp: Math.floor(now / 1000) + SESSION_DAYS * 86400 };
+  return redirect(safeNext(pending.next!, url.origin), [
     setCookie(SESSION_COOKIE, await seal(session, env.OWNER_KEY, 'session'), SESSION_DAYS * 86400),
     setCookie(SIGNIN_COOKIE, '', 0),
   ]);

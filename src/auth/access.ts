@@ -5,33 +5,40 @@ export interface SessionInfo {
   signedIn: boolean;
   email: string | null;
   google: boolean;
+  /** The server gave no usable answer (no connection, or an error on its side), so the rest is unknown. */
+  unreachable?: boolean;
 }
 
 const SIGNED_OUT: SessionInfo = { signedIn: false, email: null, google: false };
+const UNREACHABLE: SessionInfo = { ...SIGNED_OUT, unreachable: true };
 const plainFetch: typeof fetch = (input, init) => fetch(input, init);
 
 /**
  * Asks the server whether this browser may edit: by its session cookie, or by `key` when one is given.
- * Never throws. If the server can't be reached the answer is "signed out", and the sign-in page is shown;
- * the next real request then says what is wrong.
+ * Never throws. When the server can't be reached, or fails, the answer is "signed out" and marked
+ * `unreachable`, so the page can say so and offer to try again instead of looking plainly signed out.
  */
 export async function fetchSession(key: string | null = getOwnerKey(), fetchImpl: typeof fetch = plainFetch): Promise<SessionInfo> {
   try {
     const res = await fetchImpl('/api/session', key ? { headers: { Authorization: `Bearer ${key}` } } : {});
+    if (res.status >= 500) return UNREACHABLE;
     if (!res.ok) return SIGNED_OUT;
     const body = (await res.json()) as Partial<SessionInfo> | null;
     return { signedIn: body?.signedIn === true, email: typeof body?.email === 'string' ? body.email : null, google: body?.google === true };
   } catch {
-    return SIGNED_OUT;
+    return UNREACHABLE; // no connection, or an answer that is not JSON
   }
 }
 
-/** Ends the Google session. Quiet on failure: the caller forgets the owner key and shows the sign-in page either way. */
-export async function signOut(fetchImpl: typeof fetch = plainFetch): Promise<void> {
+/**
+ * Ends the Google session in this browser. Resolves false when the server did not confirm it (no connection,
+ * or an error): the session cookie can't be removed from here, so the browser is then still signed in.
+ */
+export async function signOut(fetchImpl: typeof fetch = plainFetch): Promise<boolean> {
   try {
-    await fetchImpl('/auth/logout', { method: 'POST' });
+    return (await fetchImpl('/auth/logout', { method: 'POST' })).ok;
   } catch {
-    // offline: the cookie stays until it runs out; nothing more to do from here
+    return false;
   }
 }
 

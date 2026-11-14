@@ -11,7 +11,7 @@ import type { MapSummary } from '../shared/types';
 
 export function ListPage({ go = (url: string) => location.assign(url) }: { go?: (url: string) => void }) {
   const api = useMemo(() => createApi(() => getOwnerKey()), []);
-  const { access, enterKey, rejected, signOut } = useAccess();
+  const { access, enterKey, rejected, recheck, signOut } = useAccess();
   const [maps, setMaps] = useState<MapSummary[] | null>(null);
   const [error, setError] = useState<string>();
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -47,9 +47,11 @@ export function ListPage({ go = (url: string) => location.assign(url) }: { go?: 
           google={access.google}
           next="/"
           message={access.message}
+          onRetry={access.unreachable ? recheck : undefined}
           onKey={(key) => {
             setError(undefined);
             setMaps(null);
+            setImported(null);
             enterKey(key);
           }}
         />
@@ -137,7 +139,21 @@ export function ListPage({ go = (url: string) => location.assign(url) }: { go?: 
         {access.email && (
           <>
             <span className="muted account">{access.email}</span>
-            <button type="button" onClick={() => { setMaps(null); void signOut(); }}>Sign out</button>
+            <button
+              type="button"
+              onClick={async () => {
+                setError(undefined);
+                // Only the server can remove the session cookie, so an unanswered sign-out has not signed out.
+                if (await signOut()) {
+                  setMaps(null);
+                  setImported(null);
+                } else {
+                  setError('Couldn’t sign out: the server didn’t answer. This browser is still signed in. Try again when you are back online.');
+                }
+              }}
+            >
+              Sign out
+            </button>
           </>
         )}
         <input

@@ -47,4 +47,22 @@ describe('SignIn', () => {
     typeKey('k2');
     expect(onKey).toHaveBeenCalledWith('k2');
   });
+
+  it('offers "Try again" only when there is something to retry, in both layouts, and tells when the Google link is followed', () => {
+    mount();
+    expect(container.querySelector('button.retry')).toBeNull();
+    container.remove();
+    const onRetry = vi.fn();
+    mount({ onRetry });
+    act(() => (container.querySelector('button.retry') as HTMLButtonElement).click());
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    container.remove();
+    const onGoogle = vi.fn();
+    mount({ google: true, onRetry, onGoogle });
+    expect(container.querySelector('button.retry')!.textContent).toBe('Try again');
+    const link = container.querySelector('a.google-button')!;
+    link.addEventListener('click', (e) => e.preventDefault()); // jsdom has no navigation
+    act(() => void link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+    expect(onGoogle).toHaveBeenCalledTimes(1);
+  });
 });

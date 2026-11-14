@@ -68,6 +68,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
 .dialog-backdrop { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, 0.35); z-index: 10; padding: 16px; }
 .dialog, .key-prompt { background: var(--surface); color: var(--ink); border-radius: 14px; padding: 24px; max-width: 420px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 12px; }
 .dialog h2, .key-prompt h1 { margin: 0; font-size: 18px; }
+.key-prompt button.retry { background: none; color: var(--ink); border: 1px solid var(--line); font-weight: 400; }
 .key-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .key-prompt a.google-button { display: block; text-align: center; text-decoration: none; background: var(--accent); color: var(--accent-ink); border-radius: 8px; padding: 9px 12px; font-weight: 700; }
 .key-prompt summary { cursor: pointer; color: var(--muted, inherit); }
