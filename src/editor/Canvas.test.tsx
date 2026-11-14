@@ -624,3 +624,63 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
     expect([...overlay.children].map((g) => g.getAttribute('data-id'))).toEqual(['a']);
   });
 });
+
+describe('Canvas: notes', () => {
+  const noted: MapNode = { id: 'r', text: 'Root', children: [{ id: 'n', text: 'Trip', note: 'Pack light', children: [] }] };
+  const notedLayout = computeLayout(noted, (t, s) => t.length * s * 0.5);
+  let root: ReturnType<typeof createRoot> | null = null;
+  afterEach(() => {
+    act(() => root?.unmount());
+    root = null;
+  });
+  function mountNoted(interactive: boolean) {
+    const h = { onNote: vi.fn(), onSelect: vi.fn(), onToggleFold: vi.fn() };
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root!.render(<Canvas layout={notedLayout} selectedId={null} interactive={interactive} {...h} />));
+    return h;
+  }
+  const icon = () => container.querySelector('g.note-icon[data-note="n"]')!;
+  const iconHit = () => icon().querySelector('rect')!;
+
+  it('in the view-only page, a tap on the note icon asks to show that topic’s note', () => {
+    const h = mountNoted(false);
+    press(iconHit(), 'pointerdown', 50, 50);
+    press(iconHit(), 'pointerup', 51, 50);
+    expect(h.onNote).toHaveBeenCalledTimes(1);
+    expect(h.onNote).toHaveBeenCalledWith('n');
+  });
+
+  it('a drag that starts on the note icon moves the canvas and shows nothing', () => {
+    const h = mountNoted(false);
+    press(iconHit(), 'pointerdown', 50, 50);
+    press(iconHit(), 'pointermove', 90, 80, 1);
+    press(iconHit(), 'pointerup', 90, 80);
+    expect(h.onNote).not.toHaveBeenCalled();
+    expect(container.querySelector('g.world')!.getAttribute('transform')).toBe('translate(40 30) scale(1)');
+  });
+
+  it('Enter or Space on a focused note icon does the same; other keys do nothing', () => {
+    const h = mountNoted(false);
+    const key = (k: string) => {
+      const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+      act(() => void icon().dispatchEvent(ev));
+      return ev.defaultPrevented;
+    };
+    expect(icon().getAttribute('tabindex')).toBe('0');
+    expect(key('Enter')).toBe(true);
+    expect(key(' ')).toBe(true);
+    expect(key('a')).toBe(false);
+    expect(h.onNote).toHaveBeenCalledTimes(2);
+  });
+
+  it('in the editor the icon is part of its topic: pressing it selects the topic, and it is no tab stop', () => {
+    const h = mountNoted(true);
+    expect(icon().hasAttribute('tabindex')).toBe(false);
+    press(iconHit(), 'pointerdown', 50, 50);
+    press(iconHit(), 'pointerup', 50, 50);
+    expect(h.onSelect).toHaveBeenCalledWith('n');
+    expect(h.onNote).not.toHaveBeenCalled();
+  });
+});

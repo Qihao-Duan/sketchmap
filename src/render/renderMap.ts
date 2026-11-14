@@ -13,6 +13,8 @@ export interface RenderOptions {
   /** The other topics of a multi-selection: marked the same way as `selectedId`. */
   selectedIds?: ReadonlySet<string>;
   dropTargetId?: string | null;
+  /** Where a tap on a note icon opens the note (the view-only page): the icon is also a keyboard stop. */
+  noteButtons?: boolean;
   /** Draws topic images here instead of inline: the canvas's unfiltered photo layer (dark mode leaves photos alone). */
   photos?: SVGGElement;
   /** Draws each image's frame here instead of inline: the canvas's filtered layer above the photos, so the frame stays on top and keeps the dark-mode look. */
@@ -190,8 +192,8 @@ function drawTopic(doc: Document, rc: RoughSvg, parent: Element, t: TopicBox, op
   if (note) {
     const ix = textLeft + t.textW + 8;
     const iy = t.y + t.textTop + (t.lines.length * lineHeight) / 2;
-    const icon = el(doc, 'g', { class: 'note-icon' }, g);
-    // A transparent target, so hovering anywhere on the little page shows the note.
+    const icon = el(doc, 'g', { class: 'note-icon', 'data-note': t.id, ...(opts.noteButtons ? { tabindex: 0, role: 'button', 'aria-label': 'Show note' } : {}) }, g);
+    // A transparent target, so hovering (or tapping) anywhere on the little page shows the note.
     el(doc, 'rect', { x: ix - 4, y: iy - 11, width: 20, height: 22, fill: 'transparent', 'pointer-events': 'all' }, icon);
     icon.appendChild(rc.rectangle(ix, iy - 8, 12, 15, { stroke: INK, strokeWidth: 1, roughness: 0.8, seed: seed + 3 }));
     icon.appendChild(rc.line(ix + 3, iy - 3, ix + 9, iy - 3, { stroke: INK, strokeWidth: 1, roughness: 0.5, seed: seed + 4 }));

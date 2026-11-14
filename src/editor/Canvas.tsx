@@ -28,13 +28,16 @@ interface Props {
   onMove?(id: string, targetId: string): void;
   onViewChange?(view: View): void;
   onDropFile?(topicId: string | null, file: File): void;
+  /** View-only page: the note icon of topic `id` was tapped, or activated from the keyboard. */
+  onNote?(id: string): void;
   rightInset?: number;
   fitMaxK?: number;
   ref?: Ref<CanvasHandle>;
 }
 
 type Gesture =
-  | { kind: 'pan'; x: number; y: number; tx: number; ty: number; link: string | null; moved: boolean }
+  /** `link` / `note`: what a press that never became a drag opens (view-only page). */
+  | { kind: 'pan'; x: number; y: number; tx: number; ty: number; link: string | null; note: Element | null; moved: boolean }
   /**
    * `base`: what Shift keeps selected while the box adds to it. `origin`: the current topic when the drag
    * began, which stays selected when the box touches nothing. `last`: the selection last reported.
@@ -64,7 +67,7 @@ function openLink(href: string) {
 }
 
 export function Canvas({
-  layout, selectedId, extraIds = NO_IDS, interactive, onToggleFold, onSelect, onToggleSelect, onSelectMany, onEdit, onMove, onViewChange, onDropFile,
+  layout, selectedId, extraIds = NO_IDS, interactive, onToggleFold, onSelect, onToggleSelect, onSelectMany, onEdit, onMove, onViewChange, onDropFile, onNote,
   rightInset = 0, fitMaxK, ref,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -105,9 +108,12 @@ export function Canvas({
   };
 
   const selectedSet = useMemo(() => new Set(extraIds), [extraIds]);
+  // In the view-only page a note opens on a tap of its icon; in the editor the note is in the Details panel.
+  const notesOpen = !interactive && !!onNote;
   useLayoutEffect(() => {
     renderMap(svgRef.current!, worldRef.current!, layout, {
       selectedId, selectedIds: selectedSet, dropTargetId: dropTarget, photos: photosRef.current ?? undefined, frames: framesRef.current ?? undefined,
+      noteButtons: notesOpen,
     });
     if (!fitted.current && size()[0] > 0) {
       fitted.current = true;
@@ -115,7 +121,7 @@ export function Canvas({
     } else {
       applyView(viewRef.current);
     }
-  }, [layout, selectedId, selectedSet, dropTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layout, selectedId, selectedSet, dropTarget, notesOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
     fit,
@@ -228,9 +234,9 @@ export function Canvas({
       releaseGesture(gesture.current);
       gesture.current = null;
     }
-    const startPan = (link: string | null) => {
+    const startPan = (link: string | null, note: Element | null = null) => {
       svgRef.current?.setPointerCapture?.(e.pointerId);
-      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, link, moved: false };
+      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, link, note, moved: false };
     };
     if (panButton) {
       if (e.button === 2) holdMenu();
@@ -253,7 +259,7 @@ export function Canvas({
       // The view-only page has nothing to select, and a finger has no second button: there a drag on the
       // background moves the canvas. In the editor, with a mouse, it draws a selection box.
       if (!interactive || e.pointerType === 'touch') {
-        startPan(interactive ? null : href);
+        startPan(interactive ? null : href, notesOpen ? target.closest('[data-note]') : null);
         return;
       }
       svgRef.current?.setPointerCapture?.(e.pointerId);
@@ -386,7 +392,9 @@ export function Canvas({
       return;
     }
     if (g.kind === 'pan') {
-      if (g.link && still && !g.moved && !cancelled) openLink(g.link);
+      if (!still || g.moved || cancelled) return;
+      if (g.note) onNote?.(g.note.getAttribute('data-note')!);
+      else if (g.link) openLink(g.link);
       return;
     }
     if (g.kind === 'box') {
@@ -418,6 +426,13 @@ export function Canvas({
         onPointerMove={onPointerMove}
         onPointerUp={(e) => endGesture(e, false)}
         onPointerCancel={(e) => endGesture(e, true)}
+        onKeyDown={(e) => {
+          // A note icon reached with the Tab key (view-only page) opens like a button.
+          const icon = notesOpen && (e.key === 'Enter' || e.key === ' ') ? (e.target as Element).closest('[data-note]') : null;
+          if (!icon) return;
+          e.preventDefault();
+          onNote?.(icon.getAttribute('data-note')!);
+        }}
         onContextMenu={(e) => {
           // The right button moves the canvas here, and on macOS the menu would open the moment it goes down.
           if (interactive) e.preventDefault();

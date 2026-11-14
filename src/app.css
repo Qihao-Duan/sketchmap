@@ -82,6 +82,17 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .view { position: relative; height: 100%; }
+/* A note opened by tapping its icon in the view-only page (a hover tooltip can't be opened on a touch screen). */
+.view .note-icon { cursor: pointer; }
+/* Placed by script (ViewPage.tsx). Its width is the note's own, up to 320 px, wherever it sits: without
+   `width: max-content` a card left of the page's right edge would be squeezed into the space beside it. */
+.note-card {
+  position: absolute; left: 0; top: 0; z-index: 2; box-sizing: border-box; width: max-content; max-width: min(320px, calc(100% - 16px)); max-height: min(70%, 320px); overflow: auto;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+  padding: 10px 32px 10px 12px; font: 14px/1.45 var(--ui);
+}
+.note-card .note-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-card .note-close { position: absolute; top: 2px; right: 2px; border: 0; background: none; color: var(--ink-2); font-size: 18px; line-height: 1; padding: 6px 8px; cursor: pointer; }
 .view-bar { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; align-items: center; }
 .pill { font: 700 11px/1 var(--ui); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 9px; }
 .edit-link { font: 700 13px/1 var(--ui); background: var(--accent); color: var(--accent-ink); border-radius: 8px; padding: 8px 10px; text-decoration: none; }
