@@ -649,8 +649,7 @@ describe('Canvas: notes', () => {
     press(iconHit(), 'pointerdown', 50, 50);
     press(iconHit(), 'pointerup', 51, 50);
     expect(h.onNote).toHaveBeenCalledTimes(1);
-    expect(h.onNote.mock.calls[0][0]).toBe('n');
-    expect(h.onNote.mock.calls[0][1]).toBe(icon());
+    expect(h.onNote).toHaveBeenCalledWith('n');
   });
 
   it('a drag that starts on the note icon moves the canvas and shows nothing', () => {

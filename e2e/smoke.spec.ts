@@ -123,9 +123,33 @@ test('importance, priority, marker and note survive a reload and show in the vie
 
   // In the view a click on the note icon opens the whole note in a card; Escape puts it away.
   await page.locator('g.note-icon').click();
-  await expect(page.locator('.note-card .note-text')).toHaveText('Remember this');
+  const card = page.locator('.note-card');
+  await expect(card.locator('.note-text')).toHaveText('Remember this');
   await page.keyboard.press('Escape');
-  await expect(page.locator('.note-card')).toHaveCount(0);
+  await expect(card).toHaveCount(0);
+
+  // The card stays with its icon when the map moves without a press (zooming with ⌘/Ctrl and the wheel; the
+  // map is also refitted when the fonts arrive or the page is resized). A press anywhere else closes it.
+  await page.locator('g.note-icon').click();
+  const iconBox = async () => (await page.locator('g.note-icon').boundingBox())!;
+  const placed = async () => {
+    const [i, c] = [await iconBox(), (await card.boundingBox())!];
+    return { dx: c.x - i.x, dy: c.y - (i.y + i.height) };
+  };
+  const start = await placed();
+  const iconBefore = await iconBox();
+  // A small zoom around a point left of the icon: the icon moves right a little but stays on the page.
+  await page.mouse.move(iconBefore.x - 120, iconBefore.y);
+  await page.keyboard.down('ControlOrMeta');
+  await page.mouse.wheel(0, -20);
+  await page.keyboard.up('ControlOrMeta');
+  await expect.poll(async () => (await iconBox()).x).not.toBeCloseTo(iconBefore.x, 0);
+  await expect(card).toBeVisible();
+  const end = await placed();
+  expect(Math.abs(end.dx - start.dx)).toBeLessThan(2);
+  expect(Math.abs(end.dy - start.dy)).toBeLessThan(2);
+  await page.mouse.click(20, 400);
+  await expect(card).toHaveCount(0);
 });
 
 test.describe('on a touch screen', () => {
@@ -140,23 +164,38 @@ test.describe('on a touch screen', () => {
     // The Details panel starts folded on a screen this narrow.
     const details = page.getByRole('button', { name: 'Show topic details' });
     if (await details.isVisible()) await details.click();
-    await page.getByLabel('Note').fill('Gate B12\nBoards 9:40');
+    const note = 'Gate B12, boards at 9:40. Bring the printed ticket and the passport; the desk closes forty minutes before.';
+    await page.getByLabel('Note').fill(note);
     await page.getByLabel('Note').blur();
     // The badge can still read "Saved" from the save before, so ask the server whether the note has arrived.
     await expect
       .poll(async () => (await (await page.request.get(`/api/maps/${id}`)).json()).root.children[0]?.note, { timeout: 10_000 })
-      .toBe('Gate B12\nBoards 9:40');
+      .toBe(note);
 
     await page.goto(`/m/${id}`);
-    const icon = (await page.locator('g.note-icon rect').boundingBox())!;
+    // The map is redrawn and refitted once its fonts arrive: read the icon's place after that has settled.
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    const iconRect = page.locator('g.note-icon rect');
+    let icon = (await iconRect.boundingBox())!;
+    await expect
+      .poll(async () => {
+        const now = await iconRect.boundingBox();
+        const same = !!now && !!icon && Math.abs(now.x - icon.x) < 0.5 && Math.abs(now.y - icon.y) < 0.5;
+        if (now) icon = now;
+        return same;
+      })
+      .toBe(true);
     await page.touchscreen.tap(icon.x + icon.width / 2, icon.y + icon.height / 2);
     const card = page.locator('.note-card');
-    await expect(card.locator('.note-text')).toHaveText('Gate B12\nBoards 9:40');
-    // The card stays inside the small page.
+    await expect(card.locator('.note-text')).toHaveText(note);
+    // The icon sits near the right edge of this narrow page. The card is still full width (320 px, the most
+    // it takes), not squeezed into the space right of the icon, and stays inside the page with 8 px to spare.
     const box = (await card.boundingBox())!;
-    expect(box.x).toBeGreaterThanOrEqual(0);
-    expect(box.x + box.width).toBeLessThanOrEqual(390);
-    expect(box.y + box.height).toBeLessThanOrEqual(700);
+    expect(icon.x).toBeGreaterThan(250);
+    expect(box.width).toBeGreaterThanOrEqual(319);
+    expect(box.x).toBeGreaterThanOrEqual(8);
+    expect(box.x + box.width).toBeLessThanOrEqual(390 - 7);
+    expect(box.y + box.height).toBeLessThanOrEqual(700 - 7);
     await page.touchscreen.tap(20, 680);
     await expect(card).toHaveCount(0);
   });

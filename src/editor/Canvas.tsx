@@ -28,8 +28,8 @@ interface Props {
   onMove?(id: string, targetId: string): void;
   onViewChange?(view: View): void;
   onDropFile?(topicId: string | null, file: File): void;
-  /** View-only page: a note icon was tapped, or activated from the keyboard. `icon` is the icon's element. */
-  onNote?(id: string, icon: Element): void;
+  /** View-only page: the note icon of topic `id` was tapped, or activated from the keyboard. */
+  onNote?(id: string): void;
   rightInset?: number;
   fitMaxK?: number;
   ref?: Ref<CanvasHandle>;
@@ -393,7 +393,7 @@ export function Canvas({
     }
     if (g.kind === 'pan') {
       if (!still || g.moved || cancelled) return;
-      if (g.note) onNote?.(g.note.getAttribute('data-note')!, g.note);
+      if (g.note) onNote?.(g.note.getAttribute('data-note')!);
       else if (g.link) openLink(g.link);
       return;
     }
@@ -431,7 +431,7 @@ export function Canvas({
           const icon = notesOpen && (e.key === 'Enter' || e.key === ' ') ? (e.target as Element).closest('[data-note]') : null;
           if (!icon) return;
           e.preventDefault();
-          onNote?.(icon.getAttribute('data-note')!, icon);
+          onNote?.(icon.getAttribute('data-note')!);
         }}
         onContextMenu={(e) => {
           // The right button moves the canvas here, and on macOS the menu would open the moment it goes down.

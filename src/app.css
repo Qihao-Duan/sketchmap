@@ -79,8 +79,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .view { position: relative; height: 100%; }
 /* A note opened by tapping its icon in the view-only page (a hover tooltip can't be opened on a touch screen). */
 .view .note-icon { cursor: pointer; }
+/* Placed by script (ViewPage.tsx). Its width is the note's own, up to 320 px, wherever it sits: without
+   `width: max-content` a card left of the page's right edge would be squeezed into the space beside it. */
 .note-card {
-  position: absolute; z-index: 2; box-sizing: border-box; max-width: min(320px, calc(100% - 16px)); max-height: min(70%, 320px); overflow: auto;
+  position: absolute; left: 0; top: 0; z-index: 2; box-sizing: border-box; width: max-content; max-width: min(320px, calc(100% - 16px)); max-height: min(70%, 320px); overflow: auto;
   background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
   padding: 10px 32px 10px 12px; font: 14px/1.45 var(--ui);
 }
