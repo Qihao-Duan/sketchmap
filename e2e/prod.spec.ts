@@ -69,3 +69,59 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   expect(again.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
   expect((await page.request.get('/')).headers()['cache-control'] ?? '').not.toContain('immutable');
 });
+
+// On this server only: the site theme is shared by every page, and the dev server runs three browsers at once.
+test('the theme picker sets the look of the whole site: the list, the editor and the Notion embed', async ({ page, browser }) => {
+  const DARK = 'rgb(21, 21, 23)';
+  const LIGHT = 'rgb(251, 250, 246)';
+  const paper = (p = page) => p.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const picker = page.locator('.theme-pick select');
+  try {
+    await page.emulateMedia({ colorScheme: 'light' });
+    const id = await openNewMap(page);
+    await expect(picker).toHaveValue('light');
+    expect(await paper()).toBe(LIGHT);
+
+    // Picked in the editor: the page turns dark at once, and the choice is saved for the whole site.
+    await picker.selectOption('dark');
+    expect(await paper()).toBe(DARK);
+    await expect(picker).toBeEnabled(); // the save was answered
+    await expect(page.getByRole('alert')).toHaveCount(0);
+
+    // Another browser with a light system and no key, as a Notion viewer: the embed is dark in the HTML itself.
+    const viewerContext = await browser.newContext({ colorScheme: 'light' });
+    const viewer = await viewerContext.newPage();
+    const res = await viewer.goto(`/m/${id}`);
+    expect(await res!.text()).toContain('data-theme="dark"');
+    await expect(viewer.locator('g.topic')).toHaveCount(1);
+    expect(await paper(viewer)).toBe(DARK);
+    // A link's ?theme= still wins.
+    await viewer.goto(`/m/${id}?theme=light`);
+    expect(await paper(viewer)).toBe(LIGHT);
+
+    // On the list page the picker shows the saved choice; "Follow system" hands the look to each viewer's system.
+    await page.goto('/');
+    await expect(picker).toHaveValue('dark');
+    expect(await paper()).toBe(DARK);
+    await picker.selectOption('system');
+    await expect(picker).toBeEnabled();
+    expect(await paper()).toBe(LIGHT); // this page's system is light
+    await viewer.emulateMedia({ colorScheme: 'dark' });
+    await viewer.goto(`/m/${id}`);
+    await expect(viewer.locator('g.topic')).toHaveCount(1);
+    expect(await paper(viewer)).toBe(DARK);
+    await viewer.emulateMedia({ colorScheme: 'light' });
+    expect(await paper(viewer)).toBe(LIGHT);
+    await viewerContext.close();
+
+    // Back to Light, and a reload keeps it.
+    await picker.selectOption('light');
+    await expect(picker).toBeEnabled();
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.reload();
+    await expect(picker).toHaveValue('light');
+    expect(await paper()).toBe(LIGHT);
+  } finally {
+    await page.request.put('/api/settings', { headers: { Authorization: 'Bearer dev-owner-key' }, data: { theme: 'light' } });
+  }
+});

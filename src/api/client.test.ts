@@ -67,6 +67,18 @@ describe('api client', () => {
     expect(res).toEqual({ key: `img/${map.id}/abc.png` });
   });
 
+  it('saves the site theme with the owner key, as JSON, and does not repeat a failed save', async () => {
+    let calls = 0;
+    const f = fakeFetch(() => (++calls === 1 ? Response.json({ theme: 'dark' }) : Response.json({ error: 'Internal error' }, { status: 500 })));
+    const api = createApi(() => 'k', f.impl, '', noSleep);
+    await api.saveTheme('dark');
+    const init = f.calls[0].init;
+    expect([f.calls[0].url, init.method, header(init, 'Authorization'), header(init, 'Content-Type')]).toEqual(['/api/settings', 'PUT', 'Bearer k', 'application/json']);
+    expect(JSON.parse(init.body as string)).toEqual({ theme: 'dark' });
+    await expect(api.saveTheme('system')).rejects.toMatchObject({ status: 500 });
+    expect(calls).toBe(2);
+  });
+
   it('tries a failed read once more: after a network error, and after a server error', async () => {
     const body = { id: 'abcdefghijklmnopqrstu' };
     for (const first of [() => Promise.reject(new TypeError('failed to fetch')), async () => new Response('{"error":"Internal error"}', { status: 500 })]) {

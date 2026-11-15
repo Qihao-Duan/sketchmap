@@ -199,6 +199,22 @@ describe('ListPage', () => {
     expect(go).toHaveBeenCalledWith(`/e/${id}`);
   });
 
+  it('has the site theme picker, which saves a choice for the whole site', async () => {
+    localStorage.setItem('sketchmap:owner-key', 'k');
+    const calls = stubApi();
+    await render();
+    const select = container.querySelector('.theme-pick select') as HTMLSelectElement;
+    expect(select.value).toBe('light');
+    await act(async () => {
+      select.value = 'dark';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(calls).toContainEqual(['PUT', '/api/settings']);
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-site-theme');
+  });
+
   it('deletes only after the in-page confirmation', async () => {
     localStorage.setItem('sketchmap:owner-key', 'k');
     const calls = stubApi();

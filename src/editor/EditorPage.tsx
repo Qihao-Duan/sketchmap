@@ -18,6 +18,7 @@ import { linkWhole, parseRich } from '../shared/rich';
 import { plainTitle } from '../shared/title';
 import type { LayoutKind, MindMap } from '../shared/types';
 import { browserStorage } from '../storage';
+import { ThemePicker } from '../ThemePicker';
 import { Autosaver, draftKey, readDraft, type Draft, type SaveStatus } from './autosave';
 import { Canvas, type CanvasHandle } from './Canvas';
 import { DetailsPanel } from './DetailsPanel';
@@ -661,6 +662,8 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
               >
                 Excalidraw
               </button>
+              <span className="sep" />
+              <ThemePicker save={(theme) => api.saveTheme(theme)} />
             </>
           }
         />

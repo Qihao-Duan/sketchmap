@@ -250,7 +250,11 @@ Styles by depth:
   - `/m/*` sends no `X-Frame-Options` and no `frame-ancestors`, so it can be framed anywhere.
   - `/e/*` and `/` send `frame-ancestors 'none'`. The editor is never framed, which also prevents clickjacking.
 - **Updates:** a save is visible on the embed's next load, because R2 reads are strongly consistent (Cloudflare R2 consistency docs). This is why maps are not stored in KV: KV can take "up to 60 seconds or more" to show a change elsewhere (Cloudflare KV docs).
-- `?theme=light|dark` forces the look; otherwise it follows `prefers-color-scheme`. This is for a Notion page whose theme differs from the system's, since an embedded page can't read Notion's theme.
+- **Theme** (changed 2026-11-15; the user asked for a place to pick it instead of following the system automatically):
+  - One setting for the whole site: `light` (the default when none is saved), `dark` or `system` (follows `prefers-color-scheme`). Stored in R2 as `settings/site.json` (outside `maps/`); anyone may read it (`GET /api/settings`), only the owner may change it (`PUT /api/settings`, same checks as a map save).
+  - Picked with a select on the map list and in the editor's bottom toolbar. The page changes at once; if the save fails it goes back and says why. A browser-only choice was rejected: the Notion embed runs on another site, so it could never see it.
+  - The Worker writes the look into every served page: `data-site-theme` (the setting) and `data-theme` (`?theme=` first, else the setting; absent for `system`), so there is no flash of another theme. Pages are therefore sent with `Cache-Control: no-cache`, without `ETag`/`Last-Modified`, and the Worker drops `If-None-Match`/`If-Modified-Since` before asking for any file that is not content-hashed: otherwise a browser could keep a page showing an old setting. If R2 can't be read, the page is still served, light.
+  - `?theme=light|dark` on a link still forces that page's look, e.g. for a Notion page whose theme differs from the site's, since an embedded page can't read Notion's theme.
 
 ## 8. Backend: Cloudflare Worker + R2
 

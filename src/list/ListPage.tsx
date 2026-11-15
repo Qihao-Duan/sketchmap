@@ -8,6 +8,7 @@ import { importXmind, readXmindResources, XmindError } from '../io/xmind';
 import { findNode } from '../model/tree';
 import { parseRich } from '../shared/rich';
 import type { MapSummary } from '../shared/types';
+import { ThemePicker } from '../ThemePicker';
 
 export function ListPage({ go = (url: string) => location.assign(url) }: { go?: (url: string) => void }) {
   const api = useMemo(() => createApi(() => getOwnerKey()), []);
@@ -136,6 +137,7 @@ export function ListPage({ go = (url: string) => location.assign(url) }: { go?: 
         <h1>Your maps</h1>
         <button type="button" className="primary" onClick={create}>New map</button>
         <button type="button" disabled={importing} onClick={() => fileRef.current?.click()}>{importing ? 'Importing…' : 'Import .xmind'}</button>
+        <ThemePicker save={(theme) => api.saveTheme(theme)} />
         {access.email && (
           <>
             <span className="muted account">{access.email}</span>

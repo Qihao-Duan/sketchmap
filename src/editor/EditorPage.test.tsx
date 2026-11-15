@@ -43,7 +43,7 @@ function rootIn(el: HTMLElement): Root {
 
 function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
   return {
-    listMaps: vi.fn(), createMap: vi.fn(), deleteMap: vi.fn(),
+    listMaps: vi.fn(), createMap: vi.fn(), deleteMap: vi.fn(), saveTheme: vi.fn(async () => {}),
     uploadImage: vi.fn(async () => ({ key: 'img/abcdefghijklmnopqrstu/k.png' })),
     getMap: vi.fn(async () => ({ map, etag: '"server"' })),
     saveMap: vi.fn(async (m: MindMap) => ({ map: { ...m, version: m.version + 1, title: m.root.text }, etag: '"e2"' })),
@@ -154,6 +154,24 @@ describe('Editor', () => {
     const [saved, etag] = vi.mocked(api.saveMap).mock.calls[0];
     expect([saved.root.children[0].text, etag]).toEqual(['Child', '"e1"']);
     expect(container.querySelector('[data-testid="save-status"]')!.textContent).toBe('Saved');
+  });
+
+  it('has the site theme picker in the toolbar; it saves through the API, and map keys stay out of it', async () => {
+    const api = fakeApi();
+    mount(api);
+    const select = container.querySelector('.toolbar .theme-pick select') as HTMLSelectElement;
+    expect(select).not.toBeNull();
+    const before = topics();
+    select.focus();
+    keydown({ key: 'Delete' }, select); // a key meant for the picker must not delete a topic
+    expect(topics()).toBe(before);
+    await act(async () => {
+      select.value = 'system';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(api.saveTheme).toHaveBeenCalledWith('system');
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-site-theme');
   });
 
   it('Delete removes the selected topic and ⌘Z brings it back', async () => {

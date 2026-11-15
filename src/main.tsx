@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { adoptLocalOwnerKey } from './auth/ownerKey';
 import { installFontFaces } from './render/fonts';
 import { parseRoute } from './router';
-import { applyTheme } from './theme';
-import { themeFromSearch } from './shared/theme';
+import { applyTheme, siteThemeOf } from './theme';
+import { shownTheme, themeFromSearch } from './shared/theme';
 import './app.css';
 
 const ListPage = lazy(() => import('./list/ListPage').then((m) => ({ default: m.ListPage })));
@@ -15,7 +15,9 @@ const ViewPage = lazy(() => import('./view/ViewPage').then((m) => ({ default: m.
 declare const __LOCAL_OWNER_KEY__: string | null | undefined;
 
 installFontFaces();
-applyTheme(document.documentElement, themeFromSearch(location.search));
+// The Worker already wrote the look into the page; this repeats the same rule (`?theme=`, then the site setting)
+// so a page served without it (the setting missing) still gets the default look rather than the system's.
+applyTheme(document.documentElement, shownTheme(themeFromSearch(location.search), siteThemeOf(document.documentElement)));
 // The view-only page never needs the key, so it is left out (it reads and writes no browser storage).
 if (parseRoute(location.pathname).name !== 'view') {
   adoptLocalOwnerKey(typeof __LOCAL_OWNER_KEY__ === 'string' ? __LOCAL_OWNER_KEY__ : null, location.hostname);

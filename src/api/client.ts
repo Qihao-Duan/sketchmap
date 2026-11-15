@@ -1,3 +1,4 @@
+import type { SiteTheme } from '../shared/theme';
 import type { MapSummary, MindMap } from '../shared/types';
 
 export class ApiError extends Error {
@@ -18,6 +19,8 @@ export interface ApiClient {
   saveMap(map: MindMap, etag: string): Promise<Saved>;
   deleteMap(id: string): Promise<void>;
   uploadImage(mapId: string, blob: Blob): Promise<{ key: string }>;
+  /** Saves the site's theme (owner only): the list, every editor and every embed use it. */
+  saveTheme(theme: SiteTheme): Promise<void>;
 }
 
 export const GET_RETRY_DELAY_MS = 400;
@@ -75,5 +78,8 @@ export function createApi(
     },
     uploadImage: async (mapId, blob) =>
       (await (await request(`${mapPath(mapId)}/images`, { method: 'POST', body: blob, headers: { 'Content-Type': blob.type || 'application/octet-stream' } })).json()) as { key: string },
+    saveTheme: async (theme) => {
+      await request('/api/settings', { method: 'PUT', body: JSON.stringify({ theme }) });
+    },
   };
 }

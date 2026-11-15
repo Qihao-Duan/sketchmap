@@ -1,5 +1,6 @@
-import { themeFromSearch } from '../src/shared/theme';
+import { shownTheme, themeFromSearch } from '../src/shared/theme';
 import type { Env } from './index';
+import { pageSiteTheme } from './settings';
 
 /**
  * Content-Security-Policy for the app's HTML. Production allows only same-origin scripts; `vite dev` also needs its
@@ -36,10 +37,28 @@ export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 /** Vite's bundles (`<name>-<8-character hash>.<ext>`) and the font subsets (`<Family>-Regular-<32 hex>.woff2`). */
 const CONTENT_HASHED = /^\/(assets\/[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+|fonts\/(Excalifont|Xiaolai)\/\2-Regular-[0-9a-f]{32}\.woff2)$/;
 
-export async function serveAsset(request: Request, env: Pick<Env, 'ASSETS'>): Promise<Response> {
-  const upstream = await env.ASSETS.fetch(request);
-  const res = new Response(upstream.body, upstream); // copy so headers are mutable
+/**
+ * The same request without `If-None-Match` / `If-Modified-Since`. A page is one file for every theme, but this Worker
+ * writes the site theme into it: the file's own validators can't tell a browser that the theme changed, so a page is
+ * always sent whole (it is about 1 KB).
+ */
+function withoutValidators(request: Request): Request {
+  if (!request.headers.has('If-None-Match') && !request.headers.has('If-Modified-Since')) return request;
+  const headers = new Headers(request.headers);
+  headers.delete('If-None-Match');
+  headers.delete('If-Modified-Since');
+  return new Request(request, { headers });
+}
+
+export async function serveAsset(request: Request, env: Pick<Env, 'ASSETS' | 'MAPS'>): Promise<Response> {
   const { pathname, search } = new URL(request.url);
+  const hashed = CONTENT_HASHED.test(pathname);
+  // App pages (`/`, `/e/<id>`, `/m/<id>`) have no file extension: read the site theme while the file is fetched.
+  // Anything else that turns out to be HTML (the single-page fallback for a missing file) reads it afterwards.
+  const pageLike = !/\.[A-Za-z0-9]+$/.test(pathname);
+  const siteTheme = pageLike ? pageSiteTheme(env) : null;
+  const upstream = await env.ASSETS.fetch(hashed ? request : withoutValidators(request));
+  const res = new Response(upstream.body, upstream); // copy so headers are mutable
   if (pathname.startsWith('/m/')) {
     res.headers.delete('X-Frame-Options');
     res.headers.delete('Content-Security-Policy');
@@ -49,14 +68,24 @@ export async function serveAsset(request: Request, env: Pick<Env, 'ASSETS'>): Pr
   // fallback), and that must not be kept for a year. A 304 answer to a revalidation carries the header too, so
   // a browser that stored the file earlier switches to the long lifetime; one without a Content-Type is left alone.
   const contentType = upstream.headers.get('Content-Type');
-  if ((upstream.status === 200 || upstream.status === 304) && CONTENT_HASHED.test(pathname) && contentType && !contentType.includes('text/html')) {
+  if ((upstream.status === 200 || upstream.status === 304) && hashed && contentType && !contentType.includes('text/html')) {
     res.headers.set('Cache-Control', IMMUTABLE_CACHE);
   }
-  // Set `data-theme` server-side so there's no flash of the system theme while the module script
-  // loads and runs: `main.tsx`'s own `applyTheme` call is harmless and still covers non-Worker hosting.
-  const theme = (res.headers.get('Content-Type') ?? '').includes('text/html') ? themeFromSearch(search) : null;
-  if (theme) {
-    return new HTMLRewriter().on('html', { element(el) { el.setAttribute('data-theme', theme); } }).transform(res);
-  }
-  return res;
+  if (!(contentType ?? '').includes('text/html')) return res;
+  // Write the look into the page itself, so there's no flash of another theme while the module script loads:
+  // `data-site-theme` is the saved setting (the theme picker shows it), `data-theme` the look this page shows
+  // (`?theme=` first, then the setting; none for "follow the system"). `main.tsx` reads both back.
+  res.headers.delete('ETag');
+  res.headers.delete('Last-Modified');
+  res.headers.set('Cache-Control', 'no-cache');
+  const site = await (siteTheme ?? pageSiteTheme(env));
+  const theme = shownTheme(themeFromSearch(search), site);
+  return new HTMLRewriter()
+    .on('html', {
+      element(el) {
+        el.setAttribute('data-site-theme', site);
+        if (theme) el.setAttribute('data-theme', theme);
+      },
+    })
+    .transform(res);
 }

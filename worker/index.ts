@@ -4,6 +4,7 @@ import { googleEnabled, handleAuth } from './google';
 import { errorResponse, json } from './http';
 import { createMap, deleteMap, getMap, listMaps, saveMap } from './maps';
 import { uploadImage, serveImage } from './images';
+import { getSettings, saveSettings } from './settings';
 
 export interface Env {
   MAPS: R2Bucket;
@@ -24,6 +25,12 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (method !== 'GET') return errorResponse(405, 'Method not allowed');
     const who = await authorize(request, env);
     return json({ signedIn: who !== null, email: who?.via === 'google' ? who.email : null, google: googleEnabled(env) });
+  }
+  if (parts[1] === 'settings' && parts.length === 2) {
+    if (method === 'GET') return getSettings(env);
+    if (method !== 'PUT') return errorResponse(405, 'Method not allowed');
+    if (!(await authorize(request, env))) return errorResponse(401, 'Unauthorized');
+    return saveSettings(request, env);
   }
   if (parts[1] !== 'maps' || parts.length > 4) return errorResponse(404, 'Not found');
   const id = parts[2];

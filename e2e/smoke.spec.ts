@@ -540,7 +540,10 @@ test('in dark mode a topic image keeps its colours while the drawing is inverted
       return Array.from({ length: n }, (_, i) => [...g.getImageData(Math.round((box.x + box.width * (i + 0.5) / n) * k), Math.round((box.y + box.height / 2) * k), 1, 1).data].slice(0, 3));
     }, { shot, box, n: COLS.length });
   };
-  await page.emulateMedia({ colorScheme: 'light' });
+  // The look is set on <html> directly: this test is about the dark-mode layers, not about which setting picks dark
+  // (the site setting is shared by every test on this server, and changing it is tested in prod.spec.ts).
+  const look = (theme: 'light' | 'dark') => page.evaluate((t) => { document.documentElement.dataset.theme = t; }, theme);
+  await look('light');
   const light = await sample();
   // The samples are the source stripes themselves, not just "unaffected by the filter": catches a
   // regression where the photo layer draws the right pixels but at the wrong place or scale.
@@ -548,7 +551,7 @@ test('in dark mode a topic image keeps its colours while the drawing is inverted
     const rgb = hexToRgb(COLS[i]);
     for (let ch = 0; ch < 3; ch++) expect(Math.abs(light[i][ch] - rgb[ch])).toBeLessThanOrEqual(20);
   }
-  await page.emulateMedia({ colorScheme: 'dark' });
+  await look('dark');
   await expect.poll(() => page.locator('.canvas > svg[role="img"]').evaluate((s) => getComputedStyle(s).filter)).toContain('invert');
   const dark = await sample();
   for (let i = 0; i < COLS.length; i++) {
@@ -571,12 +574,13 @@ test('in dark mode a topic image keeps its colours while the drawing is inverted
   expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(frameBox.y + frameBox.height + 3);
 });
 
-test('?theme= forces the embed light or dark, whatever the system says', async ({ page }) => {
+test('?theme= forces the embed light or dark, whatever the system says; without it the site is light, not the system', async ({ page }) => {
+  // Nothing on this server changes the site setting (prod.spec.ts tests the picker on its own server), so it is the default.
   const id = await openNewMap(page);
   const filter = () => page.locator('.canvas > svg[role="img"]').evaluate((s) => getComputedStyle(s).filter);
   const paper = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 
-  // Set server-side (the Worker rewrites the served HTML), so there's no flash of the system theme.
+  // Set server-side (the Worker rewrites the served HTML), so there's no flash of another theme.
   expect(await (await page.request.get(`/m/${id}?theme=dark`)).text()).toContain('data-theme="dark"');
 
   await page.emulateMedia({ colorScheme: 'light' });
@@ -591,9 +595,13 @@ test('?theme= forces the embed light or dark, whatever the system says', async (
   expect(await filter()).toBe('none');
   expect(await paper()).toBe('rgb(251, 250, 246)');
 
-  await page.goto(`/m/${id}`); // no override: follows the (dark) system
+  await page.goto(`/m/${id}`); // no override, dark system: still light, the site's default
   await expect(page.locator('g.topic')).toHaveCount(1);
-  expect(await filter()).toContain('invert');
+  expect(await filter()).toBe('none');
+  expect(await paper()).toBe('rgb(251, 250, 246)');
+  await page.goto(`/e/${id}`);
+  await expect(page.locator('g.topic')).toHaveCount(1);
+  expect(await filter()).toBe('none');
 });
 
 test('a Google session (no owner key) lists, creates, saves and deletes maps, and signing out ends it', async ({ page, context, baseURL, browserName }) => {

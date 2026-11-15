@@ -76,7 +76,7 @@ describe('with browser storage blocked', () => {
       root: { id: 'root000001', text: 'Root', children: [{ id: 'kid0000001', text: 'Child', children: [] }] },
     };
     const api: ApiClient = {
-      listMaps: vi.fn(), createMap: vi.fn(), deleteMap: vi.fn(), uploadImage: vi.fn(),
+      listMaps: vi.fn(), createMap: vi.fn(), deleteMap: vi.fn(), uploadImage: vi.fn(), saveTheme: vi.fn(),
       getMap: vi.fn(async () => ({ map, etag: '"e1"' })),
       saveMap: vi.fn(async (m: MindMap) => ({ map: m, etag: '"e2"' })),
     };
