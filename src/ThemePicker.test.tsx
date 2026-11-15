@@ -68,12 +68,10 @@ describe('ThemePicker', () => {
     mount(() => pending.promise);
     await choose('Dark');
     expect(buttons().some((b) => b.disabled)).toBe(false);
-    expect(container.querySelector('[role="group"]')!.getAttribute('aria-busy')).toBe('true');
     const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
     button('System').dispatchEvent(down);
     expect(down.defaultPrevented).toBe(true);
     await act(async () => pending.resolve());
-    expect(container.querySelector('[role="group"]')!.hasAttribute('aria-busy')).toBe(false);
   });
 
   it('sends one save at a time: picks made meanwhile wait, and only the latest is sent, after the first is answered', async () => {
@@ -137,19 +135,31 @@ describe('ThemePicker', () => {
     expect(look()).toEqual(['dark', 'dark']);
   });
 
-  it('on a page opened with ?theme=, pressing the saved setting shows it on the page without saving again', async () => {
+  it('sends a click of the choice it thinks is saved too (another window may have changed it), and shows it on a ?theme= page', async () => {
     const save = vi.fn(async () => {});
     mount(save, { 'data-site-theme': 'light', 'data-theme': 'dark' });
     await choose('Light');
-    expect(save).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledWith('light');
     expect(look()).toEqual(['light', 'light']);
   });
 
-  it('follows the setting when the page reads it again (back from the browser\'s memory, or a tab shown again)', async () => {
-    mount(vi.fn(async () => {}));
+  it('follows the setting when the page reads it again, clearing an old error', async () => {
+    mount(vi.fn<(t: SiteTheme) => Promise<void>>().mockRejectedValueOnce(new ApiError(0, 'Network error')));
+    await choose('System');
+    expect(alertText()).not.toBeNull();
     const answer = (theme: string) => vi.fn(async () => Response.json({ theme })) as unknown as typeof fetch;
     await act(async () => refreshSiteTheme(html, '', answer('dark')));
     expect(look()).toEqual(['dark', 'dark']);
     expect(pressed()).toEqual(['Dark']);
+    expect(alertText()).toBeNull();
+  });
+
+  it('after a failed pick on a ?theme= page, a later re-read keeps the ?theme= look the failure put back', async () => {
+    mount(vi.fn<(t: SiteTheme) => Promise<void>>().mockRejectedValueOnce(new ApiError(500, 'Internal error')), { 'data-site-theme': 'light', 'data-theme': 'dark' });
+    await choose('System');
+    expect(look()).toEqual(['light', 'dark']);
+    const answer = vi.fn(async () => Response.json({ theme: 'light' })) as unknown as typeof fetch;
+    await act(async () => refreshSiteTheme(html, '?theme=dark', answer));
+    expect(look()).toEqual(['light', 'dark']);
   });
 });

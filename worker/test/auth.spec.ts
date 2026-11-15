@@ -213,11 +213,14 @@ describe('a Google session', () => {
   it('changes the site theme from our own pages only', async () => {
     const { session } = await signIn();
     const put = (origin: string | null) => withSession(session, '/api/settings', { method: 'PUT', body: '{"theme":"dark"}' }, { origin });
-    for (const origin of ['https://evil.example', 'null', null]) expect([origin, (await put(origin)).status]).toEqual([origin, 401]);
-    expect(await (await withSession(null, '/api/settings')).json()).toEqual({ theme: 'light' });
-    expect((await put(SITE)).status).toBe(200);
-    expect(await (await withSession(null, '/api/settings')).json()).toEqual({ theme: 'dark' });
-    await E.MAPS.delete('settings/site.json');
+    try {
+      for (const origin of ['https://evil.example', 'null', null]) expect([origin, (await put(origin)).status]).toEqual([origin, 401]);
+      expect(await (await withSession(null, '/api/settings')).json()).toEqual({ theme: 'light' });
+      expect((await put(SITE)).status).toBe(200);
+      expect(await (await withSession(null, '/api/settings')).json()).toEqual({ theme: 'dark' });
+    } finally {
+      await E.MAPS.delete('settings/site.json');
+    }
   });
 
   it('is refused when it was changed, has run out, or was signed with another owner key', async () => {
