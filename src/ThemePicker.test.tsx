@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from './api/client';
 import type { SiteTheme } from './shared/theme';
+import { refreshSiteTheme } from './theme';
 import { ThemePicker } from './ThemePicker';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -20,12 +21,13 @@ function mount(save: (t: SiteTheme) => Promise<void>, attrs: Record<string, stri
   reactRoot = createRoot(container);
   act(() => reactRoot.render(<ThemePicker save={save} root={html} />));
 }
-const select = () => container.querySelector('select') as HTMLSelectElement;
-async function choose(value: string) {
-  await act(async () => {
-    select().value = value;
-    select().dispatchEvent(new Event('change', { bubbles: true }));
-  });
+const buttons = () => [...container.querySelectorAll('.theme-options button')] as HTMLButtonElement[];
+const button = (label: string) => buttons().find((b) => b.textContent === label)!;
+const pressed = () => buttons().filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
+const alertText = () => container.querySelector('[role="alert"]')?.textContent ?? null;
+const look = () => [html.getAttribute('data-site-theme'), html.getAttribute('data-theme')];
+async function choose(label: string) {
+  await act(async () => button(label).click());
 }
 function deferred() {
   let resolve!: () => void;
@@ -39,56 +41,115 @@ afterEach(() => {
 });
 
 describe('ThemePicker', () => {
-  it('offers Light, Dark and Follow system, showing the saved setting', () => {
+  it('is a labelled group of three buttons, Light, Dark and System, with the saved setting pressed', () => {
     mount(vi.fn(), { 'data-site-theme': 'system' });
-    expect([...select().options].map((o) => [o.value, o.textContent])).toEqual([['light', 'Light'], ['dark', 'Dark'], ['system', 'Follow system']]);
-    expect(select().value).toBe('system');
-    expect(container.querySelector('label')!.textContent).toMatch(/^Theme/);
+    expect(buttons().map((b) => [b.textContent, b.type])).toEqual([['Light', 'button'], ['Dark', 'button'], ['System', 'button']]);
+    expect(pressed()).toEqual(['System']);
+    const group = container.querySelector('[role="group"]')!;
+    expect(document.getElementById(group.getAttribute('aria-labelledby')!)!.textContent).toBe('Theme');
+    expect(button('System').title).toMatch(/system setting/);
   });
 
-  it('changes the page at once, saves the choice, and is locked until the save is answered', async () => {
-    const pending = deferred();
-    const save = vi.fn(() => pending.promise);
+  it('changes the page at once and saves the choice; "System" leaves the look to the system', async () => {
+    const save = vi.fn(async () => {});
     mount(save);
-    await choose('dark');
+    await choose('Dark');
     expect(save).toHaveBeenCalledWith('dark');
-    expect([html.dataset.siteTheme, html.dataset.theme]).toEqual(['dark', 'dark']);
-    expect(select().disabled).toBe(true);
-    await act(async () => pending.resolve());
-    expect(select().disabled).toBe(false);
-    expect(select().value).toBe('dark');
-    expect(container.querySelector('[role="alert"]')).toBeNull();
-
-    await choose('system');
+    expect(look()).toEqual(['dark', 'dark']);
+    expect(pressed()).toEqual(['Dark']);
+    await choose('System');
     expect(save).toHaveBeenLastCalledWith('system');
-    expect([html.dataset.siteTheme, html.hasAttribute('data-theme')]).toEqual(['system', false]);
+    expect(look()).toEqual(['system', null]);
+    expect(alertText()).toBeNull();
   });
 
-  it('when the save fails, puts the page back exactly as it was (a ?theme= look included) and says why', async () => {
+  it('never disables a button (that would drop keyboard focus onto the page), and a mouse press does not take focus', async () => {
     const pending = deferred();
-    // Opened with ?theme=dark while the site is light.
-    mount(() => pending.promise, { 'data-site-theme': 'light', 'data-theme': 'dark' });
-    await choose('system');
-    expect(html.hasAttribute('data-theme')).toBe(false);
-    await act(async () => pending.reject(new ApiError(401, 'Unauthorized')));
-    expect([html.dataset.siteTheme, html.dataset.theme]).toEqual(['light', 'dark']);
-    expect(select().value).toBe('light');
-    expect(select().disabled).toBe(false);
-    expect(container.querySelector('[role="alert"]')!.textContent).toBe('Couldn’t save the theme: sign in again.');
+    mount(() => pending.promise);
+    await choose('Dark');
+    expect(buttons().some((b) => b.disabled)).toBe(false);
+    expect(container.querySelector('[role="group"]')!.getAttribute('aria-busy')).toBe('true');
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    button('System').dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    await act(async () => pending.resolve());
+    expect(container.querySelector('[role="group"]')!.hasAttribute('aria-busy')).toBe(false);
   });
 
-  it('names an offline failure and a server refusal differently, and clears the message on the next try', async () => {
-    const save = vi.fn<(t: SiteTheme) => Promise<void>>()
-      .mockRejectedValueOnce(new ApiError(0, 'Network error'))
-      .mockRejectedValueOnce(new ApiError(500, 'Internal error'))
-      .mockResolvedValueOnce(undefined);
+  it('sends one save at a time: picks made meanwhile wait, and only the latest is sent, after the first is answered', async () => {
+    const first = deferred();
+    const save = vi.fn<(t: SiteTheme) => Promise<void>>().mockReturnValueOnce(first.promise).mockResolvedValue(undefined);
     mount(save);
-    await choose('dark');
-    expect(container.querySelector('[role="alert"]')!.textContent).toBe('Couldn’t save the theme: you seem to be offline.');
-    await choose('dark');
-    expect(container.querySelector('[role="alert"]')!.textContent).toBe('Couldn’t save the theme: Internal error');
-    await choose('dark');
-    expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(html.dataset.theme).toBe('dark');
+    await choose('Dark');
+    await choose('System');
+    await choose('Light');
+    await choose('System');
+    expect(save.mock.calls).toEqual([['dark']]);
+    expect(look()).toEqual(['system', null]); // the page shows the latest pick at once
+    await act(async () => first.resolve());
+    expect(save.mock.calls).toEqual([['dark'], ['system']]);
+    expect(pressed()).toEqual(['System']);
+  });
+
+  it('sends nothing more when the waiting pick is what was just saved', async () => {
+    const first = deferred();
+    const save = vi.fn<(t: SiteTheme) => Promise<void>>().mockReturnValueOnce(first.promise);
+    mount(save);
+    await choose('Dark');
+    await choose('Light');
+    await choose('Dark');
+    await act(async () => first.resolve());
+    expect(save.mock.calls).toEqual([['dark']]);
+    expect(look()).toEqual(['dark', 'dark']);
+  });
+
+  it('when a save fails, puts the page back exactly as it was (a ?theme= look included), drops waiting picks, and says why', async () => {
+    const pending = deferred();
+    const save = vi.fn<(t: SiteTheme) => Promise<void>>().mockReturnValueOnce(pending.promise);
+    // Opened with ?theme=dark while the site is light.
+    mount(save, { 'data-site-theme': 'light', 'data-theme': 'dark' });
+    await choose('System');
+    await choose('Dark'); // waits
+    await act(async () => pending.reject(new ApiError(401, 'Unauthorized')));
+    expect(look()).toEqual(['light', 'dark']);
+    expect(pressed()).toEqual(['Light']);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(alertText()).toBe('Couldn’t save the theme: sign in again.');
+  });
+
+  it('on a failure after an earlier save, goes back to that saved choice', async () => {
+    const save = vi.fn<(t: SiteTheme) => Promise<void>>().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new ApiError(500, 'Internal error'));
+    mount(save);
+    await choose('Dark');
+    await choose('System');
+    expect(look()).toEqual(['dark', 'dark']);
+    expect(pressed()).toEqual(['Dark']);
+    expect(alertText()).toBe('Couldn’t save the theme: Internal error');
+  });
+
+  it('names an offline failure, and clears the message on the next pick', async () => {
+    const save = vi.fn<(t: SiteTheme) => Promise<void>>().mockRejectedValueOnce(new ApiError(0, 'Network error')).mockResolvedValue(undefined);
+    mount(save);
+    await choose('Dark');
+    expect(alertText()).toBe('Couldn’t save the theme: you seem to be offline.');
+    await choose('Dark');
+    expect(alertText()).toBeNull();
+    expect(look()).toEqual(['dark', 'dark']);
+  });
+
+  it('on a page opened with ?theme=, pressing the saved setting shows it on the page without saving again', async () => {
+    const save = vi.fn(async () => {});
+    mount(save, { 'data-site-theme': 'light', 'data-theme': 'dark' });
+    await choose('Light');
+    expect(save).not.toHaveBeenCalled();
+    expect(look()).toEqual(['light', 'light']);
+  });
+
+  it('follows the setting when the page reads it again (back from the browser\'s memory, or a tab shown again)', async () => {
+    mount(vi.fn(async () => {}));
+    const answer = (theme: string) => vi.fn(async () => Response.json({ theme })) as unknown as typeof fetch;
+    await act(async () => refreshSiteTheme(html, '', answer('dark')));
+    expect(look()).toEqual(['dark', 'dark']);
+    expect(pressed()).toEqual(['Dark']);
   });
 });

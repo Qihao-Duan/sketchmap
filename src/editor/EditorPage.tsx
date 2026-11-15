@@ -541,7 +541,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           The server refused this save: {rejectedMessage}. Your changes are kept in this browser.
         </div>
       )}
-      <main className="editor-stage">
+      <main className={detailsOpen && selectedNode ? 'editor-stage details-open' : 'editor-stage'}>
         <Canvas
           ref={canvas}
           layout={layout}

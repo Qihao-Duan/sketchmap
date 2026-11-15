@@ -156,20 +156,18 @@ describe('Editor', () => {
     expect(container.querySelector('[data-testid="save-status"]')!.textContent).toBe('Saved');
   });
 
-  it('has the site theme picker in the toolbar; it saves through the API, and map keys stay out of it', async () => {
+  it('has the site theme picker in the toolbar; a click saves through the API and leaves the map keys working', async () => {
     const api = fakeApi();
     mount(api);
-    const select = container.querySelector('.toolbar .theme-pick select') as HTMLSelectElement;
-    expect(select).not.toBeNull();
-    const before = topics();
-    select.focus();
-    keydown({ key: 'Delete' }, select); // a key meant for the picker must not delete a topic
-    expect(topics()).toBe(before);
-    await act(async () => {
-      select.value = 'system';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    const system = [...container.querySelectorAll('.toolbar .theme-pick button')].find((b) => b.textContent === 'System') as HTMLButtonElement;
+    expect(system).toBeDefined();
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    system.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true); // the click does not take the focus away from the map
+    await act(async () => system.click());
     expect(api.saveTheme).toHaveBeenCalledWith('system');
+    keydown({ key: 'Tab' });
+    expect(topics()).toBe(2);
     document.documentElement.removeAttribute('data-theme');
     document.documentElement.removeAttribute('data-site-theme');
   });

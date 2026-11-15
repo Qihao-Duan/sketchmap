@@ -203,12 +203,9 @@ describe('ListPage', () => {
     localStorage.setItem('sketchmap:owner-key', 'k');
     const calls = stubApi();
     await render();
-    const select = container.querySelector('.theme-pick select') as HTMLSelectElement;
-    expect(select.value).toBe('light');
-    await act(async () => {
-      select.value = 'dark';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    const choice = (label: string) => [...container.querySelectorAll('.theme-pick button')].find((b) => b.textContent === label) as HTMLButtonElement;
+    expect(choice('Light').getAttribute('aria-pressed')).toBe('true');
+    await act(async () => choice('Dark').click());
     expect(calls).toContainEqual(['PUT', '/api/settings']);
     expect(document.documentElement.dataset.theme).toBe('dark');
     document.documentElement.removeAttribute('data-theme');

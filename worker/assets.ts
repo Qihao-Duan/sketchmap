@@ -40,7 +40,7 @@ const CONTENT_HASHED = /^\/(assets\/[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+|fonts\/(Ex
 /**
  * The same request without `If-None-Match` / `If-Modified-Since`. A page is one file for every theme, but this Worker
  * writes the site theme into it: the file's own validators can't tell a browser that the theme changed, so a page is
- * always sent whole (it is about 1 KB).
+ * always sent whole (it is about 1 KB). Only for a browser that kept a page from before pages were sent `no-store`.
  */
 function withoutValidators(request: Request): Request {
   if (!request.headers.has('If-None-Match') && !request.headers.has('If-Modified-Since')) return request;
@@ -57,7 +57,7 @@ export async function serveAsset(request: Request, env: Pick<Env, 'ASSETS' | 'MA
   // Anything else that turns out to be HTML (the single-page fallback for a missing file) reads it afterwards.
   const pageLike = !/\.[A-Za-z0-9]+$/.test(pathname);
   const siteTheme = pageLike ? pageSiteTheme(env) : null;
-  const upstream = await env.ASSETS.fetch(hashed ? request : withoutValidators(request));
+  const upstream = await env.ASSETS.fetch(pageLike ? withoutValidators(request) : request);
   const res = new Response(upstream.body, upstream); // copy so headers are mutable
   if (pathname.startsWith('/m/')) {
     res.headers.delete('X-Frame-Options');
@@ -74,10 +74,11 @@ export async function serveAsset(request: Request, env: Pick<Env, 'ASSETS' | 'MA
   if (!(contentType ?? '').includes('text/html')) return res;
   // Write the look into the page itself, so there's no flash of another theme while the module script loads:
   // `data-site-theme` is the saved setting (the theme picker shows it), `data-theme` the look this page shows
-  // (`?theme=` first, then the setting; none for "follow the system"). `main.tsx` reads both back.
+  // (`?theme=` first, then the setting; none for "follow the system"). `main.tsx` reads both back. `no-store`: a
+  // browser must not keep a page that shows an old setting (`no-cache` would still let Back reuse a kept copy).
   res.headers.delete('ETag');
   res.headers.delete('Last-Modified');
-  res.headers.set('Cache-Control', 'no-cache');
+  res.headers.set('Cache-Control', 'no-store');
   const site = await (siteTheme ?? pageSiteTheme(env));
   const theme = shownTheme(themeFromSearch(search), site);
   return new HTMLRewriter()

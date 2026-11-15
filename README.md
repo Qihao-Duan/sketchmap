@@ -75,7 +75,7 @@ How it behaves:
 The embed is view-only by design. Anyone who can see the Notion page, or who has the link, can view the map.
 Only someone with the owner key can change it.
 
-**Theme.** The site has one theme setting: **Light** (the default), **Dark**, or **Follow system** (each viewer's own light or dark setting). Pick it with **Theme** on the map list or in the editor's bottom toolbar. It is saved on the server, so it applies to the list, every editor and every Notion embed, on every device. To give one embed a different look, add `?theme=dark` or `?theme=light` to its link, e.g. `https://…/m/<id>?theme=dark`; that wins over the setting.
+**Theme.** The site has one theme setting: **Light** (the default), **Dark**, or **System** (follows each viewer's own light or dark setting). Pick it with the **Theme** buttons on the map list or in the editor's bottom toolbar. It is saved on the server, so it applies to the list, every editor and every Notion embed, on every device. To give one embed a different look, add `?theme=dark` or `?theme=light` to its link, e.g. `https://…/m/<id>?theme=dark`; that wins over the setting.
 
 Browsers: the editor and the embed need Chrome/Edge 123+, Firefox 120+ or Safari 17.5+ (iOS 17.5+ for the Notion iOS app); older browsers still draw the map but lose the app's colours.
 

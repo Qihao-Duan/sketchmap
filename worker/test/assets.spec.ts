@@ -4,6 +4,7 @@ import worker, { type Env } from '../index';
 import { contentSecurityPolicy, IMMUTABLE_CACHE } from '../assets';
 import { SETTINGS_KEY } from '../settings';
 
+const E = env as unknown as Env;
 function withAssets(contentType: string, extra: Record<string, string> = {}): Env {
   const ASSETS = {
     fetch: async () => new Response('body', { headers: { 'Content-Type': contentType, ...extra } }),
@@ -96,7 +97,7 @@ describe('the theme is written into every served page, so there is no flash of a
     expect(await htmlTag('/assets/gone-AAAAAAAA.js')).toBe('<html data-site-theme="dark" data-theme="dark">');
   });
 
-  it('sends pages whole and fresh: no validators, so a browser never keeps a page showing an old setting', async () => {
+  it('sends pages whole and never to be kept (no-store, no validators), so a browser never shows a page with an old setting', async () => {
     const seen: Request[] = [];
     const ASSETS = {
       fetch: async (r: Request) => {
@@ -109,18 +110,27 @@ describe('the theme is written into every served page, so there is no flash of a
       { ...(env as unknown as Env), ASSETS },
     );
     expect(res.status).toBe(200);
-    expect([res.headers.get('ETag'), res.headers.get('Last-Modified'), res.headers.get('Cache-Control')]).toEqual([null, null, 'no-cache']);
+    expect([res.headers.get('ETag'), res.headers.get('Last-Modified'), res.headers.get('Cache-Control')]).toEqual([null, null, 'no-store']);
     expect([seen[0].headers.get('If-None-Match'), seen[0].headers.get('If-Modified-Since')]).toEqual([null, null]);
   });
 
-  it('keeps revalidation for content-hashed files, and leaves other files untouched even with ?theme=', async () => {
-    const seen: Request[] = [];
-    const ASSETS = { fetch: async (r: Request) => { seen.push(r); return new Response('console.log(1)', { headers: { 'Content-Type': 'text/javascript', ETag: '"js"' } }); } } as unknown as Fetcher;
-    const e = { ...(env as unknown as Env), ASSETS };
-    const res = await worker.fetch(new Request('http://x/assets/index-D4btxGR0.js?theme=dark', { headers: { 'If-None-Match': '"js"' } }), e);
-    expect(seen[0].headers.get('If-None-Match')).toBe('"js"');
-    expect(res.headers.get('ETag')).toBe('"js"');
-    expect(await res.text()).toBe('console.log(1)');
+  it('leaves every other file alone, ?theme= or not: revalidation kept, and no storage read', async () => {
+    const reads: string[] = [];
+    const MAPS = new Proxy(E.MAPS, {
+      get: (target, prop) => (prop === 'get' ? (key: string) => { reads.push(key); return target.get(key); } : Reflect.get(target, prop)),
+    });
+    for (const [path, type] of [['/assets/index-D4btxGR0.js?theme=dark', 'text/javascript'], ['/fonts/OFL.txt', 'text/plain'], ['/favicon.svg', 'image/svg+xml']]) {
+      const seen: Request[] = [];
+      const ASSETS = { fetch: async (r: Request) => { seen.push(r); return new Response('file', { headers: { 'Content-Type': type, ETag: '"f"' } }); } } as unknown as Fetcher;
+      const res = await worker.fetch(new Request(`http://x${path}`, { headers: { 'If-None-Match': '"f"' } }), { ...E, ASSETS, MAPS });
+      expect(seen[0].headers.get('If-None-Match'), path).toBe('"f"');
+      expect(res.headers.get('ETag'), path).toBe('"f"');
+      expect(await res.text(), path).toBe('file');
+    }
+    expect(reads).toEqual([]);
+    // A page reads the setting once.
+    await worker.fetch(new Request('http://x/m/abcdefghijklmnopqrstu'), { ...withHtmlAssets(html), MAPS });
+    expect(reads).toEqual([SETTINGS_KEY]);
   });
 });
 
@@ -142,10 +152,10 @@ describe('long-lived caching for content-hashed files', () => {
     }
   });
 
-  it('sends pages with no-cache (the theme is written into them), never the year-long header', async () => {
+  it('sends pages with no-store (the theme is written into them), never the year-long header', async () => {
     for (const path of ['/', '/m/abcdefghijklmnopqrstu']) {
       const res = await get(path, withAssets('text/html; charset=utf-8', { 'Cache-Control': REVALIDATE }));
-      expect(res.headers.get('Cache-Control'), path).toBe('no-cache');
+      expect(res.headers.get('Cache-Control'), path).toBe('no-store');
     }
   });
 
@@ -163,7 +173,7 @@ describe('long-lived caching for content-hashed files', () => {
   it('does not cache the page that answers for a bundle that no longer exists', async () => {
     // not_found_handling: single-page-application answers a missing file with index.html and status 200.
     const res = await get('/assets/gone-AAAAAAAA.js', withAssets('text/html; charset=utf-8', { 'Cache-Control': REVALIDATE }));
-    expect(res.headers.get('Cache-Control')).toBe('no-cache');
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
 
   it('does not cache an error answer', async () => {

@@ -75,51 +75,69 @@ test('the theme picker sets the look of the whole site: the list, the editor and
   const DARK = 'rgb(21, 21, 23)';
   const LIGHT = 'rgb(251, 250, 246)';
   const paper = (p = page) => p.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  const picker = page.locator('.theme-pick select');
+  const theme = page.getByRole('group', { name: 'Theme' });
+  const pressed = theme.locator('button[aria-pressed="true"]');
+  /** Clicks a theme button and waits for the server to answer the save. */
+  const pick = async (label: string) => {
+    const saved = page.waitForResponse((r) => r.url().endsWith('/api/settings') && r.request().method() === 'PUT');
+    await theme.getByRole('button', { name: label }).click();
+    expect((await saved).status()).toBe(200);
+  };
   try {
     await page.emulateMedia({ colorScheme: 'light' });
     const id = await openNewMap(page);
-    await expect(picker).toHaveValue('light');
+    await expect(pressed).toHaveText('Light');
     expect(await paper()).toBe(LIGHT);
 
-    // Picked in the editor: the page turns dark at once, and the choice is saved for the whole site.
-    await picker.selectOption('dark');
+    // Picked in the editor: the page turns dark, and the choice is saved for the whole site.
+    await pick('Dark');
     expect(await paper()).toBe(DARK);
-    await expect(picker).toBeEnabled(); // the save was answered
     await expect(page.getByRole('alert')).toHaveCount(0);
+    // The click left the keyboard with the map: Tab still adds a topic.
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('Beta');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('g.topic')).toHaveCount(2);
+    await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+    // Back to the list page, which was loaded while the site was still light: it shows the new setting.
+    await page.goBack();
+    await expect(page.getByRole('heading', { name: 'Your maps' })).toBeVisible();
+    await expect(pressed).toHaveText('Dark');
+    expect(await paper()).toBe(DARK);
+    await page.goForward();
+    await expect(page.locator('g.topic')).toHaveCount(2);
 
     // Another browser with a light system and no key, as a Notion viewer: the embed is dark in the HTML itself.
     const viewerContext = await browser.newContext({ colorScheme: 'light' });
     const viewer = await viewerContext.newPage();
     const res = await viewer.goto(`/m/${id}`);
     expect(await res!.text()).toContain('data-theme="dark"');
-    await expect(viewer.locator('g.topic')).toHaveCount(1);
+    await expect(viewer.locator('g.topic')).toHaveCount(2);
     expect(await paper(viewer)).toBe(DARK);
     // A link's ?theme= still wins.
     await viewer.goto(`/m/${id}?theme=light`);
     expect(await paper(viewer)).toBe(LIGHT);
 
-    // On the list page the picker shows the saved choice; "Follow system" hands the look to each viewer's system.
+    // On the list page the picker shows the saved choice; "System" hands the look to each viewer's system.
     await page.goto('/');
-    await expect(picker).toHaveValue('dark');
+    await expect(pressed).toHaveText('Dark');
     expect(await paper()).toBe(DARK);
-    await picker.selectOption('system');
-    await expect(picker).toBeEnabled();
+    await pick('System');
     expect(await paper()).toBe(LIGHT); // this page's system is light
     await viewer.emulateMedia({ colorScheme: 'dark' });
     await viewer.goto(`/m/${id}`);
-    await expect(viewer.locator('g.topic')).toHaveCount(1);
+    await expect(viewer.locator('g.topic')).toHaveCount(2);
     expect(await paper(viewer)).toBe(DARK);
     await viewer.emulateMedia({ colorScheme: 'light' });
     expect(await paper(viewer)).toBe(LIGHT);
     await viewerContext.close();
 
     // Back to Light, and a reload keeps it.
-    await picker.selectOption('light');
-    await expect(picker).toBeEnabled();
+    await pick('Light');
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.reload();
-    await expect(picker).toHaveValue('light');
+    await expect(pressed).toHaveText('Light');
     expect(await paper()).toBe(LIGHT);
   } finally {
     await page.request.put('/api/settings', { headers: { Authorization: 'Bearer dev-owner-key' }, data: { theme: 'light' } });
