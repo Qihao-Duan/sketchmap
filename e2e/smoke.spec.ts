@@ -255,6 +255,120 @@ test('drag-to-move finds its drop target in a real browser (O1)', async ({ page 
   expect(outline).toMatch(/- Alpha\n {2}- Beta\n/);
 });
 
+/** Adds main branches with these names to a new map, one below the other. */
+async function addMainBranches(page: import('@playwright/test').Page, names: string[]): Promise<void> {
+  await page.keyboard.press('Tab');
+  for (const [i, name] of names.entries()) {
+    if (i > 0) await page.keyboard.press('Enter'); // a new sibling below
+    await page.keyboard.type(name);
+    await page.keyboard.press('Enter');
+  }
+  await expect(page.locator('g.topic')).toHaveCount(names.length + 1);
+}
+
+test('a topic dragged to the edge of another one goes next to it, and ⌘/Ctrl ↑ ↓ move it among its siblings', async ({ page }) => {
+  await openNewMap(page);
+  const names = ['Alpha', 'Beta', 'Gamma'];
+  await addMainBranches(page, names);
+  await page.getByRole('button', { name: 'Logic chart' }).click();
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  const box = async (text: string) => (await page.locator('g.topic', { has: page.locator('text', { hasText: text }) }).locator('rect.hit').boundingBox())!;
+  /** The branches from top to bottom, as drawn. */
+  const fromTop = async () => {
+    const ys = new Map<string, number>();
+    for (const name of names) ys.set(name, (await box(name)).y);
+    return [...names].sort((p, q) => ys.get(p)! - ys.get(q)!);
+  };
+  expect(await fromTop()).toEqual(['Alpha', 'Beta', 'Gamma']);
+
+  // Drag Gamma to the top edge of Alpha: a line shows the place, and Alpha is not marked as a new parent.
+  const [alpha, gamma] = [await box('Alpha'), await box('Gamma')];
+  const end = { x: alpha.x + alpha.width / 2, y: alpha.y + alpha.height * 0.15 };
+  await page.mouse.move(gamma.x + gamma.width / 2, gamma.y + gamma.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 10 });
+  await expect(page.locator('g.drop-line line')).toHaveCount(1);
+  await expect(page.locator('g.topic.drop')).toHaveCount(0);
+  await page.mouse.up();
+  await expect(page.locator('g.drop-line line')).toHaveCount(0);
+  await expect.poll(fromTop).toEqual(['Gamma', 'Alpha', 'Beta']);
+
+  // Gamma is still the selected topic: the keys move it one place at a time, and stop at the end.
+  await page.keyboard.press('ControlOrMeta+ArrowDown');
+  await expect.poll(fromTop).toEqual(['Alpha', 'Gamma', 'Beta']);
+  await page.keyboard.press('ControlOrMeta+ArrowDown');
+  await page.keyboard.press('ControlOrMeta+ArrowDown');
+  await expect.poll(fromTop).toEqual(['Alpha', 'Beta', 'Gamma']);
+  await page.keyboard.press('ControlOrMeta+ArrowUp');
+  await expect.poll(fromTop).toEqual(['Alpha', 'Gamma', 'Beta']);
+  // ⌘/Ctrl ← does nothing in a logic chart, and does not take the browser back either.
+  await page.keyboard.press('ControlOrMeta+ArrowLeft');
+  await expect(page).toHaveURL(/\/e\//);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(fromTop).toEqual(['Alpha', 'Beta', 'Gamma']);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(fromTop).toEqual(['Alpha', 'Gamma', 'Beta']);
+
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+  await page.reload();
+  await expect(page.locator('g.topic')).toHaveCount(4);
+  expect(await fromTop()).toEqual(['Alpha', 'Gamma', 'Beta']);
+  await page.getByRole('button', { name: 'Outline' }).click();
+  expect(await page.locator('textarea[aria-label="Outline text"]').inputValue()).toMatch(/- Alpha\n- Gamma\n- Beta\n/);
+});
+
+test('map layout: a main branch put on the other side of the central topic stays there, also after a reload and in the view', async ({ page }) => {
+  const id = await openNewMap(page);
+  await addMainBranches(page, ['Alpha', 'Beta', 'Gamma', 'Delta']);
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  const box = async (text: string) => (await page.locator('g.topic', { has: page.locator('text', { hasText: text }) }).locator('rect.hit').boundingBox())!;
+  /** Which side of the central topic each branch is on. */
+  const sides = async () => {
+    const root = await box('Central topic');
+    const out: Record<string, string> = {};
+    for (const name of ['Alpha', 'Beta', 'Gamma', 'Delta']) out[name] = (await box(name)).x < root.x ? 'left' : 'right';
+    return out;
+  };
+  // Balanced automatically: the first two on the right, the rest on the left.
+  expect(await sides()).toEqual({ Alpha: 'right', Beta: 'right', Gamma: 'left', Delta: 'left' });
+
+  // Drop Alpha on the left half of the central topic.
+  const [alpha, root] = [await box('Alpha'), await box('Central topic')];
+  await page.mouse.move(alpha.x + alpha.width / 2, alpha.y + alpha.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(root.x + root.width * 0.25, root.y + root.height / 2, { steps: 10 });
+  await expect(page.locator('g.topic.drop')).toHaveCount(1);
+  await page.mouse.up();
+  // Alpha is on the left now, and Beta did not follow it or get company: the sides are fixed.
+  await expect.poll(sides).toEqual({ Alpha: 'left', Beta: 'right', Gamma: 'left', Delta: 'left' });
+
+  // The keys do the same: → takes the selected branch (Alpha) back to the right, ← to the left again.
+  await page.keyboard.press('ControlOrMeta+ArrowRight');
+  await expect.poll(sides).toEqual({ Alpha: 'right', Beta: 'right', Gamma: 'left', Delta: 'left' });
+  await page.keyboard.press('ControlOrMeta+ArrowLeft');
+  await expect.poll(sides).toEqual({ Alpha: 'left', Beta: 'right', Gamma: 'left', Delta: 'left' });
+  await expect(page).toHaveURL(/\/e\//); // ⌘← moved the branch, not the browser
+
+  // A new branch made next to Beta stays on Beta's side.
+  await page.locator('g.topic', { has: page.locator('text', { hasText: 'Beta' }) }).click();
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Epsilon');
+  await page.keyboard.press('Enter');
+  const epsilonSide = async () => ((await box('Epsilon')).x < (await box('Central topic')).x ? 'left' : 'right');
+  await expect.poll(epsilonSide).toBe('right');
+
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+  await page.reload();
+  await expect(page.locator('g.topic')).toHaveCount(6);
+  expect(await sides()).toEqual({ Alpha: 'left', Beta: 'right', Gamma: 'left', Delta: 'left' });
+  await page.goto(`/m/${id}`);
+  await expect(page.locator('g.topic')).toHaveCount(6);
+  expect(await sides()).toEqual({ Alpha: 'left', Beta: 'right', Gamma: 'left', Delta: 'left' });
+  expect(await epsilonSide()).toBe('right');
+});
+
 test('the left button drags a selection box over several topics; the right button moves the canvas', async ({ page }) => {
   await openNewMap(page);
   await page.keyboard.press('Tab');

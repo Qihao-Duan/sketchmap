@@ -658,6 +658,8 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
       const r = box('r');
       dragTo('a', r.x + r.w * 0.25, r.y + r.h / 2);
       expect(container.querySelector('g.topic.drop')?.getAttribute('data-id')).toBe('r');
+      // marked as the target, with a line along its left side
+      expect(['x1', 'x2'].map((k) => Number(line()!.getAttribute(k)))).toEqual([r.x - 10, r.x - 10]);
       fire(hitOf('a'), 'pointerup', r.x + r.w * 0.25, r.y + r.h / 2);
       expect(h.onMove).toHaveBeenCalledWith('a', { targetId: 'r', where: 'into', side: 'left' });
     });

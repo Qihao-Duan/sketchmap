@@ -108,6 +108,7 @@ type MapNode = {
   priority?: 1 | 2 | 3;       // numbered priority badge
   image?: { key: string; w: number; h: number };  // R2 key + display size in px
   color?: string;             // optional branch colour override (Open Color hex)
+  side?: "left" | "right";    // main branches only, map layout only: the side it was put on by hand (§5)
 };
 ```
 
@@ -154,17 +155,20 @@ The **marker set** is 💡 ✅ ⚠️ ❓ ⭐ 📌 🔥 ❌ 📅 👤, one marke
 | `/` or ⌘/Ctrl / | Fold or unfold the branch |
 | ⌘/Ctrl Z, ⇧⌘Z / Ctrl Y | Undo / redo, up to 200 steps |
 | ⌘/Ctrl K | While editing: wrap the selected words as a link. Not editing: make the whole topic a link. |
+| ⌘/Ctrl ↑ ↓ ← → | Move the current topic one place that way among its siblings, as they are drawn: ↑ ↓ where they are listed one below the other, ← → in the first row of an org chart. In the map layout ← → take a main branch to the other side of the central topic, at about the height it is at. Nothing happens where there is no place that way; the key is taken either way, so ⌘← never sends the browser back. Added 2026-11-16. |
 | Alt ↑ / Alt ↓ | Raise or lower importance (Aside ↔ Normal ↔ Highlight ↔ Key) |
 | Alt 1 / 2 / 3, Alt 0 | Set priority ①②③, or clear it. Uses `KeyboardEvent.code`, so it also works on macOS, where Option+digit types a symbol. |
 | Paste a URL over selected words | Those words become a link |
 | Paste multi-line text | Parsed as an outline (headings or nested bullets) and added under the selected topic |
 | Paste or drop an image | Attached to the selected topic, or to the topic you dropped it on |
-| Drag a topic onto another | Moves the whole branch there. Dropping a topic into its own branch is refused. |
+| Drag a topic onto the middle of another | Moves the whole branch there, as its last child. Dropping a topic into its own branch is refused. |
+| Drag a topic to the edge of another | Puts it just before or after that topic, under the same parent: the top and bottom edge where topics are listed one below the other, the left and right edge in the first row of an org chart. The gap between two topics counts for the nearer one. A line shows the place. Added 2026-11-16. |
+| Drag a topic onto the central topic (map layout) | It becomes the last main branch, on the side of the half it was dropped on; a line along that side says which. |
 | Left-button drag on the background | Draws a selection box: every topic it touches is selected. With Shift it adds to the selection. (XMind's mouse convention, asked for on 2026-11-14.) |
 | Shift-click a topic, ⌘/Ctrl A, Esc | Add the topic to the selection or take it out; select every topic on screen; back to one selected topic |
 | Right- or middle-button drag, wheel, ⌘/Ctrl wheel | Pan, pan, zoom. The right-click menu is suppressed on the editor canvas (on macOS it would open on button-down). |
 
-Several topics selected at once: one of them is the current topic. After a Shift-click that is the topic just added; after a box or select-all it is the topic that was current before, if it is among them, and otherwise the first one in drawing order. Delete removes them all, dragging one moves them all (only the top-most of nested selections move; the root never does), and importance, priority and marker go to all; each is one undo step. Every other action (Tab, Enter, editing, note, link, image, paste, fold) acts on the current topic and, where it creates a topic, leaves only that one selected. The Details panel then shows only importance, priority and marker. A fold never leaves a hidden topic selected: topics a fold hides leave the selection, and if none is left the folded topic becomes the selected one. A box that ends up touching nothing leaves the topic that was current when the drag began. In the view-only page, and for a finger on a touch screen, a drag on the background still pans.
+Several topics selected at once: one of them is the current topic. After a Shift-click that is the topic just added; after a box or select-all it is the topic that was current before, if it is among them, and otherwise the first one in drawing order. Delete removes them all, dragging one moves them all to the place it is dropped, in drawing order (only the top-most of nested selections move; the root never does), and importance, priority and marker go to all; each is one undo step. Every other action (Tab, Enter, editing, note, link, image, paste, fold, ⌘/Ctrl with an arrow) acts on the current topic and, where it creates a topic, leaves only that one selected. The Details panel then shows only importance, priority and marker. A fold never leaves a hidden topic selected: topics a fold hides leave the selection, and if none is left the folded topic becomes the selected one. A box that ends up touching nothing leaves the topic that was current when the drag began. In the view-only page, and for a finger on a touch screen, a drag on the background still pans.
 
 How the remaining behaviours work:
 - **Editing text:**
@@ -190,7 +194,9 @@ All three layouts are pure functions: `layout(tree, measure) → { topics: {id, 
 - **`map` (default):**
   - The root sits in the centre.
   - First-level branches go right until about half the total height is used, and the rest go left.
-  - Reading order runs clockwise, as in XMind.
+  - Reading order runs clockwise, as in XMind: the right side from the top down, the left side from the bottom up.
+  - **Sides fixed by hand (2026-11-16).** While no main branch has a `side`, the two sides are balanced as above every time the map is drawn, so a branch that grows can push others across. The first time a main branch is placed by hand in this layout (dropped next to another main branch, dropped on the central topic, or moved with ⌘/Ctrl and an arrow), every main branch gets a `side`: the moved one the side it was put on, the others the side they are shown on. From then on nothing changes sides by itself. A main branch without a `side` of its own (pasted, or moved in from another layout) goes where the branch before it is. A new main branch made with Enter gets the side of the branch it was made from; one made from the central topic gets the side with fewer branches (right when equal). A topic that stops being a main branch loses its `side`. The other layouts ignore `side`, and keep it.
+  - Branch colours go by position among the main branches, so reordering them changes their colours.
 - **`logic`:** every branch goes to the right.
 - **`org`:**
   - Top-down. First-level branches spread out horizontally.
@@ -299,6 +305,7 @@ One Worker with static assets serves the built app and `/api/*` on the same orig
 - **`.xmind` in:**
   - XMind 2020+ files (`content.json`): titles, attached children, plain-text notes, `href` (becomes a link on the whole text), folded state, priority markers (`priority-1` … `priority-9`, where 3 and above become ③), and images from `resources/` — SVG images come along too, drawn into a PNG the same as any other upload.
   - XMind 8 files (`content.xml`): titles, children and notes.
+  - Sides: an XMind 2020+ map with the structure `org.xmind.ui.map.unbalanced` says how many main branches are on the right (`right-number`, in an extension of the central topic; seen in two real sample files). The first that many get `side: right` and the rest `left`. Files with other structures carry the same extension as a leftover (seen with clockwise maps, an org chart and a fishbone), so it is ignored there. Not checked: whether XMind lists the left side from the top down or the bottom up; here it is bottom up, as for every map.
   - Floating topics and callouts are attached to the map (floating topics under the root, callouts under their topic); their XMind position is not kept. Styles are not imported. Relationships, boundaries, labels, open task checkboxes and other sheets are dropped, and the import summary lists them.
 - **`.excalidraw` out:**
   - Boxes, underlines and branches become rectangles, lines and curved lines; text becomes text elements in Excalifont (fontFamily 5); images become image elements plus `files`.

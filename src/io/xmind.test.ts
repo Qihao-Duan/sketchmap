@@ -127,6 +127,40 @@ describe('fromXmindJson', () => {
     expect(p.root.priority).toBe(1);
   });
 
+  describe('sides of the main branches', () => {
+    // As in real files: the central topic of an "unbalanced" map says how many main branches are on the right.
+    const central = (rightNumber: unknown, structureClass = 'org.xmind.ui.map.unbalanced', attached: unknown[] = [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }, { id: 'c', title: 'C' }]) => ({
+      id: 'r', title: 'R', structureClass,
+      extensions: [{ provider: 'org.xmind.ui.map.unbalanced', content: [{ name: 'right-number', content: rightNumber }] }],
+      children: { attached, detached: [{ id: 'f', title: 'F' }] },
+    });
+    const sides = (topic: object) => fromXmindJson([sheet(topic)]).root.children.map((c) => `${c.text}:${c.side ?? '-'}`);
+
+    it('the first `right-number` main branches are on the right, the rest on the left; a floating topic gets no side of its own', () => {
+      expect(sides(central('2'))).toEqual(['A:right', 'B:right', 'C:left', 'F:-']);
+      expect(sides(central(1))).toEqual(['A:right', 'B:left', 'C:left', 'F:-']);
+      expect(sides(central('0'))).toEqual(['A:left', 'B:left', 'C:left', 'F:-']);
+      expect(sides(central('7'))).toEqual(['A:right', 'B:right', 'C:right', 'F:-']);
+    });
+
+    it('counts entries that are not topics, which are skipped, so the split stays where XMind had it', () => {
+      expect(sides(central('2', undefined, ['junk', { id: 'a', title: 'A' }, { id: 'b', title: 'B' }]))).toEqual(['A:right', 'B:left', 'F:-']);
+    });
+
+    it('no number, a negative one or anything else: the sides stay automatic', () => {
+      for (const bad of ['-1', -1, '', 'two', '2.5', null, {}, [2]]) expect(sides(central(bad))).toEqual(['A:-', 'B:-', 'C:-', 'F:-']);
+      expect(sides({ id: 'r', title: 'R', structureClass: 'org.xmind.ui.map.unbalanced', children: { attached: [{ id: 'a', title: 'A' }] } })).toEqual(['A:-']);
+      expect(sides({ ...central('2'), extensions: 'x' })).toEqual(['A:-', 'B:-', 'C:-', 'F:-']);
+      expect(sides({ ...central('2'), extensions: [null, { provider: 'org.xmind.ui.map.unbalanced', content: 'x' }] })).toEqual(['A:-', 'B:-', 'C:-', 'F:-']);
+    });
+
+    it('only for that structure: other structures carry the same extension as a leftover', () => {
+      for (const structure of ['org.xmind.ui.map.clockwise', 'org.xmind.ui.org-chart.down', 'org.xmind.ui.logic.right', 'org.xmind.ui.fishbone.leftHeaded']) {
+        expect(sides(central('2', structure))).toEqual(['A:-', 'B:-', 'C:-', 'F:-']);
+      }
+    });
+  });
+
   it('refuses content that is not an XMind sheet list', () => {
     expect(() => fromXmindJson({ nope: true })).toThrow(XmindError);
     expect(() => fromXmindJson([])).toThrow(XmindError);

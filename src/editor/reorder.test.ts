@@ -94,8 +94,14 @@ describe('dropAt: where dragged topics would go', () => {
   });
 
   it('map layout: the central topic takes a branch onto the side of the half it is dropped on', () => {
-    expect(drop(map, on(map, 'r', 0.2, 0.5))).toEqual({ targetId: 'r', where: 'into', side: 'left' });
-    expect(drop(map, on(map, 'r', 0.8, 0.1))).toEqual({ targetId: 'r', where: 'into', side: 'right' });
+    const r = box(map, 'r');
+    // a line along that side of the central topic shows which side it will be
+    expect(drop(map, on(map, 'r', 0.2, 0.5))).toEqual({
+      targetId: 'r', where: 'into', side: 'left', line: { x1: r.x - 10, y1: r.y, x2: r.x - 10, y2: r.y + r.h },
+    });
+    expect(drop(map, on(map, 'r', 0.8, 0.1))).toEqual({
+      targetId: 'r', where: 'into', side: 'right', line: { x1: r.x + r.w + 10, y1: r.y, x2: r.x + r.w + 10, y2: r.y + r.h },
+    });
   });
 
   it('logic and org charts have no sides', () => {

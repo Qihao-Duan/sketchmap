@@ -319,6 +319,45 @@ function buildJsonTopic(topic: JsonTopic, depth: number, ctx: BuildCtx): MapNode
   return node;
 }
 
+/** The structure in which XMind keeps a fixed number of main branches on the right of the central topic. */
+const UNBALANCED_MAP = 'org.xmind.ui.map.unbalanced';
+
+/**
+ * How many main branches XMind keeps on the right of the central topic, or null when the file doesn't say.
+ * Seen in real files as an extension of the central topic:
+ * `{ provider: 'org.xmind.ui.map.unbalanced', content: [{ name: 'right-number', content: '4' }] }`.
+ * Read only for that structure: files with other structures carry the same extension as a leftover.
+ */
+function rightNumber(topic: JsonTopic): number | null {
+  if (topic.structureClass !== UNBALANCED_MAP || !Array.isArray(topic.extensions)) return null;
+  for (const ext of topic.extensions) {
+    if (!ext || typeof ext !== 'object' || (ext as { provider?: unknown }).provider !== UNBALANCED_MAP) continue;
+    const content = (ext as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    for (const entry of content) {
+      if (!entry || typeof entry !== 'object' || (entry as { name?: unknown }).name !== 'right-number') continue;
+      const value = (entry as { content?: unknown }).content;
+      const text = typeof value === 'number' ? String(value) : value;
+      if (typeof text === 'string' && /^\d{1,6}$/.test(text)) return Number(text);
+    }
+  }
+  return null;
+}
+
+/**
+ * Puts the main branches on the sides XMind had them on: the first `right` attached topics on the right,
+ * the rest on the left. Floating topics and callouts, which come after them, get no side of their own.
+ */
+function keepSides(root: MapNode, topic: JsonTopic, right: number): void {
+  const attached = Array.isArray(topic.children?.attached) ? topic.children.attached : [];
+  // Entries that are not topics were skipped when the branches were built, so the two lists are counted alike.
+  const kept = attached.filter(isTopic).length;
+  const onRight = attached.slice(0, right).filter(isTopic).length;
+  root.children.slice(0, kept).forEach((child, i) => {
+    child.side = i < onRight ? 'right' : 'left';
+  });
+}
+
 /** `content.json`: an array of sheets. Only the first sheet is imported; the rest are counted. */
 export function fromXmindJson(content: unknown): XmindImport {
   try {
@@ -336,6 +375,8 @@ export function fromXmindJson(content: unknown): XmindImport {
     const ctx: BuildCtx = { dropped, changed: new Changed(), topics: 0, images: [] };
     const root = buildJsonTopic(first.rootTopic, 0, ctx);
     const layout = layoutFromStructureClass(first.rootTopic.structureClass);
+    const right = layout === 'map' ? rightNumber(first.rootTopic) : null;
+    if (right !== null) keepSides(root, first.rootTopic, right);
     return { root, layout, topics: ctx.topics, dropped: dropped.list(), changed: ctx.changed.list(), images: ctx.images };
   } catch (e) {
     if (e instanceof XmindError) throw e;

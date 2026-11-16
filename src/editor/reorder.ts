@@ -12,7 +12,10 @@ export interface Drop {
   side?: BranchSide;
 }
 
-/** A drop found under the pointer, with the line to draw where the topics will go (none when they go onto the target). */
+/**
+ * A drop found under the pointer, with the line to draw for it: where the topics will go next to a topic,
+ * or which side of the central topic they will be on. None when they simply go onto the target.
+ */
 export interface DropAt extends Drop {
   line?: { x1: number; y1: number; x2: number; y2: number };
 }
@@ -21,6 +24,9 @@ export interface DropAt extends Drop {
 const HIT_PAD = 4;
 /** How far from a topic, in the gap between two of them, a drop still counts as next to it. */
 const REACH = { below: 14, beside: 22 } as const;
+
+/** How far from the central topic the line is drawn that shows which side a branch dropped on it goes to. */
+const ROOT_SIDE_GAP = 10;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -82,8 +88,11 @@ export function dropAt(layout: MapLayout, x: number, y: number, moving: readonly
   if (under) {
     if (blocked.has(under.id)) return null;
     if (under.parentId == null) {
-      const side: BranchSide | undefined = layout.kind === 'map' ? (x < under.x + under.w / 2 ? 'left' : 'right') : undefined;
-      return { targetId: under.id, where: 'into', ...(side && { side }) };
+      if (layout.kind !== 'map') return { targetId: under.id, where: 'into' };
+      // The half pointed at is the side the branch goes to; a line along that side of the central topic says which.
+      const side: BranchSide = x < under.x + under.w / 2 ? 'left' : 'right';
+      const edge = side === 'left' ? under.x - ROOT_SIDE_GAP : under.x + under.w + ROOT_SIDE_GAP;
+      return { targetId: under.id, where: 'into', side, line: { x1: edge, y1: under.y, x2: edge, y2: under.y + under.h } };
     }
     const across = sideBySide(layout, under);
     const size = across ? under.w : under.h;
