@@ -120,12 +120,19 @@ export function dropAt(layout: MapLayout, x: number, y: number, moving: readonly
     return { targetId: under.id, where: 'into' };
   }
 
-  // The fold toggle (the counter badge, when folded) sits just beyond the topic and is part of it.
-  for (const b of layout.boxes) {
-    if (b.parentId == null || b.node.children.length === 0) continue;
-    if (Math.abs(x - b.fold.x) > FOLD_REACH || Math.abs(y - b.fold.y) > FOLD_REACH) continue;
-    return blocked.has(b.id) ? null : { targetId: b.id, where: 'into' };
-  }
+  // The fold toggle sits just beyond the topic and is part of it. Folded, it is a counter badge in plain
+  // sight: that comes before the gap it stands in. Unfolded, it shows only under the pointer: it counts
+  // where no place next to a topic does (below).
+  const onToggle = (folded: boolean): DropAt | null | undefined => {
+    for (const b of layout.boxes) {
+      if (b.parentId == null || b.node.children.length === 0 || !!b.node.collapsed !== folded) continue;
+      if (Math.abs(x - b.fold.x) > FOLD_REACH || Math.abs(y - b.fold.y) > FOLD_REACH) continue;
+      return blocked.has(b.id) ? null : { targetId: b.id, where: 'into' };
+    }
+    return undefined;
+  };
+  const badge = onToggle(true);
+  if (badge !== undefined) return badge;
 
   let near: TopicBox | null = null;
   let nearDist = Infinity;
@@ -150,8 +157,8 @@ export function dropAt(layout: MapLayout, x: number, y: number, moving: readonly
       nearFirst = first;
     }
   }
-  if (!near) return null;
-  return nearFirst ? beside(layout, near, true) : after(near);
+  if (near) return nearFirst ? beside(layout, near, true) : after(near);
+  return onToggle(false) ?? null;
 }
 
 /**

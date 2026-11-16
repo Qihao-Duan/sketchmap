@@ -58,7 +58,11 @@ export type EditorAction =
 const NONE: readonly string[] = [];
 
 export function initEditor(map: MindMap): EditorState {
-  return { map, selectedId: map.root.id, extraIds: NONE, editing: null, past: [], future: [], revision: 0 };
+  // A map saved with a side on only some main branches: the others get theirs written down before any
+  // change, so that the first change (removing the branch before them, say) cannot move them. Not a
+  // change of the user's: nothing is saved for it.
+  const settled = produce(map, (d) => void T.settleSides(d.root));
+  return { map: settled, selectedId: map.root.id, extraIds: NONE, editing: null, past: [], future: [], revision: 0 };
 }
 
 /** Every selected topic, the current one first. */

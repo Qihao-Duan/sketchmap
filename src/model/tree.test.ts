@@ -213,6 +213,13 @@ describe('settleSides and carrySides', () => {
     expect(sides(to)).toEqual(['p:right', 'q:-', 's:left', 't:left', 'u:-']);
   });
 
+  it('carrySides matches on the texts it is given for the old branches, when they are not the stored ones', () => {
+    const from = n('r', 'Root', [{ ...side('1', 'left'), text: 'First line\nSecond line' }, { ...side('2', 'right'), text: 'Other' }]);
+    const to = n('x', 'Root', [{ ...side('p'), text: 'Other' }, { ...side('q'), text: 'First line Second line' }]);
+    carrySides(from, to, ['First line Second line', 'Other']);
+    expect(sides(to)).toEqual(['p:right', 'q:left']);
+  });
+
   it('carrySides does nothing when the sides were automatic', () => {
     const to = n('x', 'Root', [side('p')]);
     carrySides(n('r', 'Root', [side('p')]), to);

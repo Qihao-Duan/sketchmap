@@ -447,6 +447,21 @@ describe('selecting several topics', () => {
     expect(main()).toEqual(['B:right', 'C:left', 'A:left']);
   });
 
+  it('a map loaded with a side on only some main branches has the others written down at once, so the first change cannot move them', () => {
+    const mixed = wide();
+    mixed.root.children[0].side = 'right';
+    mixed.root.children[1].side = 'left';
+    let s = initEditor(mixed);
+    expect(s.map.root.children.map((c) => `${c.id}:${c.side}`)).toEqual(['a:right', 'b:left', 'c:left']);
+    expect(s.revision).toBe(0);
+    s = reduce(reduce(s, { type: 'select', id: 'b' }), { type: 'delete' });
+    expect(s.map.root.children.map((c) => `${c.id}:${c.side}`)).toEqual(['a:right', 'c:left']);
+    // a map with all sides, or none, is taken as it is
+    const plain = wide();
+    expect(initEditor(plain).map).toBe(plain);
+    expect(reduce(s, { type: 'replaceMap', map: mixed, dirty: false }).map.root.children.map((c) => c.side)).toEqual(['right', 'left', 'left']);
+  });
+
   it('a map whose sides are automatic gets no sides from changes that place nothing by hand', () => {
     let s = start(['r']);
     s = reduce(s, { type: 'pasteNodes', nodes: [{ id: 'p1', text: 'P1', children: [] }] });

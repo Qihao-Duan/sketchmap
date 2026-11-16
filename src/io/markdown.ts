@@ -87,6 +87,17 @@ export interface ParsedOutline {
   synthetic: boolean;
 }
 
+/**
+ * The text each main branch comes back with after a trip through the outline, which is not always the
+ * stored one (a line break becomes a space, a leading emoji is read as a marker, …). Null when the trip
+ * does not give the main branches back one for one.
+ */
+export function mainBranchTextsInOutline(root: MapNode): string[] | null {
+  const back = parseOutline(toMarkdown(root));
+  if (!back || back.synthetic || back.root.children.length !== root.children.length) return null;
+  return back.root.children.map((c) => c.text);
+}
+
 /** Headings and indented bullets (any indent width; a tab counts as 4 spaces) → a topic tree. */
 export function parseOutline(text: string): ParsedOutline | null {
   const items: Array<{ depth: number; text: string }> = [];

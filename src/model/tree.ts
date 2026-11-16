@@ -45,16 +45,18 @@ export function settleSides(root: MapNode): boolean {
 /**
  * For a map rewritten from text (the Outline panel), whose topics are all new: gives each main branch of
  * `to` the side that a main branch of `from` with the same text had, matching repeated texts in order.
- * Nothing when the sides of `from` were balanced automatically.
+ * `texts`, one per main branch of `from`, is the text to match each on when that is not the stored one
+ * (what the outline makes of it). Nothing when the sides of `from` were balanced automatically.
  */
-export function carrySides(from: MapNode, to: MapNode): void {
+export function carrySides(from: MapNode, to: MapNode, texts?: readonly string[]): void {
   const sides = fixedSides(from);
   if (!sides) return;
   const byText = new Map<string, BranchSide[]>();
   from.children.forEach((c, i) => {
-    const list = byText.get(c.text);
+    const text = texts?.[i] ?? c.text;
+    const list = byText.get(text);
     if (list) list.push(sides[i]);
-    else byText.set(c.text, [sides[i]]);
+    else byText.set(text, [sides[i]]);
   });
   for (const c of to.children) {
     const side = byText.get(c.text)?.shift();

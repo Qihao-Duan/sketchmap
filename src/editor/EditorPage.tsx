@@ -9,7 +9,7 @@ import { buildExcalidraw, EXCALIDRAW_MIME, excalidrawLosses } from '../io/excali
 import { buildSvg, download, fileName, svgToPng, visibleText } from '../io/exportImage';
 import { parseHtmlOutline } from '../io/htmlOutline';
 import { displaySize, prepareImage } from '../io/imagePrep';
-import { markdownLosses, parseOutline, toMarkdown } from '../io/markdown';
+import { mainBranchTextsInOutline, markdownLosses, parseOutline, toMarkdown } from '../io/markdown';
 import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
 import { allText, carrySides, findNode } from '../model/tree';
@@ -456,8 +456,10 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const applyOutline = (text: string): string | null => {
     const parsed = parseOutline(text);
     if (!parsed) return 'The outline is empty.';
-    // The outline has no place for the side of a main branch: a branch whose text is still there keeps its side.
-    carrySides(stateRef.current.map.root, parsed.root);
+    // The outline has no place for the side of a main branch: a branch whose text is still there keeps its
+    // side. "Still there" is judged on the text as the outline shows it, which is what comes back.
+    const before = stateRef.current.map.root;
+    carrySides(before, parsed.root, mainBranchTextsInOutline(before) ?? undefined);
     dispatch({ type: 'replaceRoot', root: parsed.root });
     setOutlineOpen(false);
     return null;

@@ -56,7 +56,7 @@ describe('dropAt: where dragged topics would go', () => {
   });
 
   it('the fold toggle of a topic counts as the topic: dropped there, topics become its children', () => {
-    for (const l of [map, logic, org]) {
+    for (const l of [map, logic]) {
       const a = box(l, 'a');
       expect(drop(l, { x: a.fold.x, y: a.fold.y }), l.kind).toEqual({ targetId: 'a', where: 'into' });
       expect(drop(l, { x: a.fold.x + 10, y: a.fold.y - 10 }), l.kind).toEqual({ targetId: 'a', where: 'into' });
@@ -65,9 +65,30 @@ describe('dropAt: where dragged topics would go', () => {
     // a topic without children has no toggle: beyond its box there is nothing
     const b = box(logic, 'b');
     expect(drop(logic, { x: b.fold.x, y: b.fold.y })).toBeNull();
-    // folded, the toggle is the counter badge
-    const folded = layoutMap(n('r', [n('a', [n('a1')], { collapsed: true }), n('b')]), 'logic', measure);
-    expect(drop(folded, { x: box(folded, 'a').fold.x, y: box(folded, 'a').fold.y })).toEqual({ targetId: 'a', where: 'into' });
+  });
+
+  it('the counter badge of a folded topic, which is in plain sight, comes before the gap it stands in', () => {
+    for (const kind of ['map', 'logic', 'org'] as const) {
+      const folded = layoutMap(n('r', [n('a', [n('a1')], { collapsed: true }), n('b', [n('b1')]), n('c')]), kind, measure);
+      const a = box(folded, 'a');
+      expect(drop(folded, { x: a.fold.x, y: a.fold.y }), kind).toEqual({ targetId: 'a', where: 'into' });
+      expect(drop(folded, { x: a.fold.x, y: a.fold.y }, ['a']), kind).toBeNull();
+    }
+  });
+
+  it('the toggle of an unfolded topic, which is not, leaves the gap to the places next to topics', () => {
+    // org chart: right of a main branch at mid height is the place after it, toggle or not
+    const a = box(org, 'a');
+    for (const dx of [5, 10, 20]) {
+      expect(drop(org, { x: a.x + a.w + dx, y: a.y + a.h / 2 }), `+${dx}`).toMatchObject({ targetId: 'a', where: 'after' });
+    }
+    // logic chart: under the end of an underlined topic that has children, where a wider next sibling begins
+    const wide = layoutMap(n('r', [n('a', [n('k', [n('k1')]), { ...n('w'), text: 'A much wider topic' }])]), 'logic', measure);
+    const k = box(wide, 'k');
+    expect(box(wide, 'w').w).toBeGreaterThan(k.w + 11);
+    expect(drop(wide, { x: k.fold.x, y: k.fold.y + 7 })).toMatchObject({ targetId: 'w', where: 'before' });
+    // on the toggle itself, where nothing else is, it still counts as its topic
+    expect(drop(wide, { x: k.fold.x, y: k.fold.y - 6 })).toEqual({ targetId: 'k', where: 'into' });
   });
 
   it('the hit area reaches 4 px beyond the topic, like a press on it', () => {

@@ -1338,6 +1338,13 @@ describe('Editor: moving topics among their siblings', () => {
     keydown({ key: 'Delete' }, button);
     keydown({ key: 'Enter' }, button);
     expect(drawn()).toEqual(['r', 'a', 'a1', 'a3', 'a2', 'b', 'c', 'd']);
+    // a link is like a button
+    const link = [...container.querySelectorAll('a')].find((a) => a.textContent === 'All maps')!;
+    const onLink = new KeyboardEvent('keydown', { key: 'ArrowUp', metaKey: true, bubbles: true, cancelable: true });
+    act(() => void link.dispatchEvent(onLink));
+    expect(onLink.defaultPrevented).toBe(true);
+    expect(drawn()).toEqual(['r', 'a', 'a1', 'a2', 'a3', 'b', 'c', 'd']);
+    keydown({ key: 'ArrowDown', metaKey: true }, link);
     // in a text field the keys belong to the field
     const input = document.createElement('input');
     container.appendChild(input);
@@ -1362,5 +1369,24 @@ describe('Editor: moving topics among their siblings', () => {
     await click('Replace map with this');
     const after = await saved(api);
     expect(after.root.children.map((c) => `${c.text}:${c.side}`)).toEqual(['A:left', 'C:left', 'D:left', 'B:right', 'New:right']);
+  });
+
+  it('Outline replace also keeps the side of a branch whose text reads differently in the outline (a line break, a leading marker)', async () => {
+    const api = fakeApi();
+    const m: MindMap = {
+      ...map,
+      root: { id: 'r', text: 'Root', children: [
+        { id: 'a', text: 'Before', children: [], side: 'right' },
+        { id: 'b', text: 'First line\nSecond line', children: [], side: 'left' },
+        { id: 'c', text: '💡 not a marker', children: [], side: 'left' },
+        { id: 'd', text: 'After', children: [], side: 'right' },
+      ] },
+    };
+    mount(api, m);
+    await click('Outline');
+    await click('Replace map with this');
+    const after = await saved(api);
+    expect(after.root.children.map((c) => c.side)).toEqual(['right', 'left', 'left', 'right']);
+    expect(after.root.children[1].text).toBe('First line Second line');
   });
 });
