@@ -42,6 +42,34 @@ describe('dropAt: where dragged topics would go', () => {
     expect(drop(logic, on(logic, 'b', 0.5, 0.05))?.line?.y1).toBe(b.y - GAP.vRoot / 2);
   });
 
+  it('the middle half of a topic takes children; the quarter at each end is the place next to it', () => {
+    for (const id of ['a2', 'b']) {
+      expect(drop(logic, on(logic, id, 0.5, 0.2)), id).toMatchObject({ targetId: id, where: 'before' });
+      expect(drop(logic, on(logic, id, 0.5, 0.27)), id).toEqual({ targetId: id, where: 'into' });
+      expect(drop(logic, on(logic, id, 0.5, 0.73)), id).toEqual({ targetId: id, where: 'into' });
+      expect(drop(logic, on(logic, id, 0.5, 0.8)), id).toMatchObject({ targetId: id, where: 'after' });
+    }
+    expect(drop(org, on(org, 'b', 0.2, 0.5))).toMatchObject({ targetId: 'b', where: 'before' });
+    expect(drop(org, on(org, 'b', 0.27, 0.5))).toEqual({ targetId: 'b', where: 'into' });
+    expect(drop(org, on(org, 'b', 0.73, 0.5))).toEqual({ targetId: 'b', where: 'into' });
+    expect(drop(org, on(org, 'b', 0.8, 0.5))).toMatchObject({ targetId: 'b', where: 'after' });
+  });
+
+  it('the fold toggle of a topic counts as the topic: dropped there, topics become its children', () => {
+    for (const l of [map, logic, org]) {
+      const a = box(l, 'a');
+      expect(drop(l, { x: a.fold.x, y: a.fold.y }), l.kind).toEqual({ targetId: 'a', where: 'into' });
+      expect(drop(l, { x: a.fold.x + 10, y: a.fold.y - 10 }), l.kind).toEqual({ targetId: 'a', where: 'into' });
+      expect(drop(l, { x: a.fold.x, y: a.fold.y }, ['a']), l.kind).toBeNull();
+    }
+    // a topic without children has no toggle: beyond its box there is nothing
+    const b = box(logic, 'b');
+    expect(drop(logic, { x: b.fold.x, y: b.fold.y })).toBeNull();
+    // folded, the toggle is the counter badge
+    const folded = layoutMap(n('r', [n('a', [n('a1')], { collapsed: true }), n('b')]), 'logic', measure);
+    expect(drop(folded, { x: box(folded, 'a').fold.x, y: box(folded, 'a').fold.y })).toEqual({ targetId: 'a', where: 'into' });
+  });
+
   it('the hit area reaches 4 px beyond the topic, like a press on it', () => {
     const a2 = box(logic, 'a2');
     expect(drop(logic, { x: a2.x - 3, y: a2.y + a2.h / 2 })).toMatchObject({ targetId: 'a2', where: 'into' });
@@ -124,6 +152,28 @@ describe('dropAt: where dragged topics would go', () => {
     expect(drop(org, { x: c.x - 5, y: c.y + c.h / 2 })).toMatchObject({ targetId: 'c', where: 'before' });
   });
 
+  it('org chart: under a topic that shows children comes its first child, so its bottom edge is the place before that child', () => {
+    // r → a (a1 (a11 a12), a2), b: the rows of a are a1, a11, a12, a2, each indented by its depth
+    const deep = layoutMap(n('r', [n('a', [n('a1', [n('a11'), n('a12')]), n('a2')]), n('b')]), 'org', measure);
+    const a11 = box(deep, 'a11');
+    const place = { targetId: 'a11', where: 'before', line: { x1: a11.x, y1: a11.y - ORG.rowGap / 2, x2: a11.x + a11.w, y2: a11.y - ORG.rowGap / 2 } };
+    expect(drop(deep, on(deep, 'a1', 0.5, 0.95))).toEqual(place);
+    // the gap between the two rows gives the same place from either side
+    const a1 = box(deep, 'a1');
+    expect(drop(deep, { x: a11.x + 2, y: a1.y + a1.h + 4.5 })).toEqual(place);
+    expect(drop(deep, { x: a11.x + 2, y: a11.y - 4.5 })).toEqual(place);
+    // folded, or without children, the place under a topic is the one after it
+    expect(drop(deep, on(deep, 'a12', 0.5, 0.95))).toMatchObject({ targetId: 'a12', where: 'after' });
+    const folded = layoutMap(n('r', [n('a', [n('a1', [n('a11')], { collapsed: true }), n('a2')])]), 'org', measure);
+    expect(drop(folded, on(folded, 'a1', 0.5, 0.95))).toMatchObject({ targetId: 'a1', where: 'after' });
+    // the child being dragged itself does not count
+    expect(drop(deep, on(deep, 'a1', 0.5, 0.95), ['a11'])).toMatchObject({ targetId: 'a12', where: 'before' });
+    expect(drop(deep, on(deep, 'a1', 0.5, 0.95), ['a11', 'a12'])).toMatchObject({ targetId: 'a1', where: 'after' });
+    // the keys still move a topic past its sibling's whole branch
+    expect(stepSibling(deep, 'a2', 'up')).toEqual({ targetId: 'a1', where: 'before' });
+    expect(stepSibling(deep, 'a1', 'down')).toEqual({ targetId: 'a2', where: 'after' });
+  });
+
   it('org chart: deeper topics are listed one below the other', () => {
     const a2 = box(org, 'a2');
     expect(drop(org, on(org, 'a2', 0.5, 0.05))).toEqual({
@@ -166,18 +216,21 @@ describe('stepSibling: one place in a direction, from the keyboard', () => {
     expect(stepSibling(map, 'd', 'up')).toBeNull();
   });
 
-  it('map layout: left and right take a main branch to the other side, at about the same height', () => {
-    // a is the upper branch on the right; on the left d is above c
-    const toLeft = stepSibling(map, 'a', 'left')!;
-    expect(toLeft.side).toBe('left');
-    const above = box(map, 'a').y + box(map, 'a').h / 2 < box(map, 'd').y + box(map, 'd').h / 2;
-    expect(toLeft).toEqual(above ? { targetId: 'd', where: 'after', side: 'left' } : { targetId: 'c', where: 'after', side: 'left' });
-    // b is the lowest on the right; nothing on the left is lower than c, so it goes below c
-    expect(box(map, 'b').y + box(map, 'b').h / 2).toBeGreaterThan(box(map, 'c').y + box(map, 'c').h / 2);
-    expect(stepSibling(map, 'b', 'left')).toEqual({ targetId: 'c', where: 'before', side: 'left' });
-    expect(stepSibling(map, 'a', 'right')).toBeNull();
-    expect(stepSibling(map, 'c', 'left')).toBeNull();
-    expect(stepSibling(map, 'c', 'right')).toMatchObject({ side: 'right' });
+  it('map layout: left and right take a main branch to the other side, at about the height it is at', () => {
+    // right, from the top: x (centre -35), y (+35). left, from the top: s (-70), q (0), p (+70); in order p, q, s.
+    const two = layoutMap(n('r', [n('x', [], { side: 'right' }), n('y', [], { side: 'right' }), n('p', [], { side: 'left' }), n('q', [], { side: 'left' }), n('s', [], { side: 'left' })]), 'map', measure);
+    const centre = (id: string) => box(two, id).y + box(two, id).h / 2;
+    expect(['x', 'y', 's', 'q', 'p'].map(centre)).toEqual([-35, 35, -70, 0, 70]);
+    // x goes above q, the first branch on the left that is lower than it: after q in order
+    expect(stepSibling(two, 'x', 'left')).toEqual({ targetId: 'q', where: 'after', side: 'left' });
+    expect(stepSibling(two, 'y', 'left')).toEqual({ targetId: 'p', where: 'after', side: 'left' });
+    // q goes above y on the right, where above is before in order
+    expect(stepSibling(two, 'q', 'right')).toEqual({ targetId: 'y', where: 'before', side: 'right' });
+    // nothing on the other side is lower than p: it goes below the lowest one
+    expect(stepSibling(two, 'p', 'right')).toEqual({ targetId: 'y', where: 'after', side: 'right' });
+    // already on that side
+    expect(stepSibling(two, 'x', 'right')).toBeNull();
+    expect(stepSibling(two, 'p', 'left')).toBeNull();
   });
 
   it('map layout: onto an empty side goes through the central topic', () => {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { MapNode } from '../shared/types';
 import {
-  addChild, addSiblingAfter, allText, countDescendants, createMap, findNode, fixedSides, isInBranch,
-  moveNodes, newNode, removeNode, removeNodes, setText, toggleCollapsed, topMost, visibleChildren,
+  addChild, addSiblingAfter, allText, carrySides, countDescendants, createMap, findNode, fixedSides, isInBranch,
+  moveNodes, newNode, removeNode, removeNodes, setText, settleSides, toggleCollapsed, topMost, visibleChildren,
 } from './tree';
 
 const n = (id: string, text: string, children: MapNode[] = [], extra: Partial<MapNode> = {}): MapNode => ({ id, text, children, ...extra });
@@ -186,6 +186,40 @@ describe('sides of the main branches', () => {
   });
 });
 
+describe('settleSides and carrySides', () => {
+  const side = (id: string, s?: 'left' | 'right'): MapNode => ({ id, text: id, children: [], ...(s && { side: s }) });
+  const sides = (node: MapNode) => node.children.map((c) => `${c.id}:${c.side ?? '-'}`);
+
+  it('settleSides gives every main branch the side it is shown on, once any has one, so it no longer depends on its neighbour', () => {
+    const t = n('r', 'Root', [side('a'), side('b', 'left'), side('c'), side('d', 'right'), side('e')]);
+    expect(settleSides(t)).toBe(true);
+    expect(sides(t)).toEqual(['a:right', 'b:left', 'c:left', 'd:right', 'e:right']);
+    expect(settleSides(t)).toBe(false);
+    // b goes: c stays on the left
+    t.children.splice(1, 1);
+    expect(fixedSides(t)).toEqual(['right', 'left', 'right', 'right']);
+  });
+
+  it('settleSides leaves a map alone whose sides are balanced automatically', () => {
+    const t = n('r', 'Root', [side('a'), n('b', 'B', [side('b1', 'left')])]);
+    expect(settleSides(t)).toBe(false);
+    expect(sides(t)).toEqual(['a:-', 'b:-']);
+  });
+
+  it('carrySides gives the main branches of a rewritten map the sides the same texts had, in order', () => {
+    const from = n('r', 'Root', [{ ...side('1', 'left'), text: 'Plan' }, { ...side('2', 'right'), text: 'Build' }, { ...side('3', 'left'), text: 'Plan' }, { ...side('4', 'right'), text: 'Ship' }]);
+    const to = n('x', 'Root', [{ ...side('p'), text: 'Build' }, { ...side('q'), text: 'New' }, { ...side('s'), text: 'Plan' }, { ...side('t'), text: 'Plan' }, { ...side('u'), text: 'Plan' }]);
+    carrySides(from, to);
+    expect(sides(to)).toEqual(['p:right', 'q:-', 's:left', 't:left', 'u:-']);
+  });
+
+  it('carrySides does nothing when the sides were automatic', () => {
+    const to = n('x', 'Root', [side('p')]);
+    carrySides(n('r', 'Root', [side('p')]), to);
+    expect(sides(to)).toEqual(['p:-']);
+  });
+});
+
 describe('moveNodes: next to a topic, and onto a side', () => {
   const ids = (node: MapNode) => node.children.map((c) => c.id);
   const sides = (node: MapNode) => node.children.map((c) => `${c.id}:${c.side ?? '-'}`);
@@ -248,6 +282,13 @@ describe('moveNodes: next to a topic, and onto a side', () => {
     const t = big();
     expect(moveNodes(t, ['a1'], 'r', { side: 'left', shown: { a: 'right', b: 'right', c: 'left' } })).toBe(true);
     expect(sides(t)).toEqual(['a:right', 'b:right', 'c:left', 'a1:left']);
+  });
+
+  it('several topics put on a side together all get it, in drawing order', () => {
+    const t = big();
+    expect(moveNodes(t, ['b1', 'a', 'a2'], 'c', { where: 'before', side: 'left', shown: { a: 'right', b: 'right', c: 'left' } })).toBe(true);
+    expect(sides(t)).toEqual(['b:right', 'a:left', 'b1:left', 'c:left']);
+    expect(ids(t.children[1])).toEqual(['a1', 'a2']);
   });
 
   it('a main branch already in that place still changes side, and is no move when it is shown on that side already', () => {

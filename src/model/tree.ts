@@ -27,6 +27,42 @@ export function createMap(title = 'Central topic', now = new Date().toISOString(
 }
 
 /**
+ * Once the sides are fixed, writes down the side of every main branch that has none of its own, so that
+ * it stays there whatever happens to the branch before it. Returns whether anything was written.
+ */
+export function settleSides(root: MapNode): boolean {
+  const sides = fixedSides(root);
+  if (!sides) return false;
+  let changed = false;
+  root.children.forEach((c, i) => {
+    if (c.side) return;
+    c.side = sides[i];
+    changed = true;
+  });
+  return changed;
+}
+
+/**
+ * For a map rewritten from text (the Outline panel), whose topics are all new: gives each main branch of
+ * `to` the side that a main branch of `from` with the same text had, matching repeated texts in order.
+ * Nothing when the sides of `from` were balanced automatically.
+ */
+export function carrySides(from: MapNode, to: MapNode): void {
+  const sides = fixedSides(from);
+  if (!sides) return;
+  const byText = new Map<string, BranchSide[]>();
+  from.children.forEach((c, i) => {
+    const list = byText.get(c.text);
+    if (list) list.push(sides[i]);
+    else byText.set(c.text, [sides[i]]);
+  });
+  for (const c of to.children) {
+    const side = byText.get(c.text)?.shift();
+    if (side) c.side = side;
+  }
+}
+
+/**
  * Once the sides are fixed by hand, a new main branch gets a side of its own: the side with fewer
  * branches (right when equal), so new branches don't pile up on one side.
  */

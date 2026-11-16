@@ -1,6 +1,6 @@
 import type { MapLayout, TopicBox } from '../layout/map';
 import { GAP, ORG } from '../layout/styles';
-import { eachNode, type Place } from '../model/tree';
+import { eachNode, visibleChildren, type Place } from '../model/tree';
 import type { BranchSide } from '../shared/types';
 import type { Direction } from './keymap';
 
@@ -22,6 +22,8 @@ export interface DropAt extends Drop {
 
 /** A press reaches this far beyond a topic's box (the `hit` rectangle the canvas draws). */
 const HIT_PAD = 4;
+/** Half the side of the square around a fold toggle that takes a press (as the canvas draws it). */
+const FOLD_REACH = 11;
 /** How far from a topic, in the gap between two of them, a drop still counts as next to it. */
 const REACH = { below: 14, beside: 22 } as const;
 
@@ -63,10 +65,11 @@ function beside(layout: MapLayout, b: TopicBox, first: boolean): DropAt {
 /**
  * Where topics dragged to the point (x, y), in map units, would go, or null when that is no place for them.
  *
- * On a topic: its middle takes them as children; its top and bottom edges (left and right, for the first
- * row of an org chart) are the places just before and after it. In the gap between two topics the nearer
- * one counts. The central topic only takes children: in the map layout, on the side of the half pointed at.
- * The moved topics and everything in their branches are no place to drop.
+ * On a topic: its middle half takes them as children (so does its fold toggle); the quarter at its top
+ * and at its bottom (left and right, for the first row of an org chart) are the places just before and
+ * after it. Close to a topic, in the gap between two, the nearer one counts. The central topic only takes
+ * children: in the map layout, on the side of the half pointed at. The moved topics and everything in
+ * their branches are no place to drop.
  */
 export function dropAt(layout: MapLayout, x: number, y: number, moving: readonly string[]): DropAt | null {
   const blocked = new Set<string>();
@@ -74,6 +77,19 @@ export function dropAt(layout: MapLayout, x: number, y: number, moving: readonly
     const node = layout.byId.get(id)?.node;
     if (node) eachNode(node, (n) => void blocked.add(n.id));
   }
+  /**
+   * The place that comes after topic `b` on screen. In the list of an org chart the row under a topic that
+   * shows children is its first child, so there it is the place before that child (the first one not being
+   * dragged); a line under the topic that put the dragged topics under its whole branch would mislead.
+   */
+  const after = (b: TopicBox): DropAt => {
+    if (layout.kind === 'org' && b.depth > 1) {
+      const child = visibleChildren(b.node).find((c) => !blocked.has(c.id));
+      const first = child && layout.byId.get(child.id);
+      if (first) return beside(layout, first, true);
+    }
+    return beside(layout, b, false);
+  };
 
   let under: TopicBox | null = null;
   let underDist = Infinity;
@@ -97,10 +113,18 @@ export function dropAt(layout: MapLayout, x: number, y: number, moving: readonly
     const across = sideBySide(layout, under);
     const size = across ? under.w : under.h;
     const pos = across ? x - under.x : y - under.y;
-    const edge = across ? clamp(size * 0.3, 12, 28) : clamp(size * 0.3, 8, 18);
+    // A quarter at each end, so half the topic still takes children; bounded for very small and very tall topics.
+    const edge = across ? clamp(size * 0.25, 10, 24) : clamp(size * 0.25, 5, 14);
     if (pos < edge) return beside(layout, under, true);
-    if (pos > size - edge) return beside(layout, under, false);
+    if (pos > size - edge) return after(under);
     return { targetId: under.id, where: 'into' };
+  }
+
+  // The fold toggle (the counter badge, when folded) sits just beyond the topic and is part of it.
+  for (const b of layout.boxes) {
+    if (b.parentId == null || b.node.children.length === 0) continue;
+    if (Math.abs(x - b.fold.x) > FOLD_REACH || Math.abs(y - b.fold.y) > FOLD_REACH) continue;
+    return blocked.has(b.id) ? null : { targetId: b.id, where: 'into' };
   }
 
   let near: TopicBox | null = null;
@@ -126,7 +150,8 @@ export function dropAt(layout: MapLayout, x: number, y: number, moving: readonly
       nearFirst = first;
     }
   }
-  return near ? beside(layout, near, nearFirst) : null;
+  if (!near) return null;
+  return nearFirst ? beside(layout, near, true) : after(near);
 }
 
 /**

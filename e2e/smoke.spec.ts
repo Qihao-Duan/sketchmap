@@ -318,6 +318,51 @@ test('a topic dragged to the edge of another one goes next to it, and ⌘/Ctrl �
   expect(await page.locator('textarea[aria-label="Outline text"]').inputValue()).toMatch(/- Alpha\n- Gamma\n- Beta\n/);
 });
 
+test('org chart: the main branches are reordered by their left and right edges, and with ⌘/Ctrl ← →', async ({ page }) => {
+  await openNewMap(page);
+  const names = ['Alpha', 'Beta', 'Gamma'];
+  await addMainBranches(page, names);
+  await page.getByRole('button', { name: 'Org chart' }).click();
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+
+  const box = async (text: string) => (await page.locator('g.topic', { has: page.locator('text', { hasText: text }) }).locator('rect.hit').boundingBox())!;
+  const fromLeft = async () => {
+    const xs = new Map<string, number>();
+    for (const name of names) xs.set(name, (await box(name)).x);
+    return [...names].sort((p, q) => xs.get(p)! - xs.get(q)!);
+  };
+  expect(await fromLeft()).toEqual(['Alpha', 'Beta', 'Gamma']);
+
+  // Drag Gamma to the left edge of Alpha.
+  const [alpha, gamma] = [await box('Alpha'), await box('Gamma')];
+  await page.mouse.move(gamma.x + gamma.width / 2, gamma.y + gamma.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(alpha.x + alpha.width * 0.12, alpha.y + alpha.height / 2, { steps: 10 });
+  await expect(page.locator('g.drop-line line')).toHaveCount(1);
+  await page.mouse.up();
+  await expect.poll(fromLeft).toEqual(['Gamma', 'Alpha', 'Beta']);
+
+  await page.keyboard.press('ControlOrMeta+ArrowRight');
+  await expect.poll(fromLeft).toEqual(['Alpha', 'Gamma', 'Beta']);
+  await page.keyboard.press('ControlOrMeta+ArrowDown'); // side by side: up and down do nothing here
+  await page.keyboard.press('ControlOrMeta+ArrowLeft');
+  await page.keyboard.press('ControlOrMeta+ArrowLeft'); // already first
+  await expect.poll(fromLeft).toEqual(['Gamma', 'Alpha', 'Beta']);
+  await expect(page).toHaveURL(/\/e\//);
+
+  // With a header button focused, ⌘/Ctrl ← still moves the branch and does not take the browser back.
+  await page.locator('g.topic', { has: page.locator('text', { hasText: 'Beta' }) }).click();
+  await page.getByRole('button', { name: 'Details' }).focus();
+  await page.keyboard.press('ControlOrMeta+ArrowLeft');
+  await expect.poll(fromLeft).toEqual(['Gamma', 'Beta', 'Alpha']);
+  await expect(page).toHaveURL(/\/e\//);
+
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+  await page.reload();
+  await expect(page.locator('g.topic')).toHaveCount(4);
+  expect(await fromLeft()).toEqual(['Gamma', 'Beta', 'Alpha']);
+});
+
 test('map layout: a main branch put on the other side of the central topic stays there, also after a reload and in the view', async ({ page }) => {
   const id = await openNewMap(page);
   await addMainBranches(page, ['Alpha', 'Beta', 'Gamma', 'Delta']);

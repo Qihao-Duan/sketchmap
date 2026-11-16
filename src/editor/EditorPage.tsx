@@ -12,7 +12,7 @@ import { displaySize, prepareImage } from '../io/imagePrep';
 import { markdownLosses, parseOutline, toMarkdown } from '../io/markdown';
 import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
-import { allText, findNode } from '../model/tree';
+import { allText, carrySides, findNode } from '../model/tree';
 import { canvasMeasure, ensureFonts } from '../render/fonts';
 import { linkWhole, parseRich } from '../shared/rich';
 import { plainTitle } from '../shared/title';
@@ -366,8 +366,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
     const onKey = (e: KeyboardEvent) => {
       if (stateRef.current.editing || modalRef.current) return;
       const t = e.target as HTMLElement | null;
-      if (t && (IGNORE_KEYS_IN.has(t.tagName) || t.isContentEditable)) return;
       const cmd = keyToCommand(e);
+      // Keys pressed in a field or on a control belong to it. The exception: a focused button or link has
+      // no use for ⌘/Ctrl with an arrow, and left alone ⌘← would send the browser back.
+      const ownKeys = !!t && (IGNORE_KEYS_IN.has(t.tagName) || t.isContentEditable);
+      if (ownKeys && !(cmd?.type === 'reorder' && (t.tagName === 'BUTTON' || t.tagName === 'A'))) return;
       if (!cmd) return;
       e.preventDefault();
       run(cmd);
@@ -453,6 +456,8 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const applyOutline = (text: string): string | null => {
     const parsed = parseOutline(text);
     if (!parsed) return 'The outline is empty.';
+    // The outline has no place for the side of a main branch: a branch whose text is still there keeps its side.
+    carrySides(stateRef.current.map.root, parsed.root);
     dispatch({ type: 'replaceRoot', root: parsed.root });
     setOutlineOpen(false);
     return null;

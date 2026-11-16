@@ -136,15 +136,15 @@ describe('fromXmindJson', () => {
     });
     const sides = (topic: object) => fromXmindJson([sheet(topic)]).root.children.map((c) => `${c.text}:${c.side ?? '-'}`);
 
-    it('the first `right-number` main branches are on the right, the rest on the left; a floating topic gets no side of its own', () => {
-      expect(sides(central('2'))).toEqual(['A:right', 'B:right', 'C:left', 'F:-']);
-      expect(sides(central(1))).toEqual(['A:right', 'B:left', 'C:left', 'F:-']);
-      expect(sides(central('0'))).toEqual(['A:left', 'B:left', 'C:left', 'F:-']);
-      expect(sides(central('7'))).toEqual(['A:right', 'B:right', 'C:right', 'F:-']);
+    it('the first `right-number` main branches are on the right, the rest on the left; a floating topic, attached after them, goes where the last one is', () => {
+      expect(sides(central('2'))).toEqual(['A:right', 'B:right', 'C:left', 'F:left']);
+      expect(sides(central(1))).toEqual(['A:right', 'B:left', 'C:left', 'F:left']);
+      expect(sides(central('0'))).toEqual(['A:left', 'B:left', 'C:left', 'F:left']);
+      expect(sides(central('7'))).toEqual(['A:right', 'B:right', 'C:right', 'F:right']);
     });
 
     it('counts entries that are not topics, which are skipped, so the split stays where XMind had it', () => {
-      expect(sides(central('2', undefined, ['junk', { id: 'a', title: 'A' }, { id: 'b', title: 'B' }]))).toEqual(['A:right', 'B:left', 'F:-']);
+      expect(sides(central('2', undefined, ['junk', { id: 'a', title: 'A' }, { id: 'b', title: 'B' }]))).toEqual(['A:right', 'B:left', 'F:left']);
     });
 
     it('no number, a negative one or anything else: the sides stay automatic', () => {

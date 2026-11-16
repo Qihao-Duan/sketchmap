@@ -684,21 +684,25 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
       document.body.appendChild(panel);
       const original = document.elementFromPoint;
       try {
-        document.elementFromPoint = () => panel;
-        dragTo('b', a.x + a.w / 2, a.y + a.h / 2);
-        expect(container.querySelector('g.topic.drop')).toBeNull();
-        // back over the canvas itself, the same point is a place again
+        // over the canvas the middle of a is a place
         document.elementFromPoint = () => hitOf('a');
-        fire(hitOf('b'), 'pointermove', a.x + a.w / 2, a.y + a.h / 2 + 1, { buttons: 1 });
+        dragTo('b', a.x + a.w / 2, a.y + a.h / 2);
         expect(container.querySelector('g.topic.drop')?.getAttribute('data-id')).toBe('a');
+        // the same topic under a panel is not: the mark goes, and a release there moves nothing
         document.elementFromPoint = () => panel;
+        fire(hitOf('b'), 'pointermove', a.x + a.w / 2, a.y + a.h / 2 + 1, { buttons: 1 });
+        expect(container.querySelector('g.topic.drop')).toBeNull();
         fire(hitOf('b'), 'pointerup', a.x + a.w / 2, a.y + a.h / 2 + 1);
+        expect(h.onMove).not.toHaveBeenCalled();
+        // back over the canvas it is a place again
+        document.elementFromPoint = () => hitOf('a');
+        dragTo('b', a.x + a.w / 2, a.y + a.h / 2);
+        fire(hitOf('b'), 'pointerup', a.x + a.w / 2, a.y + a.h / 2);
+        expect(h.onMove).toHaveBeenCalledWith('b', { targetId: 'a', where: 'into' });
       } finally {
         document.elementFromPoint = original;
         panel.remove();
       }
-      // the release itself is over the canvas's captured pointer: the place found last counts
-      expect(h.onMove).toHaveBeenCalledTimes(1);
     });
 
     it('finds the place in map units when the canvas is zoomed and moved', () => {

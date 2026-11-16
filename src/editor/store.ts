@@ -83,7 +83,9 @@ function survivingSelection(map: MindMap, state: EditorState): Pick<EditorState,
 
 function commit(state: EditorState, next: MindMap, patch: Partial<EditorState> = {}): EditorState {
   const past = [...state.past, state.map].slice(-HISTORY_LIMIT);
-  return { ...state, ...patch, map: next, past, future: [], revision: state.revision + 1 };
+  // A main branch that arrived without a side (pasted, moved in) keeps the one it is shown on from now on.
+  const settled = produce(next, (d) => void T.settleSides(d.root));
+  return { ...state, ...patch, map: settled, past, future: [], revision: state.revision + 1 };
 }
 
 /** Throws away a just-created topic by restoring the map from before it existed. */

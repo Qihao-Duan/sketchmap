@@ -92,7 +92,7 @@ Browsers: the editor and the embed need Chrome/Edge 123+, Firefox 120+ or Safari
 - **While editing text.** Enter finishes, Shift Enter starts a new line, Esc cancels, and Tab finishes and adds a child.
 - **Mouse.**
   - Drag a topic onto the middle of another to move it there, as its last child.
-  - Drag it to the top or bottom edge of another topic to put it just before or after that one; a line shows the place. In an org chart the main branches use the left and right edge.
+  - Drag it to the top or bottom edge of another topic (a quarter of the topic, or just outside it) to put it just before or after that one; a line shows the place. In an org chart the main branches use the left and right edge, and under a topic that shows children the place is before its first child.
   - In the mind map layout, drop a branch on the left or right half of the central topic to put it on that side. Once you have placed a main branch yourself, every main branch stays on its side; before that, the two sides are balanced automatically, and a branch that grows can push others across.
   - Drag on the background with the left button to draw a box: every topic the box touches is selected. Hold Shift to add to what is already selected.
   - Drag with the right (or middle) button, or use the wheel or a two-finger scroll, to move the canvas. ⌘/Ctrl with the wheel zooms. The right-click menu is off on the canvas for this reason.
@@ -131,7 +131,7 @@ In dark mode the drawing is inverted the way Excalidraw does it, but images are 
 - **.xmind import.** **Import .xmind** on the map list turns an XMind file into a new map.
   - XMind 2020+ keeps titles, attached children, notes, links (`http(s)` hrefs become a link on the whole topic), folded branches, priority markers (3 and above become ③), and star/flag/person/question markers. Floating topics are attached under the root instead (their XMind position isn't kept). Callouts are attached under their own topic, and a done task checkbox becomes ✅; open task checkboxes are left out.
   - XMind 8 keeps titles, children and notes.
-  - A mind map whose XMind file says how many main branches are on the right keeps that split (XMind 2020+ files only).
+  - A mind map keeps XMind's split between right and left when the file records it: XMind 2020+ files with the structure `org.xmind.ui.map.unbalanced`, which store how many main branches are on the right. Not checked against XMind itself: the order of the branches on the left.
   - PNG, JPEG, WebP, GIF and SVG images in the file come along (up to 100), with SVG converted to PNG the same way as a direct upload.
   - Relationships, boundaries, summary topics, labels, other markers, links to files or topics, open task checkboxes, and other sheets are left out. The summary after import lists them.
   - Styles (colours, fonts, shapes) are not imported.

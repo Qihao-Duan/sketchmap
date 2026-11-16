@@ -426,6 +426,35 @@ describe('selecting several topics', () => {
     expect(s.map.root.children.map((c) => `${c.text}:${c.side}`)).toEqual(['B:right', 'New:right', 'C:left', 'A:left', 'Last:right']);
   });
 
+  it('with the sides fixed, a main branch that arrives without a side takes one for good: it stays when the branch before it goes', () => {
+    let s = start(['a']);
+    s = reduce(s, { type: 'move', id: 'a', targetId: 'r', side: 'left', shown: { a: 'right', b: 'right', c: 'left' } });
+    const main = () => s.map.root.children.map((c) => `${c.text}:${c.side ?? '-'}`);
+    expect(main()).toEqual(['B:right', 'C:left', 'A:left']);
+    // pasted on the central topic: after A, so on the left
+    s = reduce(reduce(s, { type: 'select', id: 'r' }), { type: 'pasteNodes', nodes: [{ id: 'p1', text: 'P1', children: [] }, { id: 'p2', text: 'P2', children: [] }] });
+    expect(main()).toEqual(['B:right', 'C:left', 'A:left', 'P1:left', 'P2:left']);
+    // a topic from deeper in the map, dropped on the central topic in a layout without sides: after P2
+    s = reduce(s, { type: 'move', id: 'a1', targetId: 'r' });
+    expect(main()).toEqual(['B:right', 'C:left', 'A:left', 'P1:left', 'P2:left', 'A1:left']);
+    // the branches before them go: nothing changes sides
+    s = reduce(reduce(s, { type: 'selectMany', ids: ['c', 'a'] }), { type: 'delete' });
+    expect(main()).toEqual(['B:right', 'P1:left', 'P2:left', 'A1:left']);
+    s = reduce(reduce(s, { type: 'select', id: 'b' }), { type: 'delete' });
+    expect(main()).toEqual(['P1:left', 'P2:left', 'A1:left']);
+    // and each of these was one undo step
+    s = reduce(reduce(reduce(reduce(s, { type: 'undo' }), { type: 'undo' }), { type: 'undo' }), { type: 'undo' });
+    expect(main()).toEqual(['B:right', 'C:left', 'A:left']);
+  });
+
+  it('a map whose sides are automatic gets no sides from changes that place nothing by hand', () => {
+    let s = start(['r']);
+    s = reduce(s, { type: 'pasteNodes', nodes: [{ id: 'p1', text: 'P1', children: [] }] });
+    s = reduce(s, { type: 'move', id: 'a1', targetId: 'r' });
+    s = reduce(s, { type: 'move', id: 'c', targetId: 'a', where: 'before' });
+    expect(s.map.root.children.every((c) => c.side === undefined)).toBe(true);
+  });
+
   it('importance, priority and marker set on the current topic go to the whole selection, one undo step each', () => {
     let s = start(['a1', 'b']);
     s = reduce(s, { type: 'setPriority', id: s.selectedId, priority: 2 });

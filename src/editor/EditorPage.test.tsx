@@ -1186,7 +1186,8 @@ describe('Editor: moving topics among their siblings', () => {
   const hitOf = (id: string) => container.querySelector(`g.topic[data-id="${id}"] rect.hit`)!;
   const pointer = (el: Element, type: string, x: number, y: number, buttons = 0) =>
     act(() => void el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons, clientX: x, clientY: y })));
-  const click = (id: string) => {
+  /** Selects a topic with a click on it. */
+  const pick = (id: string) => {
     pointer(hitOf(id), 'pointerdown', 0, 0);
     pointer(svg(), 'pointerup', 0, 0);
   };
@@ -1213,7 +1214,7 @@ describe('Editor: moving topics among their siblings', () => {
   it('⌘/Ctrl ↓ and ↑ move the selected topic one place among its siblings, one undo step each; at the end of the list nothing happens', async () => {
     const api = fakeApi();
     mount(api, tree('logic'));
-    click('a2');
+    pick('a2');
     keydown({ key: 'ArrowDown', metaKey: true });
     expect(drawn()).toEqual(['r', 'a', 'a1', 'a3', 'a2', 'b', 'c', 'd']);
     keydown({ key: 'ArrowDown', metaKey: true }); // already last
@@ -1234,7 +1235,7 @@ describe('Editor: moving topics among their siblings', () => {
 
   it('⌘/Ctrl ← and → do nothing in a logic chart, and the arrows alone still only move the selection', () => {
     mount(fakeApi(), tree('logic'));
-    click('b');
+    pick('b');
     keydown({ key: 'ArrowLeft', metaKey: true });
     keydown({ key: 'ArrowRight', metaKey: true });
     keydown({ key: 'ArrowDown' });
@@ -1245,7 +1246,7 @@ describe('Editor: moving topics among their siblings', () => {
   it('in an org chart the main branches move with ⌘/Ctrl ← and →', async () => {
     const api = fakeApi();
     mount(api, tree('org'));
-    click('b');
+    pick('b');
     keydown({ key: 'ArrowUp', metaKey: true });
     keydown({ key: 'ArrowRight', metaKey: true });
     expect(kids(await saved(api))).toEqual(['a', 'c', 'b', 'd']);
@@ -1254,7 +1255,7 @@ describe('Editor: moving topics among their siblings', () => {
   it('with several topics selected the keys move only the current one, and the selection stays', async () => {
     const api = fakeApi();
     mount(api, tree('logic'));
-    click('a1');
+    pick('a1');
     act(() => void hitOf('c').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, shiftKey: true })));
     keydown({ key: 'ArrowDown', metaKey: true });
     expect(kids(await saved(api))).toEqual(['a', 'b', 'd', 'c']);
@@ -1276,11 +1277,11 @@ describe('Editor: moving topics among their siblings', () => {
   it('map layout: moving a main branch up or down fixes the side every main branch is shown on', async () => {
     const api = fakeApi();
     mount(api, tree('map'));
-    click('a');
+    pick('a');
     keydown({ key: 'ArrowDown', metaKey: true });
     expect(kids(await saved(api))).toEqual(['b:right', 'a:right', 'c:left', 'd:left']);
     // the left side runs from the bottom up: c is below d, and moving it up puts it after d in order
-    click('c');
+    pick('c');
     keydown({ key: 'ArrowUp', metaKey: true });
     expect(kids(await saved(api))).toEqual(['b:right', 'a:right', 'd:left', 'c:left']);
   });
@@ -1288,7 +1289,7 @@ describe('Editor: moving topics among their siblings', () => {
   it('map layout: ⌘/Ctrl ← takes a main branch to the left side, → back to the right', async () => {
     const api = fakeApi();
     mount(api, tree('map'));
-    click('b');
+    pick('b');
     keydown({ key: 'ArrowRight', metaKey: true }); // already on the right
     keydown({ key: 'ArrowLeft', metaKey: true });
     const left = await saved(api);
@@ -1319,5 +1320,47 @@ describe('Editor: moving topics among their siblings', () => {
     const after = await saved(api);
     expect(kids(after)).toEqual(['a:right', 'b:right', 'a2:left', 'c:left', 'd:left']);
     expect(kids(after, 'a')).toEqual(['a1', 'a3']);
+  });
+
+  it('⌘/Ctrl with an arrow also works while a header button has focus, where ⌘← would otherwise send the browser back; other keys stay with the button', async () => {
+    const api = fakeApi();
+    mount(api, tree('logic'));
+    pick('a2');
+    const button = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Details')!;
+    act(() => button.focus());
+    const ev = new KeyboardEvent('keydown', { key: 'ArrowDown', metaKey: true, bubbles: true, cancelable: true });
+    act(() => void button.dispatchEvent(ev));
+    expect(ev.defaultPrevented).toBe(true);
+    expect(drawn()).toEqual(['r', 'a', 'a1', 'a3', 'a2', 'b', 'c', 'd']);
+    const back = new KeyboardEvent('keydown', { key: 'ArrowLeft', metaKey: true, bubbles: true, cancelable: true });
+    act(() => void button.dispatchEvent(back));
+    expect(back.defaultPrevented).toBe(true); // nothing to move that way in a logic chart, but the browser does not go back
+    keydown({ key: 'Delete' }, button);
+    keydown({ key: 'Enter' }, button);
+    expect(drawn()).toEqual(['r', 'a', 'a1', 'a3', 'a2', 'b', 'c', 'd']);
+    // in a text field the keys belong to the field
+    const input = document.createElement('input');
+    container.appendChild(input);
+    const inField = new KeyboardEvent('keydown', { key: 'ArrowUp', metaKey: true, bubbles: true, cancelable: true });
+    act(() => void input.dispatchEvent(inField));
+    expect(inField.defaultPrevented).toBe(false);
+    expect(drawn()).toEqual(['r', 'a', 'a1', 'a3', 'a2', 'b', 'c', 'd']);
+  });
+
+  it('map layout: replacing the map from the Outline panel keeps the side of every main branch whose text is still there', async () => {
+    const api = fakeApi();
+    const m = tree('map');
+    mount(api, m);
+    const r = boxes(m).get('r')!;
+    drag(m, 'a', r.x + r.w * 0.25, r.y + r.h / 2);
+    expect(kids(await saved(api))).toEqual(['b:right', 'c:left', 'd:left', 'a:left']);
+    await click('Outline');
+    const panel = container.querySelector('[aria-label="Markdown outline"]')!;
+    const ta = panel.querySelector('textarea')!;
+    // B and A swap places and a new branch is added after B
+    type(ta, '# Root\n- A\n  - A1\n- C\n- D\n- B\n- New\n');
+    await click('Replace map with this');
+    const after = await saved(api);
+    expect(after.root.children.map((c) => `${c.text}:${c.side}`)).toEqual(['A:left', 'C:left', 'D:left', 'B:right', 'New:right']);
   });
 });

@@ -1,4 +1,5 @@
 import { newNodeId } from '../model/ids';
+import { settleSides } from '../model/tree';
 import { MAX_SOURCE_IMAGE_BYTES } from './imagePrep';
 import { escapeLabel, linkWhole, normalizeHref } from '../shared/rich';
 import { LIMITS, type LayoutKind, type MapNode } from '../shared/types';
@@ -346,7 +347,8 @@ function rightNumber(topic: JsonTopic): number | null {
 
 /**
  * Puts the main branches on the sides XMind had them on: the first `right` attached topics on the right,
- * the rest on the left. Floating topics and callouts, which come after them, get no side of their own.
+ * the rest on the left. Floating topics and callouts, which are attached after them, go where the last
+ * of those is.
  */
 function keepSides(root: MapNode, topic: JsonTopic, right: number): void {
   const attached = Array.isArray(topic.children?.attached) ? topic.children.attached : [];
@@ -356,6 +358,7 @@ function keepSides(root: MapNode, topic: JsonTopic, right: number): void {
   root.children.slice(0, kept).forEach((child, i) => {
     child.side = i < onRight ? 'right' : 'left';
   });
+  settleSides(root);
 }
 
 /** `content.json`: an array of sheets. Only the first sheet is imported; the rest are counted. */
