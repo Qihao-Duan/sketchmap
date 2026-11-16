@@ -51,4 +51,11 @@ describe('parseMindMap', () => {
   it('rejects an unknown layout', () => {
     expect(() => parseMindMap({ ...structuredClone(valid), layout: 'radial' })).toThrow(MapValidationError);
   });
+
+  it('accepts the side a main branch was put on, and nothing but left or right', () => {
+    const withSide = (side: unknown) => ({ ...valid, root: { ...valid.root, children: [{ id: 'child00001', text: 'A', children: [], side }] } });
+    expect(parseMindMap(withSide('left')).root.children[0].side).toBe('left');
+    expect(parseMindMap(withSide('right')).root.children[0].side).toBe('right');
+    expect(() => parseMindMap(withSide('up'))).toThrow(MapValidationError);
+  });
 });

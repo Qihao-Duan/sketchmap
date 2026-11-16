@@ -1,4 +1,4 @@
-import type { MapNode, MindMap } from '../shared/types';
+import type { BranchSide, MapNode, MindMap } from '../shared/types';
 import { newMapId, newNodeId } from './ids';
 
 export interface Found {
@@ -26,10 +26,23 @@ export function createMap(title = 'Central topic', now = new Date().toISOString(
   return { id: newMapId(), title, layout: 'map', version: 0, updatedAt: now, root: { id: newNodeId(), text: title, children: [] } };
 }
 
+/**
+ * Once the sides are fixed by hand, a new main branch gets a side of its own: the side with fewer
+ * branches (right when equal), so new branches don't pile up on one side.
+ */
+function lighterSide(root: MapNode): BranchSide | undefined {
+  const sides = fixedSides(root);
+  if (!sides) return undefined;
+  const right = sides.filter((s) => s === 'right').length;
+  return right <= sides.length - right ? 'right' : 'left';
+}
+
 export function addChild(root: MapNode, parentId: string, child: MapNode): boolean {
   const f = findNode(root, parentId);
   if (!f) return false;
   delete f.node.collapsed;
+  const side = f.parent ? undefined : lighterSide(root);
+  if (side) child.side = side;
   f.node.children.push(child);
   return true;
 }
@@ -38,6 +51,9 @@ export function addSiblingAfter(root: MapNode, id: string, sibling: MapNode): bo
   const f = findNode(root, id);
   if (!f) return false;
   if (!f.parent) return addChild(root, id, sibling);
+  // A new main branch appears next to the one it was made from: on that one's side.
+  const side = f.depth === 1 ? fixedSides(root)?.[f.index] : undefined;
+  if (side) sibling.side = side;
   f.parent.children.splice(f.index + 1, 0, sibling);
   return true;
 }
@@ -53,19 +69,6 @@ export function removeNode(root: MapNode, id: string): string | null {
 
 export function isInBranch(branchRoot: MapNode, id: string): boolean {
   return findNode(branchRoot, id) !== null;
-}
-
-/** Makes `id` (with its branch) the last child of `targetId`. Refuses the root and moves into its own branch. */
-export function moveNode(root: MapNode, id: string, targetId: string): boolean {
-  if (id === targetId) return false;
-  const f = findNode(root, id);
-  if (!f || !f.parent || isInBranch(f.node, targetId)) return false;
-  const target = findNode(root, targetId);
-  if (!target) return false;
-  f.parent.children.splice(f.index, 1);
-  delete target.node.collapsed;
-  target.node.children.push(f.node);
-  return true;
 }
 
 /** Calls `visit` for every topic, parents before children. */
@@ -129,18 +132,58 @@ export function removeNodes(root: MapNode, ids: Iterable<string>, anchorId: stri
   return next ?? parent.id;
 }
 
+/** `into`: as the last children of the target. `before` / `after`: next to it, under its parent. */
+export type Place = 'into' | 'before' | 'after';
+
+export interface MoveTo {
+  where?: Place;
+  /** The side to put the topics on, when they end up as main branches (map layout). */
+  side?: BranchSide;
+  /** The side each main branch is shown on now: what the others keep once `side` fixes the sides. */
+  shown?: Readonly<Record<string, BranchSide>>;
+}
+
 /**
- * Makes several topics (with their branches) the last children of `targetId`, in drawing order.
- * Refuses, changing nothing, when the target is one of them or inside one of their branches.
+ * Moves several topics (with their branches), in drawing order: as the last children of `targetId`,
+ * or just before or after it. Returns false, changing nothing, when the target is one of them or
+ * inside one of their branches, when a place next to the central topic is asked for, and when the
+ * topics are there already (and on that side).
+ *
+ * `side` only counts where the topics end up as main branches: they get that side, and every other
+ * main branch keeps the side it is shown on, so nothing else moves. A topic that ends up deeper loses
+ * its side.
  */
-export function moveNodes(root: MapNode, ids: Iterable<string>, targetId: string): boolean {
+export function moveNodes(root: MapNode, ids: Iterable<string>, targetId: string, to: MoveTo = {}): boolean {
+  const where = to.where ?? 'into';
   const tops = topMost(root, ids);
   const target = findNode(root, targetId);
   if (!tops.length || !target) return false;
   if (tops.some((id) => isInBranch(findNode(root, id)!.node, targetId))) return false;
+  const parent = where === 'into' ? target.node : target.parent;
+  if (!parent) return false;
+  const main = parent.id === root.id;
+  const side = main ? to.side : undefined;
+
+  const gone = new Set(tops);
+  const stay = parent.children.filter((c) => !gone.has(c.id));
+  const at = where === 'into' ? stay.length : stay.indexOf(target.node) + (where === 'after' ? 1 : 0);
+  const order = [...stay.slice(0, at).map((c) => c.id), ...tops, ...stay.slice(at).map((c) => c.id)];
+  const samePlace = order.length === parent.children.length && order.every((id, i) => parent.children[i].id === id);
+  const sameSide = !side || tops.every((id) => (findNode(root, id)!.node.side ?? to.shown?.[id]) === side);
+  if (samePlace && sameSide) return false;
+
   const moved = detach(root, tops);
-  delete target.node.collapsed;
-  target.node.children.push(...moved);
+  if (where === 'into') delete parent.collapsed;
+  parent.children.splice(at, 0, ...moved);
+  if (!main) {
+    for (const node of moved) delete node.side;
+  } else if (side) {
+    for (const c of parent.children) {
+      const keep = c.side ?? to.shown?.[c.id];
+      if (keep) c.side = keep;
+    }
+    for (const node of moved) node.side = side;
+  }
   return true;
 }
 
@@ -165,6 +208,17 @@ export function countDescendants(node: MapNode): number {
 
 export function visibleChildren(node: MapNode): MapNode[] {
   return node.collapsed ? [] : node.children;
+}
+
+/**
+ * The side of each main branch, in order, once any of them was put on a side by hand; null while none
+ * was, which leaves the map layout to balance the two sides itself. A main branch without a side of its
+ * own goes where the branch before it is (a new sibling appears next to its neighbour); before any, right.
+ */
+export function fixedSides(root: MapNode): BranchSide[] | null {
+  if (!root.children.some((c) => c.side)) return null;
+  let side: BranchSide = 'right';
+  return root.children.map((c) => (side = c.side ?? side));
 }
 
 /** Every topic's text, one per line: used to decide which font subsets to load. */

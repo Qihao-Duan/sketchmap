@@ -1,7 +1,7 @@
 import { produce } from 'immer';
 import { displaySize, IMAGE_SIZES } from '../io/imagePrep';
 import { linkWhole } from '../shared/rich';
-import type { Emphasis, LayoutKind, MapNode, MindMap } from '../shared/types';
+import type { BranchSide, Emphasis, LayoutKind, MapNode, MindMap } from '../shared/types';
 import * as T from '../model/tree';
 
 export const HISTORY_LIMIT = 200;
@@ -32,7 +32,12 @@ export type EditorAction =
   | { type: 'startEdit'; id?: string }
   | { type: 'commitEdit'; text: string }
   | { type: 'cancelEdit' }
-  | { type: 'move'; id: string; targetId: string }
+  /**
+   * `where`: onto the target (its last child; the default), or just before or after it. `side` / `shown`:
+   * see `MoveTo` in the model. `alone`: move only this topic, even when it is one of several selected ones
+   * (the keyboard), and leave the selection as it is.
+   */
+  | { type: 'move'; id: string; targetId: string; where?: T.Place; side?: BranchSide; shown?: Readonly<Record<string, BranchSide>>; alone?: boolean }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'serverSaved'; map: MindMap }
@@ -242,13 +247,15 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
     case 'move': {
       // Dragging one topic of a multi-selection takes the whole selection along; any other topic moves alone.
       const all = selectedIds(state);
-      const group = all.length > 1 && all.includes(action.id) ? all : [action.id];
+      const group = !action.alone && all.length > 1 && all.includes(action.id) ? all : [action.id];
       let ok = false;
       const next = produce(state.map, (d) => {
-        ok = T.moveNodes(d.root, group, action.targetId);
+        ok = T.moveNodes(d.root, group, action.targetId, { where: action.where, side: action.side, shown: action.shown });
       });
+      if (!ok) return state;
+      if (action.alone) return commit(state, next);
       const rest = group.filter((id) => id !== action.id);
-      return ok ? commit(state, next, { selectedId: action.id, extraIds: rest.length ? rest : NONE }) : state;
+      return commit(state, next, { selectedId: action.id, extraIds: rest.length ? rest : NONE });
     }
 
     case 'setLayout':

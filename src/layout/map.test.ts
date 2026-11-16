@@ -90,6 +90,48 @@ describe('computeLayout (balanced map)', () => {
     }
   });
 
+  it('with sides fixed by hand, each main branch is on its own side: right from the top in order, left from the bottom (clockwise)', () => {
+    const l = computeLayout(n('r', 'Root', [
+      n('a', 'A', [], { side: 'left' }), n('b', 'B', [], { side: 'right' }), n('c', 'C', [], { side: 'left' }), n('d', 'D', [], { side: 'right' }),
+    ]), measure);
+    const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((id) => l.byId.get(id)!);
+    expect([a.side, b.side, c.side, d.side]).toEqual([-1, 1, -1, 1]);
+    expect(b.y).toBeLessThan(d.y);
+    expect(c.y).toBeLessThan(a.y);
+  });
+
+  it('with sides fixed, a tall branch no longer pushes its neighbours to the other side', () => {
+    const tall = n('a', 'A', Array.from({ length: 12 }, (_, i) => n(`a${i}`, 'x')), { side: 'right' });
+    const l = computeLayout(n('r', 'Root', [tall, n('b', 'B', [], { side: 'right' }), n('c', 'C', [], { side: 'right' })]), measure);
+    expect(['a', 'b', 'c'].map((id) => l.byId.get(id)!.side)).toEqual([1, 1, 1]);
+    // the same map without sides is balanced by height: everything after the tall branch goes left
+    const auto = computeLayout(n('r', 'Root', [{ ...tall, side: undefined }, n('b', 'B'), n('c', 'C')]), measure);
+    expect(['a', 'b', 'c'].map((id) => auto.byId.get(id)!.side)).toEqual([1, -1, -1]);
+  });
+
+  it('with sides fixed, a main branch without one goes where the branch before it is; before any, right', () => {
+    const l = computeLayout(n('r', 'Root', [n('a', 'A'), n('b', 'B', [], { side: 'left' }), n('c', 'C'), n('d', 'D', [], { side: 'right' }), n('e', 'E')]), measure);
+    expect(['a', 'b', 'c', 'd', 'e'].map((id) => l.byId.get(id)!.side)).toEqual([1, -1, -1, 1, 1]);
+  });
+
+  it('all main branches may be on the left', () => {
+    const l = computeLayout(n('r', 'Root', [n('a', 'A', [n('a1', 'A1')], { side: 'left' }), n('b', 'B', [], { side: 'left' })]), measure);
+    expect(['a', 'a1', 'b'].map((id) => l.byId.get(id)!.side)).toEqual([-1, -1, -1]);
+    expect(l.byId.get('a1')!.x + l.byId.get('a1')!.w).toBeLessThan(l.byId.get('a')!.x);
+  });
+
+  it('a logic chart and an org chart ignore the sides', () => {
+    const tree = n('r', 'Root', [n('a', 'A', [], { side: 'left' }), n('b', 'B', [], { side: 'right' })]);
+    expect(['a', 'b'].map((id) => computeLayout(tree, measure, 'logic').byId.get(id)!.side)).toEqual([1, 1]);
+    const org = layoutMap(tree, 'org', measure);
+    expect(org.byId.get('a')!.x).toBeLessThan(org.byId.get('b')!.x);
+  });
+
+  it('says which layout it is', () => {
+    const tree = n('r', 'Root', [n('a', 'A')]);
+    expect((['map', 'logic', 'org'] as const).map((kind) => layoutMap(tree, kind, measure).kind)).toEqual(['map', 'logic', 'org']);
+  });
+
   it('logic chart: every first-level branch grows to the right, in order', () => {
     const l = computeLayout(n('r', 'Root', [n('a', 'A'), n('b', 'B'), n('c', 'C')]), measure, 'logic');
     const [a, b, c] = ['a', 'b', 'c'].map((id) => l.byId.get(id)!);

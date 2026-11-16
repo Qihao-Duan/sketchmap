@@ -380,6 +380,52 @@ describe('selecting several topics', () => {
     expect(reduce(s, { type: 'move', id: 'c', targetId: 'a1' })).toBe(s);
   });
 
+  it('move puts the dragged topic just before or after another one, as one undo step', () => {
+    let s = start(['c']);
+    s = reduce(s, { type: 'move', id: 'c', targetId: 'a', where: 'before' });
+    expect(kids(s, 'r')).toEqual(['c', 'a', 'b']);
+    s = reduce(s, { type: 'move', id: 'c', targetId: 'a1', where: 'after' });
+    expect(kids(s, 'a')).toEqual(['a1', 'c', 'a2']);
+    expect(s.past).toHaveLength(2);
+    s = reduce(reduce(s, { type: 'undo' }), { type: 'undo' });
+    expect(kids(s, 'r')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('move to where the topic already is changes nothing and leaves no undo step', () => {
+    const s = start(['b']);
+    expect(reduce(s, { type: 'move', id: 'b', targetId: 'a', where: 'after' })).toBe(s);
+    expect(reduce(s, { type: 'move', id: 'c', targetId: 'r' })).toBe(s);
+  });
+
+  it('move onto a side fixes the side of every main branch as shown, in the same undo step', () => {
+    let s = start(['a']);
+    s = reduce(s, { type: 'move', id: 'a', targetId: 'c', where: 'after', side: 'left', shown: { a: 'right', b: 'right', c: 'left' } });
+    expect(s.map.root.children.map((c) => `${c.id}:${c.side}`)).toEqual(['b:right', 'c:left', 'a:left']);
+    expect(s.past).toHaveLength(1);
+    s = reduce(s, { type: 'undo' });
+    expect(s.map.root.children.map((c) => `${c.id}:${c.side ?? '-'}`)).toEqual(['a:-', 'b:-', 'c:-']);
+  });
+
+  it('move with `alone` takes only the current topic and keeps the selection as it is', () => {
+    let s = start(['c', 'a1']);
+    s = reduce(s, { type: 'move', id: 'c', targetId: 'b', where: 'before', alone: true });
+    expect(kids(s, 'r')).toEqual(['a', 'c', 'b']);
+    expect(kids(s, 'a')).toEqual(['a1', 'a2']);
+    expect(selectedIds(s)).toEqual(['c', 'a1']);
+  });
+
+  it('with the sides fixed, a new main branch gets its side when it is made, and loses nothing on undo', () => {
+    let s = start(['a']);
+    s = reduce(s, { type: 'move', id: 'a', targetId: 'r', side: 'left', shown: { a: 'right', b: 'right', c: 'left' } });
+    expect(s.map.root.children.map((c) => `${c.id}:${c.side}`)).toEqual(['b:right', 'c:left', 'a:left']);
+    s = reduce(reduce(s, { type: 'select', id: 'b' }), { type: 'addSibling' });
+    s = reduce(s, { type: 'commitEdit', text: 'New' });
+    expect(s.map.root.children.map((c) => `${c.text}:${c.side}`)).toEqual(['B:right', 'New:right', 'C:left', 'A:left']);
+    s = reduce(reduce(s, { type: 'select', id: 'r' }), { type: 'addChild' });
+    s = reduce(s, { type: 'commitEdit', text: 'Last' });
+    expect(s.map.root.children.map((c) => `${c.text}:${c.side}`)).toEqual(['B:right', 'New:right', 'C:left', 'A:left', 'Last:right']);
+  });
+
   it('importance, priority and marker set on the current topic go to the whole selection, one undo step each', () => {
     let s = start(['a1', 'b']);
     s = reduce(s, { type: 'setPriority', id: s.selectedId, priority: 2 });

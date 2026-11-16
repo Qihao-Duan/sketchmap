@@ -1,6 +1,6 @@
 import type { Emphasis, LayoutKind, MapNode } from '../shared/types';
 import { parseRich } from '../shared/rich';
-import { visibleChildren } from '../model/tree';
+import { fixedSides, visibleChildren } from '../model/tree';
 import { badgeSize, DECOR, GAP, IMAGE_GAP, PALETTE, ROOT_COLOR, styleFor, type BranchColor, type NodeStyle } from './styles';
 import { wrapWithOffsets, type Measure } from './wrap';
 
@@ -66,6 +66,7 @@ export interface Bounds {
 }
 
 export interface MapLayout {
+  kind: LayoutKind;
   boxes: TopicBox[];
   byId: Map<string, TopicBox>;
   branches: BranchPath[];
@@ -215,8 +216,13 @@ export function computeLayout(root: MapNode, measure: Measure, kind: 'map' | 'lo
   const total = kids.reduce((s, c) => s + blockH.get(c.id)!, 0);
   const right: MapNode[] = [];
   const left: MapNode[] = [];
+  const sides = kind === 'map' && kids.length ? fixedSides(root) : null;
   if (kind === 'logic') {
     right.push(...kids);
+  } else if (sides) {
+    // Put there by hand: nothing changes sides because a branch grew.
+    kids.forEach((c, i) => (sides[i] === 'left' ? left : right).push(c));
+    left.reverse();
   } else {
     let acc = 0;
     for (const c of kids) {
@@ -243,5 +249,5 @@ export function computeLayout(root: MapNode, measure: Measure, kind: 'map' | 'lo
   column(right, 1);
   column(left, -1);
 
-  return { boxes, byId, branches, bounds: boundsOf(boxes) };
+  return { kind, boxes, byId, branches, bounds: boundsOf(boxes) };
 }

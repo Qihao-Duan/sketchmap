@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { MapNode } from '../shared/types';
 import {
-  addChild, addSiblingAfter, allText, countDescendants, createMap, findNode, isInBranch,
-  moveNode, moveNodes, newNode, removeNode, removeNodes, setText, toggleCollapsed, topMost, visibleChildren,
+  addChild, addSiblingAfter, allText, countDescendants, createMap, findNode, fixedSides, isInBranch,
+  moveNodes, newNode, removeNode, removeNodes, setText, toggleCollapsed, topMost, visibleChildren,
 } from './tree';
 
-const n = (id: string, text: string, children: MapNode[] = []): MapNode => ({ id, text, children });
+const n = (id: string, text: string, children: MapNode[] = [], extra: Partial<MapNode> = {}): MapNode => ({ id, text, children, ...extra });
+const big = () => n('r', 'Root', [n('a', 'A', [n('a1', 'A1'), n('a2', 'A2')]), n('b', 'B', [n('b1', 'B1')]), n('c', 'C')]);
 const sample = () => n('r', 'Root', [n('a', 'A', [n('a1', 'A1'), n('a2', 'A2')]), n('b', 'B')]);
 
 describe('tree', () => {
@@ -46,12 +47,12 @@ describe('tree', () => {
     expect(removeNode(t, 'r')).toBeNull();
   });
 
-  it('moveNode moves a branch under a target and refuses moves into itself', () => {
+  it('moveNodes moves a branch under a target and refuses moves into itself', () => {
     const t = sample();
-    expect(moveNode(t, 'a', 'a1')).toBe(false);
-    expect(moveNode(t, 'a', 'a')).toBe(false);
-    expect(moveNode(t, 'r', 'b')).toBe(false);
-    expect(moveNode(t, 'a', 'b')).toBe(true);
+    expect(moveNodes(t, ['a'], 'a1')).toBe(false);
+    expect(moveNodes(t, ['a'], 'a')).toBe(false);
+    expect(moveNodes(t, ['r'], 'b')).toBe(false);
+    expect(moveNodes(t, ['a'], 'b')).toBe(true);
     expect(t.children.map((c) => c.id)).toEqual(['b']);
     expect(t.children[0].children[0].id).toBe('a');
   });
@@ -77,7 +78,6 @@ describe('tree', () => {
 });
 
 describe('several topics at once', () => {
-  const big = () => n('r', 'Root', [n('a', 'A', [n('a1', 'A1'), n('a2', 'A2')]), n('b', 'B', [n('b1', 'B1')]), n('c', 'C')]);
   const kids = (t: MapNode, id: string) => findNode(t, id)!.node.children.map((c) => c.id);
 
   it('topMost keeps the chosen topics that are not inside another chosen one, in drawing order', () => {
@@ -140,5 +140,144 @@ describe('several topics at once', () => {
     expect(moveNodes(t, ['r'], 'a')).toBe(false);
     expect(moveNodes(t, ['a'], 'nope')).toBe(false);
     expect(t).toEqual(big());
+  });
+});
+
+describe('sides of the main branches', () => {
+  const side = (id: string, s?: 'left' | 'right'): MapNode => ({ id, text: id, children: [], ...(s && { side: s }) });
+
+  it('fixedSides is null while no main branch has a side: the layout balances them itself', () => {
+    expect(fixedSides(n('r', 'Root', [side('a'), side('b')]))).toBeNull();
+    expect(fixedSides(n('r', 'Root'))).toBeNull();
+  });
+
+  it('fixedSides gives every main branch a side: its own, else the one of the branch before it, else right', () => {
+    expect(fixedSides(n('r', 'Root', [side('a'), side('b', 'left'), side('c'), side('d', 'right'), side('e')]))).toEqual(['right', 'left', 'left', 'right', 'right']);
+  });
+
+  it('a side deeper in the map does not count', () => {
+    expect(fixedSides(n('r', 'Root', [n('a', 'A', [side('a1', 'left')])]))).toBeNull();
+  });
+
+  it('a new main branch made next to another one takes that branch’s side', () => {
+    const t = n('r', 'Root', [side('a', 'right'), side('b', 'left'), side('c')]);
+    addSiblingAfter(t, 'c', side('x'));
+    addSiblingAfter(t, 'a', side('y'));
+    expect(t.children.map((c) => `${c.id}:${c.side ?? '-'}`)).toEqual(['a:right', 'y:right', 'b:left', 'c:-', 'x:left']);
+  });
+
+  it('a new main branch made from the central topic goes to the side with fewer branches; right when equal', () => {
+    const t = n('r', 'Root', [side('a', 'right'), side('b', 'right'), side('c', 'left')]);
+    addChild(t, 'r', side('x'));
+    addChild(t, 'r', side('y'));
+    addSiblingAfter(t, 'r', side('z'));
+    expect(t.children.slice(3).map((c) => `${c.id}:${c.side}`)).toEqual(['x:left', 'y:right', 'z:left']);
+  });
+
+  it('new topics get no side while the sides are balanced automatically, and never below the main branches', () => {
+    const auto = n('r', 'Root', [side('a')]);
+    addChild(auto, 'r', side('x'));
+    addSiblingAfter(auto, 'a', side('y'));
+    expect(auto.children.every((c) => c.side === undefined)).toBe(true);
+    const fixed = n('r', 'Root', [n('a', 'A', [side('a1')], { side: 'left' })]);
+    addChild(fixed, 'a', side('x'));
+    addSiblingAfter(fixed, 'a1', side('y'));
+    expect(fixed.children[0].children.map((c) => `${c.id}:${c.side ?? '-'}`)).toEqual(['a1:-', 'y:-', 'x:-']);
+  });
+});
+
+describe('moveNodes: next to a topic, and onto a side', () => {
+  const ids = (node: MapNode) => node.children.map((c) => c.id);
+  const sides = (node: MapNode) => node.children.map((c) => `${c.id}:${c.side ?? '-'}`);
+
+  it('puts a topic just before or just after another one, under that one’s parent', () => {
+    const t = big();
+    expect(moveNodes(t, ['c'], 'a', { where: 'before' })).toBe(true);
+    expect(ids(t)).toEqual(['c', 'a', 'b']);
+    expect(moveNodes(t, ['c'], 'a', { where: 'after' })).toBe(true);
+    expect(ids(t)).toEqual(['a', 'c', 'b']);
+    expect(moveNodes(t, ['b1'], 'a1', { where: 'after' })).toBe(true);
+    expect(ids(t.children[0])).toEqual(['a1', 'b1', 'a2']);
+    expect(ids(findNode(t, 'b')!.node)).toEqual([]);
+  });
+
+  it('several topics go there together, in drawing order, wherever they came from', () => {
+    const t = big();
+    expect(moveNodes(t, ['c', 'a2', 'b1'], 'a1', { where: 'before' })).toBe(true);
+    expect(ids(t.children[0])).toEqual(['a2', 'b1', 'c', 'a1']);
+    expect(ids(t)).toEqual(['a', 'b']);
+  });
+
+  it('does not unfold the topic it is put next to', () => {
+    const t = big();
+    toggleCollapsed(t, 'a');
+    moveNodes(t, ['c'], 'a', { where: 'after' });
+    expect(t.children[0].collapsed).toBe(true);
+  });
+
+  it('refuses a place next to the central topic, next to a moved topic or inside a moved branch', () => {
+    const t = big();
+    const before = JSON.stringify(t);
+    expect(moveNodes(t, ['a'], 'r', { where: 'before' })).toBe(false);
+    expect(moveNodes(t, ['a', 'c'], 'c', { where: 'after' })).toBe(false);
+    expect(moveNodes(t, ['a'], 'a1', { where: 'after' })).toBe(false);
+    expect(JSON.stringify(t)).toBe(before);
+  });
+
+  it('reports no move, and changes nothing, when the topics are already exactly there', () => {
+    const t = big();
+    const before = JSON.stringify(t);
+    expect(moveNodes(t, ['b'], 'a', { where: 'after' })).toBe(false);
+    expect(moveNodes(t, ['b'], 'c', { where: 'before' })).toBe(false);
+    expect(moveNodes(t, ['a', 'b'], 'c', { where: 'before' })).toBe(false);
+    expect(moveNodes(t, ['c'], 'r')).toBe(false);
+    expect(moveNodes(t, ['a1', 'a2'], 'a')).toBe(false);
+    expect(JSON.stringify(t)).toBe(before);
+    // the same topics in another order is a move
+    expect(moveNodes(t, ['a'], 'r')).toBe(true);
+    expect(ids(t)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('onto a side: the moved main branch gets that side, and every other main branch keeps the side it is shown on', () => {
+    const t = big();
+    expect(moveNodes(t, ['a'], 'c', { where: 'after', side: 'left', shown: { a: 'right', b: 'right', c: 'left' } })).toBe(true);
+    expect(sides(t)).toEqual(['b:right', 'c:left', 'a:left']);
+  });
+
+  it('onto the central topic with a side: last in order, on that side', () => {
+    const t = big();
+    expect(moveNodes(t, ['a1'], 'r', { side: 'left', shown: { a: 'right', b: 'right', c: 'left' } })).toBe(true);
+    expect(sides(t)).toEqual(['a:right', 'b:right', 'c:left', 'a1:left']);
+  });
+
+  it('a main branch already in that place still changes side, and is no move when it is shown on that side already', () => {
+    const t = big();
+    const shown = { a: 'right', b: 'right', c: 'left' } as const;
+    const before = JSON.stringify(t);
+    expect(moveNodes(t, ['c'], 'r', { side: 'left', shown })).toBe(false);
+    expect(JSON.stringify(t)).toBe(before);
+    expect(moveNodes(t, ['c'], 'r', { side: 'right', shown })).toBe(true);
+    expect(sides(t)).toEqual(['a:right', 'b:right', 'c:right']);
+  });
+
+  it('a side a main branch already has is kept over the shown one, and a side is only for main branches', () => {
+    const t = n('r', 'Root', [n('a', 'A', [n('a1', 'A1')], { side: 'left' }), n('b', 'B'), n('c', 'C')]);
+    // below a main branch the side means nothing: it is not set there, and nothing is fixed
+    expect(moveNodes(t, ['c'], 'a1', { where: 'after', side: 'right', shown: { a: 'right', b: 'right' } })).toBe(true);
+    expect(sides(t)).toEqual(['a:left', 'b:-']);
+    expect(sides(t.children[0])).toEqual(['a1:-', 'c:-']);
+    expect(moveNodes(t, ['a1'], 'b', { where: 'before', side: 'right', shown: { a: 'right', b: 'left' } })).toBe(true);
+    expect(sides(t)).toEqual(['a:left', 'a1:right', 'b:left']);
+  });
+
+  it('a main branch that leaves the central topic loses its side; one that stays a main branch keeps it', () => {
+    const t = n('r', 'Root', [n('a', 'A', [], { side: 'left' }), n('b', 'B', [], { side: 'right' }), n('c', 'C', [], { side: 'left' })]);
+    expect(moveNodes(t, ['a'], 'b')).toBe(true);
+    expect(t.children[0].children[0]).toMatchObject({ id: 'a' });
+    expect(t.children[0].children[0].side).toBeUndefined();
+    expect(moveNodes(t, ['c'], 'b', { where: 'before' })).toBe(true);
+    expect(sides(t)).toEqual(['c:left', 'b:right']);
+    expect(moveNodes(t, ['c'], 'a', { where: 'after' })).toBe(true);
+    expect(sides(t.children[0])).toEqual(['a:-', 'c:-']);
   });
 });

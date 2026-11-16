@@ -72,5 +72,5 @@ export function computeOrgLayout(root: MapNode, measure: Measure): MapLayout {
     x += col.width + ORG.colGap;
   });
 
-  return { boxes, byId, branches, bounds: boundsOf(boxes) };
+  return { kind: 'org', boxes, byId, branches, bounds: boundsOf(boxes) };
 }

@@ -23,6 +23,7 @@ const mapNodeSchema: z.ZodType<MapNode> = z.lazy(() =>
       })
       .optional(),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+    side: z.enum(['left', 'right']).optional(),
   }),
 );
 
