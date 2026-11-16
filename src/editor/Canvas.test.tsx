@@ -333,7 +333,8 @@ describe('Canvas', () => {
       expect(ghostFrame.querySelectorAll('g.topic-frame[data-id="p"]')).toHaveLength(1);
       expect(ghostFrame.getAttribute('transform')).toBe('translate(10 10)');
 
-      press(hitP, 'pointerup', 20, 20);
+      // The pointer is captured by the drawing; the pressed element itself may have been redrawn by now.
+      press(drawing, 'pointerup', 20, 20);
       expect(photos.querySelector('g.ghost-photo')).toBeNull();
       expect(frames.querySelector('g.ghost-frame')).toBeNull();
     });
@@ -349,27 +350,25 @@ describe('Canvas', () => {
       act(() => createRoot(container).render(
         <Canvas layout={imgLayout} selectedId={null} interactive onToggleFold={() => {}} />,
       ));
-      const [, photos, frames] = container.querySelectorAll('.canvas > svg');
+      const [drawing, photos, frames] = container.querySelectorAll('.canvas > svg');
       const hitP = container.querySelector('g.topic[data-id="p"] rect.hit')!;
-      const hitQ = container.querySelector('g.topic[data-id="q"] rect.hit')!;
-      const original = document.elementFromPoint;
-      document.elementFromPoint = () => hitQ;
-      try {
-        press(hitP, 'pointerdown', 10, 10);
-        press(hitP, 'pointermove', 20, 20, 1); // past the drag threshold; the pointer is now over Other
-        // The drop highlight re-rendered the canvas (Other's group gained `drop`)...
-        expect(container.querySelector('g.topic[data-id="q"]')!.classList.contains('drop')).toBe(true);
-        // ...and the ghosts, and the one photo, survived it.
-        expect(photos.querySelectorAll('g.ghost-photo')).toHaveLength(1);
-        expect(frames.querySelectorAll('g.ghost-frame')).toHaveLength(1);
-        expect(photos.querySelectorAll('g.photos-world image.topic-image[data-id="p"]')).toHaveLength(1);
-        press(hitP, 'pointermove', 30, 30, 1); // moving on keeps them too
-        expect(photos.querySelectorAll('g.ghost-photo')).toHaveLength(1);
-        expect(frames.querySelectorAll('g.ghost-frame')).toHaveLength(1);
-        press(hitP, 'pointerup', 30, 30);
-      } finally {
-        document.elementFromPoint = original;
-      }
+      // jsdom gives the canvas no size, so the view is not moved: screen points are map points.
+      const q = imgLayout.byId.get('q')!;
+      const [qx, qy] = [q.x + q.w / 2, q.y + q.h / 2];
+      press(hitP, 'pointerdown', qx - 20, qy - 20);
+      press(hitP, 'pointermove', qx, qy, 1); // past the drag threshold; the pointer is now over Other
+      // The drop highlight re-rendered the canvas (Other's group gained `drop`)...
+      expect(container.querySelector('g.topic[data-id="q"]')!.classList.contains('drop')).toBe(true);
+      // ...and the ghosts, and the one photo, survived it.
+      expect(photos.querySelectorAll('g.ghost-photo')).toHaveLength(1);
+      expect(frames.querySelectorAll('g.ghost-frame')).toHaveLength(1);
+      expect(photos.querySelectorAll('g.photos-world image.topic-image[data-id="p"]')).toHaveLength(1);
+      // The redraw replaced the pressed element; the pointer is captured by the drawing, which gets the rest.
+      press(drawing, 'pointermove', qx + 2, qy + 2, 1); // moving on keeps them too
+      expect(photos.querySelectorAll('g.ghost-photo')).toHaveLength(1);
+      expect(frames.querySelectorAll('g.ghost-frame')).toHaveLength(1);
+      press(drawing, 'pointerup', qx + 2, qy + 2);
+      expect(photos.querySelectorAll('g.ghost-photo')).toHaveLength(0);
     });
   });
 });
@@ -406,6 +405,7 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
   const svgEl = () => container.querySelector('svg')!;
   const worldT = () => container.querySelector('g.world')!.getAttribute('transform');
   const box = (id: string) => flatLayout.byId.get(id)!;
+  const centre = (id: string) => [box(id).x + box(id).w / 2, box(id).y + box(id).h / 2] as const;
   /** Ids of the topics a screen rectangle touches (the view is not moved in these tests: jsdom has no size). */
   const touched = (x0: number, y0: number, x1: number, y1: number) =>
     flatLayout.boxes.filter((b) => b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0).map((b) => b.id);
@@ -589,25 +589,135 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
     const h = mountFlat({ selectedId: 'a', extraIds: ['b'] });
     const overlay = container.querySelector('g.overlay')!;
     const hitOf = (id: string) => container.querySelector(`g.topic[data-id="${id}"] rect.hit`)!;
-    const original = document.elementFromPoint;
-    try {
-      document.elementFromPoint = () => hitOf('b');
-      fire(hitOf('a'), 'pointerdown', 10, 10);
-      fire(hitOf('a'), 'pointermove', 60, 60, { buttons: 1 });
-      expect([...overlay.children].map((g) => g.getAttribute('data-id')).sort()).toEqual(['a', 'b']);
-      expect([...overlay.children].map((g) => g.getAttribute('transform'))).toEqual(['translate(50 50)', 'translate(50 50)']);
-      // b is being moved too, so it is no place to drop on
-      expect(container.querySelector('g.topic.drop')).toBeNull();
-      document.elementFromPoint = () => hitOf('c');
-      fire(hitOf('a'), 'pointermove', 70, 70, { buttons: 1 });
-      expect(container.querySelector('g.topic.drop')?.getAttribute('data-id')).toBe('c');
-      fire(hitOf('a'), 'pointerup', 70, 70);
-    } finally {
-      document.elementFromPoint = original;
-    }
-    expect(h.onMove).toHaveBeenCalledWith('a', 'c');
+    const [ax, ay] = centre('a');
+    const [bx, by] = centre('b');
+    const [cx, cy] = centre('c');
+    fire(hitOf('a'), 'pointerdown', ax, ay);
+    fire(hitOf('a'), 'pointermove', bx, by, { buttons: 1 });
+    expect([...overlay.children].map((g) => g.getAttribute('data-id')).sort()).toEqual(['a', 'b']);
+    expect([...overlay.children].map((g) => g.getAttribute('transform'))).toEqual(Array(2).fill(`translate(${bx - ax} ${by - ay})`));
+    // b is being moved too, so it is no place to drop on
+    expect(container.querySelector('g.topic.drop')).toBeNull();
+    fire(hitOf('a'), 'pointermove', cx, cy, { buttons: 1 });
+    expect(container.querySelector('g.topic.drop')?.getAttribute('data-id')).toBe('c');
+    fire(hitOf('a'), 'pointerup', cx, cy);
+    expect(h.onMove).toHaveBeenCalledWith('a', { targetId: 'c', where: 'into' });
     expect(h.onSelect).not.toHaveBeenCalled();
     expect(overlay.children.length).toBe(0);
+  });
+
+  describe('dropping next to a topic', () => {
+    const hitOf = (id: string) => container.querySelector(`g.topic[data-id="${id}"] rect.hit`)!;
+    const line = () => container.querySelector('g.drop-line line');
+    /** Drags topic `id` to a point (jsdom: screen points are map points) and holds it there. */
+    const dragTo = (id: string, x: number, y: number) => {
+      const [x0, y0] = centre(id);
+      fire(hitOf(id), 'pointerdown', x0, y0);
+      fire(hitOf(id), 'pointermove', x, y, { buttons: 1 });
+    };
+
+    it('the fixture: a and b are on the right, c is on the left', () => {
+      expect(['a', 'b', 'c'].map((id) => box(id).side)).toEqual([1, 1, -1]);
+    });
+
+    it('over the top edge of a topic a line shows the place before it, and the topic is not marked as the target', () => {
+      const h = mountFlat({ selectedId: 'b' });
+      const a = box('a');
+      dragTo('b', a.x + a.w / 2, a.y + 2);
+      expect(container.querySelector('g.topic.drop')).toBeNull();
+      expect(['x1', 'y1', 'x2', 'y2'].map((k) => Number(line()!.getAttribute(k)))).toEqual([a.x, a.y - 13, a.x + a.w, a.y - 13]);
+      fire(hitOf('b'), 'pointerup', a.x + a.w / 2, a.y + 2);
+      expect(h.onMove).toHaveBeenCalledWith('b', { targetId: 'a', where: 'before', side: 'right' });
+      expect(line()).toBeNull();
+    });
+
+    it('over the bottom edge: the place after it; on the left side of the map that is before it in order', () => {
+      const h = mountFlat({ selectedId: 'a' });
+      const c = box('c');
+      dragTo('a', c.x + c.w / 2, c.y + c.h - 2);
+      expect(Number(line()!.getAttribute('y1'))).toBe(c.y + c.h + 13);
+      fire(hitOf('a'), 'pointerup', c.x + c.w / 2, c.y + c.h - 2);
+      expect(h.onMove).toHaveBeenCalledWith('a', { targetId: 'c', where: 'before', side: 'left' });
+    });
+
+    it('moving from the edge to the middle swaps the line for the target mark; off every topic, both go', () => {
+      mountFlat({ selectedId: 'b' });
+      const a = box('a');
+      dragTo('b', a.x + a.w / 2, a.y + 2);
+      expect(line()).not.toBeNull();
+      fire(hitOf('b'), 'pointermove', a.x + a.w / 2, a.y + a.h / 2, { buttons: 1 });
+      expect(line()).toBeNull();
+      expect(container.querySelector('g.topic.drop')?.getAttribute('data-id')).toBe('a');
+      fire(hitOf('b'), 'pointermove', a.x + a.w + 300, a.y - 300, { buttons: 1 });
+      expect(line()).toBeNull();
+      expect(container.querySelector('g.topic.drop')).toBeNull();
+    });
+
+    it('the central topic takes the branch onto the side of the half it is dropped on', () => {
+      const h = mountFlat({ selectedId: 'a' });
+      const r = box('r');
+      dragTo('a', r.x + r.w * 0.25, r.y + r.h / 2);
+      expect(container.querySelector('g.topic.drop')?.getAttribute('data-id')).toBe('r');
+      fire(hitOf('a'), 'pointerup', r.x + r.w * 0.25, r.y + r.h / 2);
+      expect(h.onMove).toHaveBeenCalledWith('a', { targetId: 'r', where: 'into', side: 'left' });
+    });
+
+    it('a lost or cancelled release takes the line away and moves nothing', () => {
+      const h = mountFlat({ selectedId: 'b' });
+      const a = box('a');
+      dragTo('b', a.x + a.w / 2, a.y + 2);
+      fire(hitOf('b'), 'pointermove', a.x + a.w / 2, a.y + 2, { buttons: 0 });
+      expect(line()).toBeNull();
+      dragTo('b', a.x + a.w / 2, a.y + 2);
+      expect(line()).not.toBeNull();
+      fire(hitOf('b'), 'pointercancel', a.x + a.w / 2, a.y + 2);
+      expect(line()).toBeNull();
+      expect(h.onMove).not.toHaveBeenCalled();
+    });
+
+    it('is no place while the pointer is over something outside the canvas (a panel, the toolbar)', () => {
+      const h = mountFlat({ selectedId: 'b' });
+      const a = box('a');
+      const panel = document.createElement('div');
+      document.body.appendChild(panel);
+      const original = document.elementFromPoint;
+      try {
+        document.elementFromPoint = () => panel;
+        dragTo('b', a.x + a.w / 2, a.y + a.h / 2);
+        expect(container.querySelector('g.topic.drop')).toBeNull();
+        // back over the canvas itself, the same point is a place again
+        document.elementFromPoint = () => hitOf('a');
+        fire(hitOf('b'), 'pointermove', a.x + a.w / 2, a.y + a.h / 2 + 1, { buttons: 1 });
+        expect(container.querySelector('g.topic.drop')?.getAttribute('data-id')).toBe('a');
+        document.elementFromPoint = () => panel;
+        fire(hitOf('b'), 'pointerup', a.x + a.w / 2, a.y + a.h / 2 + 1);
+      } finally {
+        document.elementFromPoint = original;
+        panel.remove();
+      }
+      // the release itself is over the canvas's captured pointer: the place found last counts
+      expect(h.onMove).toHaveBeenCalledTimes(1);
+    });
+
+    it('finds the place in map units when the canvas is zoomed and moved', () => {
+      unmount();
+      const h = { onMove: vi.fn() };
+      const handle: { current: CanvasHandle | null } = { current: null };
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      mounted = createRoot(container);
+      act(() => mounted!.render(<Canvas ref={handle} layout={flatLayout} selectedId="b" interactive onToggleFold={() => {}} {...h} />));
+      act(() => handle.current!.zoomBy(2));
+      const { tx, ty, k } = handle.current!.view();
+      expect(k).toBe(2);
+      const a = box('a');
+      const screen = (x: number, y: number) => [x * k + tx, y * k + ty] as const;
+      const [sx, sy] = screen(a.x + a.w / 2, a.y + 2);
+      fire(hitOf('b'), 'pointerdown', ...screen(...centre('b')));
+      fire(hitOf('b'), 'pointermove', sx, sy, { buttons: 1 });
+      fire(hitOf('b'), 'pointerup', sx, sy);
+      expect(h.onMove).toHaveBeenCalledWith('b', { targetId: 'a', where: 'before', side: 'right' });
+    });
   });
 
   it('a selected topic inside another selected topic gets no ghost of its own, and the central topic never moves', () => {

@@ -9,6 +9,8 @@ export type Command =
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'navigate'; dir: Direction }
+  /** Move the current topic one place that way among its siblings. */
+  | { type: 'reorder'; dir: Direction }
   | { type: 'selectAll' }
   | { type: 'selectOne' }
   | { type: 'emphasis'; delta: 1 | -1 }
@@ -38,6 +40,7 @@ export function keyToCommand(e: KeyInput): Command | null {
     if (key === 'k') return { type: 'link' };
     if (key === 'a') return { type: 'selectAll' };
     if (e.key === '/') return { type: 'fold' };
+    if (e.key in ARROWS && !e.shiftKey && !e.altKey) return { type: 'reorder', dir: ARROWS[e.key] };
     return null;
   }
   if (e.altKey) {

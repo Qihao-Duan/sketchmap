@@ -6,7 +6,8 @@ import { ApiError, type ApiClient } from '../api/client';
 import { buildExcalidraw } from '../io/excalidraw';
 import { buildSvg, download } from '../io/exportImage';
 import { ImageError, prepareImage } from '../io/imagePrep';
-import type { MindMap } from '../shared/types';
+import { layoutMap } from '../layout';
+import type { LayoutKind, MapNode, MindMap } from '../shared/types';
 import { draftKey } from './autosave';
 import { Editor, EditorPage } from './EditorPage';
 
@@ -1172,5 +1173,151 @@ describe('getting into the editor', () => {
       follow(dialog.querySelector('a.google-button')!);
       expect(leaveWarning()).toBe(true);
     });
+  });
+});
+
+describe('Editor: moving topics among their siblings', () => {
+  const kid = (id: string, children: MapNode[] = []): MapNode => ({ id, text: id.toUpperCase(), children });
+  /** r → a (a1 a2 a3), b, c, d. Balanced by height, the map layout shows a and b on the right, d above c on the left. */
+  const tree = (layout: LayoutKind): MindMap => ({
+    ...map, layout, root: { id: 'r', text: 'Root', children: [kid('a', [kid('a1'), kid('a2'), kid('a3')]), kid('b'), kid('c'), kid('d')] },
+  });
+  const svg = () => container.querySelector('.canvas svg')!;
+  const hitOf = (id: string) => container.querySelector(`g.topic[data-id="${id}"] rect.hit`)!;
+  const pointer = (el: Element, type: string, x: number, y: number, buttons = 0) =>
+    act(() => void el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons, clientX: x, clientY: y })));
+  const click = (id: string) => {
+    pointer(hitOf(id), 'pointerdown', 0, 0);
+    pointer(svg(), 'pointerup', 0, 0);
+  };
+  /** Where the topics are drawn: jsdom gives the canvas no size, so the view never moves and screen points are map points. */
+  const boxes = (m: MindMap) => layoutMap(m.root, m.layout, measure()).byId;
+  /** Drags topic `id` to a point and lets go. The pointer is captured by the drawing, which gets the move and the release. */
+  const drag = (m: MindMap, id: string, x: number, y: number) => {
+    const b = boxes(m).get(id)!;
+    pointer(hitOf(id), 'pointerdown', b.x + b.w / 2, b.y + b.h / 2);
+    pointer(svg(), 'pointermove', x, y, 1);
+    pointer(svg(), 'pointerup', x, y);
+  };
+  const saved = async (api: ApiClient) => {
+    await advance(1100);
+    return vi.mocked(api.saveMap).mock.calls.at(-1)![0];
+  };
+  const kids = (m: MindMap, id = 'r') => {
+    const find = (node: MapNode): MapNode | null => (node.id === id ? node : node.children.reduce<MapNode | null>((f, c) => f ?? find(c), null));
+    return find(m.root)!.children.map((c) => (c.side ? `${c.id}:${c.side}` : c.id));
+  };
+  /** Topics in drawing order; in a logic chart that is the order of the outline. */
+  const drawn = () => [...container.querySelectorAll('g.topic')].map((g) => g.getAttribute('data-id'));
+
+  it('⌘/Ctrl ↓ and ↑ move the selected topic one place among its siblings, one undo step each; at the end of the list nothing happens', async () => {
+    const api = fakeApi();
+    mount(api, tree('logic'));
+    click('a2');
+    keydown({ key: 'ArrowDown', metaKey: true });
+    expect(drawn()).toEqual(['r', 'a', 'a1', 'a3', 'a2', 'b', 'c', 'd']);
+    keydown({ key: 'ArrowDown', metaKey: true }); // already last
+    expect(drawn()).toEqual(['r', 'a', 'a1', 'a3', 'a2', 'b', 'c', 'd']);
+    keydown({ key: 'ArrowUp', ctrlKey: true });
+    keydown({ key: 'ArrowUp', ctrlKey: true });
+    expect(drawn()).toEqual(['r', 'a', 'a2', 'a1', 'a3', 'b', 'c', 'd']);
+    expect(container.querySelector('g.topic.selected')!.getAttribute('data-id')).toBe('a2');
+    expect(kids(await saved(api), 'a')).toEqual(['a2', 'a1', 'a3']);
+    // three moves, three undo steps
+    keydown({ key: 'z', metaKey: true });
+    keydown({ key: 'z', metaKey: true });
+    keydown({ key: 'z', metaKey: true });
+    expect(drawn()).toEqual(['r', 'a', 'a1', 'a2', 'a3', 'b', 'c', 'd']);
+    keydown({ key: 'z', metaKey: true });
+    expect(drawn()).toEqual(['r', 'a', 'a1', 'a2', 'a3', 'b', 'c', 'd']);
+  });
+
+  it('⌘/Ctrl ← and → do nothing in a logic chart, and the arrows alone still only move the selection', () => {
+    mount(fakeApi(), tree('logic'));
+    click('b');
+    keydown({ key: 'ArrowLeft', metaKey: true });
+    keydown({ key: 'ArrowRight', metaKey: true });
+    keydown({ key: 'ArrowDown' });
+    expect(drawn()).toEqual(['r', 'a', 'a1', 'a2', 'a3', 'b', 'c', 'd']);
+    expect(container.querySelector('g.topic.selected')!.getAttribute('data-id')).toBe('c');
+  });
+
+  it('in an org chart the main branches move with ⌘/Ctrl ← and →', async () => {
+    const api = fakeApi();
+    mount(api, tree('org'));
+    click('b');
+    keydown({ key: 'ArrowUp', metaKey: true });
+    keydown({ key: 'ArrowRight', metaKey: true });
+    expect(kids(await saved(api))).toEqual(['a', 'c', 'b', 'd']);
+  });
+
+  it('with several topics selected the keys move only the current one, and the selection stays', async () => {
+    const api = fakeApi();
+    mount(api, tree('logic'));
+    click('a1');
+    act(() => void hitOf('c').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, shiftKey: true })));
+    keydown({ key: 'ArrowDown', metaKey: true });
+    expect(kids(await saved(api))).toEqual(['a', 'b', 'd', 'c']);
+    expect([...container.querySelectorAll('g.topic.selected')].map((g) => g.getAttribute('data-id')).sort()).toEqual(['a1', 'c']);
+  });
+
+  it('dragging a topic to the top edge of another one puts it just before that one', async () => {
+    const api = fakeApi();
+    const m = tree('logic');
+    mount(api, m);
+    const b = boxes(m).get('b')!;
+    drag(m, 'd', b.x + b.w / 2, b.y + 2);
+    const after = await saved(api);
+    expect(kids(after)).toEqual(['a', 'd', 'b', 'c']);
+    keydown({ key: 'z', metaKey: true });
+    expect(drawn()).toEqual(['r', 'a', 'a1', 'a2', 'a3', 'b', 'c', 'd']);
+  });
+
+  it('map layout: moving a main branch up or down fixes the side every main branch is shown on', async () => {
+    const api = fakeApi();
+    mount(api, tree('map'));
+    click('a');
+    keydown({ key: 'ArrowDown', metaKey: true });
+    expect(kids(await saved(api))).toEqual(['b:right', 'a:right', 'c:left', 'd:left']);
+    // the left side runs from the bottom up: c is below d, and moving it up puts it after d in order
+    click('c');
+    keydown({ key: 'ArrowUp', metaKey: true });
+    expect(kids(await saved(api))).toEqual(['b:right', 'a:right', 'd:left', 'c:left']);
+  });
+
+  it('map layout: ⌘/Ctrl ← takes a main branch to the left side, → back to the right', async () => {
+    const api = fakeApi();
+    mount(api, tree('map'));
+    click('b');
+    keydown({ key: 'ArrowRight', metaKey: true }); // already on the right
+    keydown({ key: 'ArrowLeft', metaKey: true });
+    const left = await saved(api);
+    expect(left.root.children.map((c) => `${c.id}:${c.side}`).sort()).toEqual(['a:right', 'b:left', 'c:left', 'd:left']);
+    expect(api.saveMap).toHaveBeenCalledTimes(1);
+    keydown({ key: 'ArrowRight', metaKey: true });
+    expect((await saved(api)).root.children.map((c) => `${c.id}:${c.side}`).sort()).toEqual(['a:right', 'b:right', 'c:left', 'd:left']);
+  });
+
+  it('map layout: dropping a branch on the left half of the central topic puts it on the left, and no other branch changes sides', async () => {
+    const api = fakeApi();
+    const m = tree('map');
+    mount(api, m);
+    const r = boxes(m).get('r')!;
+    drag(m, 'a', r.x + r.w * 0.25, r.y + r.h / 2);
+    expect(kids(await saved(api))).toEqual(['b:right', 'c:left', 'd:left', 'a:left']);
+    // without the fixed sides, b alone on the right would no longer be half the map: c would have joined it
+    const shownNow = layoutMap((await saved(api)).root, 'map', measure());
+    expect(['b', 'c', 'd', 'a'].map((id) => shownNow.byId.get(id)!.side)).toEqual([1, -1, -1, -1]);
+  });
+
+  it('map layout: a topic from deeper in the map dropped next to a main branch becomes one, on that side', async () => {
+    const api = fakeApi();
+    const m = tree('map');
+    mount(api, m);
+    const c = boxes(m).get('c')!;
+    drag(m, 'a2', c.x + c.w / 2, c.y + c.h - 2); // the bottom edge of c, the lower branch on the left
+    const after = await saved(api);
+    expect(kids(after)).toEqual(['a:right', 'b:right', 'a2:left', 'c:left', 'd:left']);
+    expect(kids(after, 'a')).toEqual(['a1', 'a3']);
   });
 });

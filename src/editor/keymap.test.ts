@@ -25,6 +25,10 @@ describe('keyToCommand', () => {
     [k('ArrowLeft'), { type: 'navigate', dir: 'left' }],
     [k('ArrowDown'), { type: 'navigate', dir: 'down' }],
     [k('q'), { type: 'edit', initial: 'q' }],
+    [k('ArrowUp', { metaKey: true }), { type: 'reorder', dir: 'up' }],
+    [k('ArrowDown', { ctrlKey: true }), { type: 'reorder', dir: 'down' }],
+    [k('ArrowLeft', { metaKey: true }), { type: 'reorder', dir: 'left' }],
+    [k('ArrowRight', { ctrlKey: true }), { type: 'reorder', dir: 'right' }],
     [k('ArrowUp', { altKey: true }), { type: 'emphasis', delta: 1 }],
     [k('ArrowDown', { altKey: true }), { type: 'emphasis', delta: -1 }],
     [k('¡', { altKey: true, code: 'Digit1' }), { type: 'priority', value: 1 }],
@@ -43,5 +47,7 @@ describe('keyToCommand', () => {
     expect(keyToCommand(k('Tab', { shiftKey: true }))).toBeNull();
     expect(keyToCommand(k('Escape', { metaKey: true }))).toBeNull();
     expect(keyToCommand(k('c', { metaKey: true }))).toBeNull();
+    expect(keyToCommand(k('ArrowUp', { metaKey: true, shiftKey: true }))).toBeNull();
+    expect(keyToCommand(k('ArrowUp', { ctrlKey: true, altKey: true }))).toBeNull();
   });
 });

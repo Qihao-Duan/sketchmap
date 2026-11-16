@@ -25,6 +25,7 @@ import { DetailsPanel } from './DetailsPanel';
 import { ConflictDialog, DraftBanner, SaveBadge, Toolbar } from './EditorChrome';
 import { InlineEditor } from './InlineEditor';
 import { keyToCommand, type Command } from './keymap';
+import { shownSides, stepSibling, type Drop } from './reorder';
 import { LinkPrompt } from './LinkPrompt';
 import { navigate } from './navigate';
 import { OutlinePanel } from './OutlinePanel';
@@ -311,6 +312,14 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   const selectedNode = layout.byId.get(state.selectedId)?.node ?? findNode(state.map.root, state.selectedId)?.node ?? null;
   const selection = selectedIds(state);
 
+  /**
+   * Moves topic `id` to a place. A place with a side (among the main branches of the map layout) also
+   * fixes the side every other main branch is shown on, so nothing else changes sides.
+   */
+  const move = useCallback((id: string, place: Drop, alone = false) => {
+    dispatch({ type: 'move', id, ...place, ...(place.side && { shown: shownSides(layoutRef.current) }), ...(alone && { alone }) });
+  }, []);
+
   const run = useCallback((cmd: Command) => {
     const s = stateRef.current;
     switch (cmd.type) {
@@ -324,6 +333,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       case 'navigate': {
         const id = navigate(layoutRef.current, s.selectedId, cmd.dir, s.map.layout);
         if (id) dispatch({ type: 'select', id });
+        return;
+      }
+      case 'reorder': {
+        // Only the current topic moves, also when several are selected.
+        const place = stepSibling(layoutRef.current, s.selectedId, cmd.dir);
+        if (place) move(s.selectedId, place, true);
         return;
       }
       case 'emphasis':
@@ -345,7 +360,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       default:
         dispatch({ type: cmd.type });
     }
-  }, []);
+  }, [move]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -555,7 +570,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             setEditInitial(null);
             dispatch({ type: 'startEdit', id });
           }}
-          onMove={(id, targetId) => dispatch({ type: 'move', id, targetId })}
+          onMove={move}
           onToggleFold={(id) => dispatch({ type: 'toggleFold', id })}
           onDropFile={(id, file) => void attachImage(id ?? state.selectedId, file)}
           onViewChange={setView}

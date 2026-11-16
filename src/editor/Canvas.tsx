@@ -1,7 +1,7 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type Ref } from 'react';
 import type { MapLayout } from '../layout/map';
-import { isInBranch } from '../model/tree';
 import { renderMap } from '../render/renderMap';
+import { dropAt, type Drop, type DropAt } from './reorder';
 import { ensureVisible, fitView, zoomAt, type View } from './viewport';
 
 export interface CanvasHandle {
@@ -25,7 +25,8 @@ interface Props {
   /** A box dragged over the background: every topic it touches, in drawing order (none: an empty list). */
   onSelectMany?(ids: string[]): void;
   onEdit?(id: string): void;
-  onMove?(id: string, targetId: string): void;
+  /** Topic `id` (with the rest of a multi-selection it is part of) was dragged to a place: onto a topic, or next to one. */
+  onMove?(id: string, drop: Drop): void;
   onViewChange?(view: View): void;
   onDropFile?(topicId: string | null, file: File): void;
   /** View-only page: the note icon of topic `id` was tapped, or activated from the keyboard. */
@@ -70,10 +71,12 @@ export function Canvas({
   layout, selectedId, extraIds = NO_IDS, interactive, onToggleFold, onSelect, onToggleSelect, onSelectMany, onEdit, onMove, onViewChange, onDropFile, onNote,
   rightInset = 0, fitMaxK, ref,
 }: Props) {
+  const canvasRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<SVGGElement>(null);
   const overlayRef = useRef<SVGGElement>(null);
+  const dropLineRef = useRef<SVGGElement>(null);
   const photosRef = useRef<SVGGElement>(null);
   const photosGhostRef = useRef<SVGGElement>(null);
   const framesRef = useRef<SVGGElement>(null);
@@ -82,8 +85,10 @@ export function Canvas({
   const fitted = useRef(false);
   const gesture = useRef<Gesture | null>(null);
   const lastDown = useRef({ id: '', t: 0 });
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const dropRef = useRef<string | null>(null);
+  const [drop, setDropState] = useState<DropAt | null>(null);
+  const dropRef = useRef<DropAt | null>(null);
+  /** The topic marked as the one the dragged topics would go onto; a place next to a topic shows a line instead. */
+  const dropInto = drop?.where === 'into' ? drop.targetId : null;
   const onViewChangeRef = useRef(onViewChange);
   onViewChangeRef.current = onViewChange;
 
@@ -96,6 +101,7 @@ export function Canvas({
     const t = `translate(${v.tx} ${v.ty}) scale(${v.k})`;
     worldRef.current?.setAttribute('transform', t);
     overlayRef.current?.setAttribute('transform', t);
+    dropLineRef.current?.setAttribute('transform', t);
     photosRef.current?.setAttribute('transform', t);
     photosGhostRef.current?.setAttribute('transform', t);
     framesRef.current?.setAttribute('transform', t);
@@ -112,7 +118,7 @@ export function Canvas({
   const notesOpen = !interactive && !!onNote;
   useLayoutEffect(() => {
     renderMap(svgRef.current!, worldRef.current!, layout, {
-      selectedId, selectedIds: selectedSet, dropTargetId: dropTarget, photos: photosRef.current ?? undefined, frames: framesRef.current ?? undefined,
+      selectedId, selectedIds: selectedSet, dropTargetId: dropInto, photos: photosRef.current ?? undefined, frames: framesRef.current ?? undefined,
       noteButtons: notesOpen,
     });
     if (!fitted.current && size()[0] > 0) {
@@ -121,7 +127,7 @@ export function Canvas({
     } else {
       applyView(viewRef.current);
     }
-  }, [layout, selectedId, selectedSet, dropTarget, notesOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layout, selectedId, selectedSet, dropInto, notesOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
     fit,
@@ -186,11 +192,26 @@ export function Canvas({
     }, 300);
   };
 
-  const setDrop = (id: string | null) => {
-    if (dropRef.current !== id) {
-      dropRef.current = id;
-      setDropTarget(id);
-    }
+  const setDrop = (next: DropAt | null) => {
+    const now = dropRef.current;
+    // Every change redraws, so the same place found again (each mouse move) is not one.
+    if (now?.targetId === next?.targetId && now?.where === next?.where && now?.side === next?.side) return;
+    dropRef.current = next;
+    setDropState(next);
+  };
+
+  /**
+   * Where the dragged topics would go if released at the pointer. Worked out from the layout, in map
+   * units, so the edges of a topic and the gaps between topics count too. Nowhere while the pointer is
+   * over something that covers the canvas (the Details panel, the toolbar) or outside it.
+   */
+  const placeAt = (e: PointerEvent<SVGSVGElement>, moving: readonly string[]): DropAt | null => {
+    const over = document.elementFromPoint?.(e.clientX, e.clientY);
+    if (over && !canvasRef.current?.contains(over)) return null;
+    const r = svgRef.current!.getBoundingClientRect();
+    if (r.width > 0 && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) return null;
+    const { tx, ty, k } = viewRef.current;
+    return dropAt(layout, (e.clientX - r.left - tx) / k, (e.clientY - r.top - ty) / k, moving);
   };
 
   /** Where a dragged topic's photo and frame live, each paired with where its drag ghost goes. */
@@ -371,14 +392,8 @@ export function Canvas({
     }
     const dragT = `translate(${dx / viewRef.current.k} ${dy / viewRef.current.k})`;
     g.ghosts.forEach((el) => el.setAttribute('transform', dragT));
-    const under = document.elementFromPoint?.(e.clientX, e.clientY)?.closest('g.topic');
-    const tid = under?.getAttribute('data-id') ?? null;
     // No dropping a topic on itself or into its own branch; for a group, into any of the moved branches.
-    const inMoved = (id: string) => g.moving.some((m) => {
-      const node = layout.byId.get(m)?.node;
-      return !!node && isInBranch(node, id);
-    });
-    setDrop(tid && !inMoved(tid) ? tid : null);
+    setDrop(placeAt(e, g.moving));
   };
 
   const endGesture = (e: PointerEvent<SVGSVGElement>, cancelled: boolean) => {
@@ -407,7 +422,10 @@ export function Canvas({
       g.ghosts.forEach((el) => el.remove());
       const target = dropRef.current;
       setDrop(null);
-      if (target) onMove?.(g.id, target);
+      if (target && !cancelled) {
+        const { line: _line, ...place } = target;
+        onMove?.(g.id, place);
+      }
       return;
     }
     // A press on one of several selected topics that never became a drag: a click selects just that topic.
@@ -417,7 +435,7 @@ export function Canvas({
   };
 
   return (
-    <div className="canvas">
+    <div className="canvas" ref={canvasRef}>
       <svg
         ref={svgRef}
         role="img"
@@ -460,6 +478,8 @@ export function Canvas({
       >
         <g ref={worldRef} className="world" />
         <g ref={overlayRef} className="overlay" />
+        {/* Where dragged topics would go when that is next to a topic, not onto one. */}
+        <g ref={dropLineRef} className="drop-line">{drop?.line && <line {...drop.line} />}</g>
       </svg>
       {/* Topic images, outside the drawing's dark-mode filter so photos keep their colours; clicks pass through to the drawing. */}
       <svg className="photos" aria-hidden="true">
