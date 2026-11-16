@@ -352,7 +352,7 @@ test('org chart: the main branches are reordered by their left and right edges, 
 
   // With a header button focused, ⌘/Ctrl ← still moves the branch and does not take the browser back.
   await page.locator('g.topic', { has: page.locator('text', { hasText: 'Beta' }) }).click();
-  await page.getByRole('button', { name: 'Details' }).focus();
+  await page.getByRole('button', { name: 'Details', exact: true }).focus();
   await page.keyboard.press('ControlOrMeta+ArrowLeft');
   await expect.poll(fromLeft).toEqual(['Gamma', 'Beta', 'Alpha']);
   await expect(page).toHaveURL(/\/e\//);
