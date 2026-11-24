@@ -20,7 +20,7 @@ test('create a map, edit it, reload it, and see it inside a Notion-like embed', 
   const id = page.url().split('/e/')[1];
   await expect(page.locator('g.topic')).toHaveCount(1);
 
-  await page.locator('g.topic rect.hit').click();
+  await page.locator('g.topic').click();
   await page.keyboard.press('Tab');
   await page.keyboard.type('First idea');
   await page.keyboard.press('Enter');
@@ -509,7 +509,7 @@ test('a click on the background selects nothing: keys then change no topic, and 
     return !!el?.closest('svg[role="img"]') && !el.closest('g.topic');
   }, away)).toBe(true);
 
-  await topic('Alpha').locator('rect.hit').click();
+  await topic('Alpha').click();
   await expect(selected).toHaveCount(1);
   await expect(panel.locator('.topic-title')).toHaveText('Alpha');
   await page.mouse.click(away.x, away.y);
@@ -540,7 +540,7 @@ test('a click on the background selects nothing: keys then change no topic, and 
   await expect(selected).toHaveCount(0);
 
   // A small box drawn on the bare canvas touches nothing and selects nothing either.
-  await topic('Alpha').locator('rect.hit').click();
+  await topic('Alpha').click();
   await expect(selected).toHaveCount(1);
   await page.mouse.move(away.x, away.y);
   await page.mouse.down();
