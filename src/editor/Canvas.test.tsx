@@ -592,6 +592,13 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
     expect(view.onSelectMany).not.toHaveBeenCalled();
   });
 
+  it('a tap with a finger on the background while Shift is held changes nothing, like a Shift-click there', () => {
+    const h = mountFlat({ selectedId: 'a', extraIds: ['b'] });
+    fire(svgEl(), 'pointerdown', 100, 9000, { pointerType: 'touch', shiftKey: true });
+    fire(svgEl(), 'pointerup', 100, 9000, { pointerType: 'touch', shiftKey: true });
+    expect(h.onSelectMany).not.toHaveBeenCalled();
+  });
+
   it('Shift-click adds a topic to the selection or takes it out, instead of selecting only it', () => {
     const h = mountFlat({ selectedId: 'a' });
     const b = container.querySelector('g.topic[data-id="b"] rect.hit')!;

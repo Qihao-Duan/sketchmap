@@ -1120,12 +1120,31 @@ describe('Editor: nothing selected', () => {
     expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
   });
 
-  it('an arrow key selects the topic that was selected last, without moving on from it', () => {
+  it('an arrow key selects the topic that was selected last, without moving on from it', async () => {
     mount(fakeApi(), three);
     pick('kidB000001');
+    keydown({ key: 'ArrowRight' }); // there is a topic that way: the central one
+    expect(selectedOnScreen()).toEqual(['root000001']);
+    await advance(600); // so the next click on the same topic is no double click
+    pick('kidB000001');
     clickAway();
-    keydown({ key: 'ArrowDown' });
+    keydown({ key: 'ArrowRight' });
     expect(selectedOnScreen()).toEqual(['kidB000001']);
+    keydown({ key: 'ArrowRight' });
+    expect(selectedOnScreen()).toEqual(['root000001']);
+  });
+
+  it('undo and redo work with nothing selected, and leave nothing selected', () => {
+    mount(fakeApi(), three);
+    pick('kidB000001');
+    keydown({ key: 'Delete' });
+    expect(topics()).toBe(2);
+    clickAway();
+    keydown({ key: 'z', metaKey: true });
+    expect(topics()).toBe(3);
+    keydown({ key: 'z', metaKey: true, shiftKey: true });
+    expect(topics()).toBe(2);
+    expect(selectedOnScreen()).toEqual([]);
   });
 
   it('an arrow key selects the central topic when the topic selected last is gone', () => {
@@ -1170,6 +1189,22 @@ describe('Editor: nothing selected', () => {
     pick('kidA000001');
     paste('- One\n- Two');
     expect(topics()).toBe(5);
+    expect(notices()).toEqual([]); // the paste worked: the notice is gone
+  });
+
+  it('a paste that works leaves a notice about something else alone', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(async () => {}) }, configurable: true });
+    try {
+      mount(fakeApi(), { ...three, root: { ...three.root, children: [{ ...three.root.children[0], note: 'kept only here' }, three.root.children[1]] } });
+      await click('Copy as Markdown');
+      expect(notices().join(' ')).toMatch(/^Copied\. Not kept in Markdown: notes\./);
+      pick('kidA000001');
+      paste('- One');
+      expect(topics()).toBe(4);
+      expect(notices().join(' ')).toMatch(/^Copied\. Not kept in Markdown: notes\./);
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 
   it('text on the clipboard that is no outline gives no notice', () => {
@@ -1196,16 +1231,57 @@ describe('Editor: nothing selected', () => {
     expect(selectedOnScreen()).toEqual([]);
   });
 
-  it('a topic can be dragged, folded from its badge, and opened with a double click while nothing is selected', () => {
+  it('a branch folds from its badge while nothing is selected, and still nothing is selected', () => {
     const deep: MindMap = { ...three, root: { ...three.root, children: [{ id: 'kidA000001', text: 'Alpha', children: [{ id: 'kidC000001', text: 'Gamma', children: [] }] }, three.root.children[1]] } };
     mount(fakeApi(), deep);
     clickAway();
     pointer(container.querySelector('[data-fold="kidA000001"]')!, 'pointerdown');
     expect(topics()).toBe(3);
     expect(selectedOnScreen()).toEqual([]);
-    pick('kidB000001');
-    pick('kidB000001');
-    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Beta');
+  });
+
+  it('a click on the background closes the ⌘K link prompt, as a click on another topic does', () => {
+    mount(fakeApi(), three);
+    pick('kidA000001');
+    keydown({ key: 'k', metaKey: true });
+    expect(container.querySelector('[aria-label="Link"]')).not.toBeNull();
+    clickAway();
+    expect(container.querySelector('[aria-label="Link"]')).toBeNull();
+    expect(selectedOnScreen()).toEqual([]);
+  });
+
+  describe('a finger, whose tap reaches the editor before the text box loses focus', () => {
+    /** A tap on the background that takes no focus away, as on a phone. */
+    const tapAway = () => {
+      for (const type of ['pointerdown', 'pointerup']) {
+        const ev = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 4000, clientY: 4000 });
+        Object.defineProperty(ev, 'pointerType', { value: 'touch' });
+        act(() => void svg().dispatchEvent(ev));
+      }
+    };
+
+    it('a tap on the background while a topic is typed keeps the text, closes the text box and selects nothing', () => {
+      mount(fakeApi(), three);
+      pick('kidA000001');
+      keydown({ key: 'Tab' });
+      type(container.querySelector('textarea')!, 'Child');
+      tapAway();
+      expect(container.querySelector('textarea')).toBeNull();
+      expect(topics()).toBe(4);
+      expect([...container.querySelectorAll('g.topic text')].some((t) => t.textContent === 'Child')).toBe(true);
+      expect(selectedOnScreen()).toEqual([]);
+    });
+
+    it('a tap on the background while a new topic is still empty drops that topic and selects nothing', () => {
+      mount(fakeApi(), three);
+      pick('kidA000001');
+      keydown({ key: 'Tab' });
+      expect(topics()).toBe(4);
+      tapAway();
+      expect(container.querySelector('textarea')).toBeNull();
+      expect(topics()).toBe(3);
+      expect(selectedOnScreen()).toEqual([]);
+    });
   });
 });
 
@@ -1423,6 +1499,19 @@ describe('Editor: moving topics among their siblings', () => {
     expect(drawn()).toEqual(['r', 'a', 'a1', 'a2', 'a3', 'b', 'c', 'd']);
     keydown({ key: 'z', metaKey: true });
     expect(drawn()).toEqual(['r', 'a', 'a1', 'a2', 'a3', 'b', 'c', 'd']);
+  });
+
+  it('a topic dragged while nothing is selected moves, and is the selected one afterwards', async () => {
+    const api = fakeApi();
+    const m = tree('logic');
+    mount(api, m);
+    pointer(svg(), 'pointerdown', 4000, 4000);
+    pointer(svg(), 'pointerup', 4000, 4000);
+    expect(container.querySelector('g.topic.selected')).toBeNull();
+    const b = boxes(m).get('b')!;
+    drag(m, 'd', b.x + b.w / 2, b.y + b.h / 2);
+    expect(kids(await saved(api), 'b')).toEqual(['d']);
+    expect([...container.querySelectorAll('g.topic.selected')].map((g) => g.getAttribute('data-id'))).toEqual(['d']);
   });
 
   it('⌘/Ctrl ← and → do nothing in a logic chart, and the arrows alone still only move the selection', () => {

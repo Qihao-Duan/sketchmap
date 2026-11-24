@@ -35,6 +35,7 @@ import type { View } from './viewport';
 const IGNORE_KEYS_IN = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A']);
 const LAYOUTS: Array<[LayoutKind, string]> = [['map', 'Mind map'], ['logic', 'Logic chart'], ['org', 'Org chart']];
 const DETAILS_KEY = 'sketchmap:details';
+const NOT_PASTED = 'Not pasted: no topic is selected. Click the topic the pasted topics should go under, then paste again.';
 
 export interface EditorProps {
   initial: MindMap;
@@ -228,9 +229,11 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       if (!parsed) return;
       e.preventDefault();
       if (stateRef.current.selectedId === null) {
-        setNotice('Not pasted: no topic is selected. Click the topic the pasted topics should go under, then paste again.');
+        setNotice(NOT_PASTED);
         return;
       }
+      // The paste has a topic to go to now: a notice left by one that had none is out of date.
+      setNotice((n) => (n === NOT_PASTED ? null : n));
       dispatch({ type: 'pasteNodes', nodes: parsed.synthetic ? parsed.root.children : [parsed.root] });
     };
     window.addEventListener('paste', onPaste);
@@ -600,7 +603,13 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           interactive
           onSelect={(id) => dispatch({ type: 'select', id })}
           onToggleSelect={(id) => dispatch({ type: 'toggleSelect', id })}
-          onSelectMany={(ids) => dispatch({ type: 'selectMany', ids })}
+          onSelectMany={(ids) => {
+            // A click on the background takes the focus from an open text box before it gets here, which ends
+            // the typing. A tap with a finger gets here first (and on a phone may take no focus at all): end
+            // the typing now, so that in both cases the text is kept first and the selection changes after.
+            endEdit();
+            dispatch({ type: 'selectMany', ids });
+          }}
           onEdit={(id) => {
             setEditInitial(null);
             dispatch({ type: 'startEdit', id });
