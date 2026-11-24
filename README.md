@@ -94,10 +94,11 @@ Browsers: the editor and the embed need Chrome/Edge 123+, Firefox 120+ or Safari
   - Drag a topic onto the middle of another to move it there, as its last child.
   - Drag it to the top or bottom edge of another topic (a quarter of the topic, at most 14 px, or just outside it) to put it just before or after that one; a line shows the place. In an org chart the main branches use the left and right edge, and under a topic that shows children the place is before its first child.
   - In the mind map layout, drop a branch on the left or right half of the central topic to put it on that side. Once you have placed a main branch yourself, every main branch stays on its side; before that, the two sides are balanced automatically, and a branch that grows can push others across.
-  - Drag on the background with the left button to draw a box: every topic the box touches is selected. Hold Shift to add to what is already selected.
+  - Click on the background (or tap it with a finger) to select nothing. With nothing selected, Tab, Enter, Delete, typing and paste have no topic to act on and do nothing; the toolbar's Child, Sibling and Delete are off, and the Details panel says that no topic is selected. Click a topic to select it, or press an arrow key to go back to the topic that was selected last. Undo, redo and ⌘/Ctrl A still work.
+  - Drag on the background with the left button to draw a box: every topic the box touches is selected, and a box that touches none selects nothing. Hold Shift to add to what is already selected.
   - Drag with the right (or middle) button, or use the wheel or a two-finger scroll, to move the canvas. ⌘/Ctrl with the wheel zooms. The right-click menu is off on the canvas for this reason.
 - **Several topics at once.**
-  - Besides the box, Shift-click adds a topic to the selection or takes it out, and ⌘/Ctrl A selects every topic on screen. Esc, a click on one topic, or a click on the background goes back to one selected topic.
+  - Besides the box, Shift-click adds a topic to the selection or takes it out, and ⌘/Ctrl A selects every topic on screen. Esc or a click on one topic goes back to one selected topic.
   - Delete removes all selected topics, and dragging one of them moves them all to where you drop them. Importance, priority and marker (the panel or Alt ↑ / ↓ / 0–3) go to all of them. Each of these is one undo step.
   - Everything else (Tab, Enter, editing, the note, links, images, paste, fold, ⌘/Ctrl with an arrow) acts on one of them, the current topic: the one the Details panel names.
 - **Layout switch.** Pick **Mind map**, **Logic chart** or **Org chart** from the header; the choice is saved with the map.

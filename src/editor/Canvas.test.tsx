@@ -444,22 +444,28 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
     expect(new Set(calls.map((ids) => ids.join(' '))).size).toBe(calls.length);
   });
 
-  it('a box that touches nothing leaves only the topic that was current when the drag began; so does a plain click on the background', () => {
+  it('a plain click on the background selects nothing, and so does a box that touches nothing', () => {
     const h = mountFlat({ selectedId: 'a', extraIds: ['b'] });
     const far = Math.max(...flatLayout.boxes.map((b) => b.y + b.h)) + 200;
     fire(svgEl(), 'pointerdown', 0, far);
-    fire(svgEl(), 'pointermove', 30, far + 30, { buttons: 1 });
-    fire(svgEl(), 'pointerup', 30, far + 30);
-    expect(h.onSelectMany).toHaveBeenLastCalledWith(['a']);
+    fire(svgEl(), 'pointerup', 0, far);
+    expect(h.onSelectMany.mock.calls).toEqual([[[]]]);
     h.onSelectMany.mockClear();
     fire(svgEl(), 'pointerdown', 0, far);
-    fire(svgEl(), 'pointerup', 0, far);
-    expect(h.onSelectMany).toHaveBeenCalledWith([]); // "nothing more": the editor keeps its current topic
+    fire(svgEl(), 'pointermove', 30, far + 30, { buttons: 1 });
+    fire(svgEl(), 'pointerup', 30, far + 30);
+    expect(h.onSelectMany.mock.calls).toEqual([[[]]]);
+    expect(h.onSelect).not.toHaveBeenCalled();
   });
 
-  it('a box dragged over a topic and back off it gives the selection back to the topic that was current before', () => {
-    // The editor follows every report, so by the time the box leaves b, b is its current topic: the canvas
-    // has to name the earlier one itself.
+  it('a press on the background that the browser cancels changes nothing', () => {
+    const h = mountFlat({ selectedId: 'a' });
+    fire(svgEl(), 'pointerdown', 0, 9000);
+    fire(svgEl(), 'pointercancel', 0, 9000);
+    expect(h.onSelectMany).not.toHaveBeenCalled();
+  });
+
+  it('a box dragged over a topic and back off it ends with nothing selected', () => {
     const h = mountFlat({ selectedId: 'c' });
     const [x0, y0, x1] = around('b');
     const far = Math.max(...flatLayout.boxes.map((b) => b.y + b.h)) + 200;
@@ -468,7 +474,16 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
     expect(h.onSelectMany.mock.calls.at(-1)![0]).toContain('b');
     fire(svgEl(), 'pointermove', x0 + 20, far + 20, { buttons: 1 });
     fire(svgEl(), 'pointerup', x0 + 20, far + 20);
-    expect(h.onSelectMany).toHaveBeenLastCalledWith(['c']);
+    expect(h.onSelectMany).toHaveBeenLastCalledWith([]);
+  });
+
+  it('with Shift held, a box that touches nothing keeps what was selected', () => {
+    const h = mountFlat({ selectedId: 'a', extraIds: ['b'] });
+    const far = Math.max(...flatLayout.boxes.map((b) => b.y + b.h)) + 200;
+    fire(svgEl(), 'pointerdown', 0, far, { shiftKey: true });
+    fire(svgEl(), 'pointermove', 30, far + 30, { buttons: 1, shiftKey: true });
+    fire(svgEl(), 'pointerup', 30, far + 30, { shiftKey: true });
+    expect(h.onSelectMany.mock.calls).toEqual([[['a', 'b']]]);
   });
 
   it('dragging from the central topic, which never moves, keeps a multi-selection; a still click on it selects just it', () => {
@@ -559,6 +574,22 @@ describe('Canvas: selecting with a box, moving with the right button', () => {
     fire(svgEl(), 'pointerup', 140, 130, { pointerType: 'touch' });
     expect(worldT()).toBe('translate(40 30) scale(1)');
     expect(h.onSelectMany).not.toHaveBeenCalled();
+  });
+
+  it('a tap with a finger on the editor background selects nothing; a still click of the right button, and a tap in the view-only page, select nothing new', () => {
+    const h = mountFlat({ selectedId: 'a' });
+    fire(svgEl(), 'pointerdown', 100, 9000, { pointerType: 'touch' });
+    fire(svgEl(), 'pointerup', 101, 9000, { pointerType: 'touch' });
+    expect(h.onSelectMany.mock.calls).toEqual([[[]]]);
+    expect(worldT()).toBe('translate(0 0) scale(1)');
+    h.onSelectMany.mockClear();
+    fire(svgEl(), 'pointerdown', 100, 9000, { button: 2, buttons: 2 });
+    fire(svgEl(), 'pointerup', 100, 9000, { button: 2 });
+    expect(h.onSelectMany).not.toHaveBeenCalled();
+    const view = mountFlat({ interactive: false });
+    fire(svgEl(), 'pointerdown', 100, 9000, { pointerType: 'touch' });
+    fire(svgEl(), 'pointerup', 100, 9000, { pointerType: 'touch' });
+    expect(view.onSelectMany).not.toHaveBeenCalled();
   });
 
   it('Shift-click adds a topic to the selection or takes it out, instead of selecting only it', () => {

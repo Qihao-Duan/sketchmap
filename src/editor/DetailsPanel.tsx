@@ -91,6 +91,21 @@ export interface DetailsPanelProps {
   onFold(): void;
 }
 
+/** The panel while no topic is selected (after a click on the background): it stays where it is and says so. */
+export function NoTopicDetails({ onFold }: { onFold(): void }) {
+  return (
+    <aside className="float details" aria-label="Topic details">
+      <div className="details-head">
+        <h2>Topic details</h2>
+        <button type="button" className="fold-details" aria-label="Fold the details panel" title="Fold into a tab" onMouseDown={noFocus} onClick={onFold}>
+          ▸
+        </button>
+      </div>
+      <p className="muted hint">No topic selected. Click a topic to see its details.</p>
+    </aside>
+  );
+}
+
 /** The selected topic's importance, priority, marker, note and image. Mount it with `key={node.id}`. */
 export function DetailsPanel({ node, count = 1, onEmphasis, onPriority, onMarker, onNote, onImageFile, onImageSize, onImageRemove, uploading, newTopicOpen, onFold }: DetailsPanelProps) {
   const many = count > 1;

@@ -976,10 +976,12 @@ describe('Editor: several topics selected', () => {
     expect(panel().querySelector('h2')!.textContent).toBe('Topic details');
   });
 
-  it('Escape, a plain click on a topic, and a click on the background go back to one selected topic', () => {
+  it('Escape and a plain click on a topic go back to one selected topic; a click on the background selects nothing', () => {
     mount(fakeApi(), three);
     keydown({ key: 'a', metaKey: true });
     keydown({ key: 'Escape' });
+    expect(selectedOnScreen()).toEqual(['root000001']);
+    keydown({ key: 'Escape' }); // one topic selected: Escape leaves it
     expect(selectedOnScreen()).toEqual(['root000001']);
     keydown({ key: 'a', metaKey: true });
     click('kidB000001');
@@ -988,7 +990,7 @@ describe('Editor: several topics selected', () => {
     const svg = container.querySelector('.canvas svg')!;
     pointer(svg, 'pointerdown', { clientX: 4000, clientY: 4000 });
     pointer(svg, 'pointerup', { clientX: 4000, clientY: 4000 });
-    expect(selectedOnScreen()).toEqual(['kidB000001']);
+    expect(selectedOnScreen()).toEqual([]);
   });
 
   it('Tab on several selected topics adds the child to the current one and selects only the new topic', () => {
@@ -1014,6 +1016,196 @@ describe('Editor: several topics selected', () => {
     expect(del().disabled).toBe(false);
     act(() => del().click());
     expect(container.querySelectorAll('g.topic')).toHaveLength(1);
+  });
+});
+
+describe('Editor: nothing selected', () => {
+  const three: MindMap = {
+    ...map,
+    root: { id: 'root000001', text: 'Root', children: [{ id: 'kidA000001', text: 'Alpha', children: [] }, { id: 'kidB000001', text: 'Beta', children: [] }] },
+  };
+  const selectedOnScreen = () => [...container.querySelectorAll('g.topic.selected')].map((g) => g.getAttribute('data-id')).sort();
+  const hitOf = (id: string) => container.querySelector(`g.topic[data-id="${id}"] rect.hit`)!;
+  const pointer = (el: Element, type: string, init: MouseEventInit = {}) =>
+    act(() => void el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 5, clientY: 5, ...init })));
+  const pick = (id: string, init: MouseEventInit = {}) => {
+    pointer(hitOf(id), 'pointerdown', init);
+    pointer(hitOf(id), 'pointerup', init);
+  };
+  const svg = () => container.querySelector('.canvas svg')!;
+  /** A click on the background, far from every topic. */
+  const clickAway = () => {
+    pointer(svg(), 'pointerdown', { clientX: 4000, clientY: 4000 });
+    pointer(svg(), 'pointerup', { clientX: 4000, clientY: 4000 });
+  };
+  const panel = () => container.querySelector('[aria-label="Topic details"]');
+  const tool = (title: string) => container.querySelector(`button[title^="${title}"]`) as HTMLButtonElement;
+  const file = () => new File(['x'], 'photo.png', { type: 'image/png' });
+  const alerts = () => [...container.querySelectorAll('[role="alert"]')].map((e) => e.textContent ?? '');
+  const notices = () => [...container.querySelectorAll('.banner[role="status"]')].map((e) => e.textContent ?? '');
+
+  it('a click on the background takes the selection mark off the topic, and changes nothing in the map', async () => {
+    const api = fakeApi();
+    mount(api, three);
+    pick('kidA000001');
+    expect(selectedOnScreen()).toEqual(['kidA000001']);
+    clickAway();
+    expect(selectedOnScreen()).toEqual([]);
+    expect(topics()).toBe(3);
+    await advance(5000);
+    expect(api.saveMap).not.toHaveBeenCalled();
+  });
+
+  it('the Details panel stays open and says that no topic is selected; the toolbar offers no child, sibling or delete', () => {
+    mount(fakeApi(), three);
+    pick('kidA000001');
+    expect(panel()!.querySelector('.topic-title')!.textContent).toBe('Alpha');
+    clickAway();
+    expect(panel()).not.toBeNull();
+    expect(panel()!.textContent).toContain('No topic selected');
+    expect(panel()!.querySelector('[aria-label="Importance"]')).toBeNull();
+    expect(panel()!.querySelector('[aria-label="Note"]')).toBeNull();
+    expect(container.querySelector('main')!.className).toContain('details-open');
+    expect([tool('Add child').disabled, tool('Add sibling').disabled, tool('Delete topic').disabled]).toEqual([true, true, true]);
+    pick('kidB000001');
+    expect(panel()!.querySelector('.topic-title')!.textContent).toBe('Beta');
+    expect([tool('Add child').disabled, tool('Add sibling').disabled, tool('Delete topic').disabled]).toEqual([false, false, false]);
+  });
+
+  it('the panel can still be folded and opened again with nothing selected', () => {
+    mount(fakeApi(), three);
+    clickAway();
+    act(() => (panel()!.querySelector('[aria-label="Fold the details panel"]') as HTMLButtonElement).click());
+    expect(panel()).toBeNull();
+    act(() => (container.querySelector('[aria-label="Show topic details"]') as HTMLButtonElement).click());
+    expect(panel()!.textContent).toContain('No topic selected');
+  });
+
+  it('keys that act on a topic do nothing: no topic is added, removed, edited, folded, marked or linked', async () => {
+    const api = fakeApi();
+    mount(api, three);
+    pick('kidA000001');
+    clickAway();
+    for (const key of [
+      { key: 'Tab' }, { key: 'Enter' }, { key: 'Delete' }, { key: 'Backspace' }, { key: 'F2' }, { key: ' ' }, { key: 'x' }, { key: '/' },
+      { key: 'ArrowUp', altKey: true }, { key: '1', code: 'Digit1', altKey: true }, { key: 'k', metaKey: true }, { key: 'ArrowDown', metaKey: true },
+    ]) {
+      keydown(key);
+    }
+    expect(topics()).toBe(3);
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(container.querySelector('[aria-label="Link"]')).toBeNull();
+    expect(container.querySelectorAll('g.badge')).toHaveLength(0);
+    expect(selectedOnScreen()).toEqual([]);
+    await advance(5000);
+    expect(api.saveMap).not.toHaveBeenCalled();
+  });
+
+  it('those keys are still taken by the editor, so Tab moves no focus and Backspace sends the browser nowhere', () => {
+    mount(fakeApi(), three);
+    clickAway();
+    for (const key of ['Tab', 'Backspace', ' ']) {
+      const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      act(() => void window.dispatchEvent(ev));
+      expect(ev.defaultPrevented, key).toBe(true);
+    }
+  });
+
+  it('a letter typed with nothing selected does not turn up in the next new topic', () => {
+    mount(fakeApi(), three);
+    clickAway();
+    keydown({ key: 'x' });
+    pick('kidA000001');
+    keydown({ key: 'Tab' });
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('an arrow key selects the topic that was selected last, without moving on from it', () => {
+    mount(fakeApi(), three);
+    pick('kidB000001');
+    clickAway();
+    keydown({ key: 'ArrowDown' });
+    expect(selectedOnScreen()).toEqual(['kidB000001']);
+  });
+
+  it('an arrow key selects the central topic when the topic selected last is gone', () => {
+    mount(fakeApi(), three);
+    pick('kidB000001');
+    keydown({ key: 'Tab' });
+    type(container.querySelector('textarea')!, 'Child');
+    keydown({ key: 'Enter' }, container.querySelector('textarea')!);
+    expect(topics()).toBe(4); // the new topic is the selected one
+    clickAway();
+    keydown({ key: 'z', metaKey: true }); // undo removes it, and still selects nothing
+    expect(topics()).toBe(3);
+    expect(selectedOnScreen()).toEqual([]);
+    keydown({ key: 'ArrowLeft' });
+    expect(selectedOnScreen()).toEqual(['root000001']);
+  });
+
+  it('an arrow key selects the central topic when the topic selected last is now hidden by a fold', () => {
+    const deep: MindMap = { ...three, root: { ...three.root, children: [{ id: 'kidA000001', text: 'Alpha', children: [{ id: 'kidC000001', text: 'Gamma', children: [] }] }, three.root.children[1]] } };
+    mount(fakeApi(), deep);
+    pick('kidC000001');
+    clickAway();
+    pointer(container.querySelector('[data-fold="kidA000001"]')!, 'pointerdown');
+    expect(topics()).toBe(3);
+    keydown({ key: 'ArrowUp' });
+    expect(selectedOnScreen()).toEqual(['root000001']);
+  });
+
+  it('⌘A selects every topic again', () => {
+    mount(fakeApi(), three);
+    clickAway();
+    keydown({ key: 'a', metaKey: true });
+    expect(selectedOnScreen()).toEqual(['kidA000001', 'kidB000001', 'root000001']);
+  });
+
+  it('a pasted outline is not added, and a notice says to select a topic first', () => {
+    mount(fakeApi(), three);
+    clickAway();
+    paste('- One\n- Two');
+    expect(topics()).toBe(3);
+    expect(notices().join(' ')).toMatch(/Not pasted: no topic is selected/);
+    pick('kidA000001');
+    paste('- One\n- Two');
+    expect(topics()).toBe(5);
+  });
+
+  it('text on the clipboard that is no outline gives no notice', () => {
+    mount(fakeApi(), three);
+    clickAway();
+    paste('   ');
+    expect(notices()).toEqual([]);
+  });
+
+  it('a pasted image, or one dropped on the background, is not uploaded and a banner says why; dropped on a topic it goes to that topic', async () => {
+    const api = fakeApi();
+    mount(api, three);
+    clickAway();
+    await pasteFile(file());
+    expect(api.uploadImage).not.toHaveBeenCalled();
+    expect(alerts().join(' ')).toMatch(/Image not added: no topic is selected/);
+    act(() => (container.querySelector('[role="alert"] button') as HTMLButtonElement).click());
+    await dropFile(svg(), file());
+    expect(api.uploadImage).not.toHaveBeenCalled();
+    expect(alerts().join(' ')).toMatch(/Image not added: no topic is selected/);
+    await dropFile(hitOf('kidA000001'), file());
+    expect(api.uploadImage).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('image.topic-image')).not.toBeNull();
+    expect(selectedOnScreen()).toEqual([]);
+  });
+
+  it('a topic can be dragged, folded from its badge, and opened with a double click while nothing is selected', () => {
+    const deep: MindMap = { ...three, root: { ...three.root, children: [{ id: 'kidA000001', text: 'Alpha', children: [{ id: 'kidC000001', text: 'Gamma', children: [] }] }, three.root.children[1]] } };
+    mount(fakeApi(), deep);
+    clickAway();
+    pointer(container.querySelector('[data-fold="kidA000001"]')!, 'pointerdown');
+    expect(topics()).toBe(3);
+    expect(selectedOnScreen()).toEqual([]);
+    pick('kidB000001');
+    pick('kidB000001');
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Beta');
   });
 });
 

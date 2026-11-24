@@ -307,12 +307,13 @@ describe('selecting several topics', () => {
     expect(selectedIds(s)).toEqual(['a1', 'a2']);
   });
 
-  it('selectMany drops unknown ids and repeats; with none left, only the current topic stays selected', () => {
+  it('selectMany drops unknown ids and repeats; with none left, nothing is selected', () => {
     let s = start(['a', 'a', 'nope', 'b']);
     expect(selectedIds(s)).toEqual(['a', 'b']);
     s = reduce(s, { type: 'selectMany', ids: [] });
-    expect(selectedIds(s)).toEqual(['a']);
-    expect(reduce(s, { type: 'selectMany', ids: ['nope'] })).toBe(s);
+    expect(s.selectedId).toBeNull();
+    expect(selectedIds(s)).toEqual([]);
+    expect(reduce(start(['a', 'b']), { type: 'selectMany', ids: ['nope'] }).selectedId).toBeNull();
   });
 
   it('selectMany returns the same state when the selection is already that', () => {
@@ -472,9 +473,9 @@ describe('selecting several topics', () => {
 
   it('importance, priority and marker set on the current topic go to the whole selection, one undo step each', () => {
     let s = start(['a1', 'b']);
-    s = reduce(s, { type: 'setPriority', id: s.selectedId, priority: 2 });
-    s = reduce(s, { type: 'setEmphasis', id: s.selectedId, emphasis: 'key' });
-    s = reduce(s, { type: 'setMarker', id: s.selectedId, emoji: MARKERS[0] });
+    s = reduce(s, { type: 'setPriority', id: s.selectedId!, priority: 2 });
+    s = reduce(s, { type: 'setEmphasis', id: s.selectedId!, emphasis: 'key' });
+    s = reduce(s, { type: 'setMarker', id: s.selectedId!, emoji: MARKERS[0] });
     for (const id of ['a1', 'b']) expect(node(s, id)).toMatchObject({ priority: 2, emphasis: 'key', emoji: MARKERS[0] });
     expect(node(s, 'c').priority).toBeUndefined();
     expect(s.past).toHaveLength(3);
@@ -486,8 +487,8 @@ describe('selecting several topics', () => {
 
   it('setting what every selected topic already has changes nothing', () => {
     let s = start(['a1', 'b']);
-    s = reduce(s, { type: 'setPriority', id: s.selectedId, priority: 1 });
-    expect(reduce(s, { type: 'setPriority', id: s.selectedId, priority: 1 })).toBe(s);
+    s = reduce(s, { type: 'setPriority', id: s.selectedId!, priority: 1 });
+    expect(reduce(s, { type: 'setPriority', id: s.selectedId!, priority: 1 })).toBe(s);
   });
 
   it('a change aimed at a topic other than the current one touches only that topic', () => {
@@ -546,12 +547,66 @@ describe('selecting several topics', () => {
   it('undo keeps the selected topics that still exist', () => {
     let s = reduce(reduce(initEditor(wide()), { type: 'select', id: 'a' }), { type: 'addChild' });
     s = reduce(s, { type: 'commitEdit', text: 'New' });
-    const created = s.selectedId;
+    const created = s.selectedId!;
     s = reduce(s, { type: 'selectMany', ids: [created, 'b', 'c'] });
     expect(selectedIds(s)).toEqual([created, 'b', 'c']);
     s = reduce(s, { type: 'undo' });
     expect(selectedIds(s)).toEqual(['b', 'c']);
     s = reduce(s, { type: 'redo' });
     expect(selectedIds(s)).toEqual(['b', 'c']);
+  });
+
+  describe('with nothing selected (a click on the background)', () => {
+    const none = (map = wide()) => reduce(reduce(initEditor(map), { type: 'select', id: 'a' }), { type: 'selectMany', ids: [] });
+
+    it('selecting nothing changes neither the map nor its history, and doing it again changes nothing', () => {
+      const before = reduce(initEditor(wide()), { type: 'select', id: 'a' });
+      const s = reduce(before, { type: 'selectMany', ids: [] });
+      expect([s.selectedId, s.extraIds]).toEqual([null, []]);
+      expect([s.map, s.revision, s.past]).toEqual([before.map, 0, []]);
+      expect(reduce(s, { type: 'selectMany', ids: [] })).toBe(s);
+    });
+
+    it('Tab, Enter, Delete, a fold, an edit, Alt ↑ and a paste have no topic to act on: nothing changes', () => {
+      const s = none();
+      const pasted = [{ id: 'p', text: 'P', children: [] }];
+      for (const action of [
+        { type: 'addChild' }, { type: 'addSibling' }, { type: 'delete' }, { type: 'toggleFold' }, { type: 'startEdit' },
+        { type: 'bumpEmphasis', delta: 1 }, { type: 'pasteNodes', nodes: pasted },
+      ] as const) {
+        expect(reduce(s, action), action.type).toBe(s);
+      }
+    });
+
+    it('a click on a topic, a Shift-click, a box and select-all select again', () => {
+      expect(selectedIds(reduce(none(), { type: 'select', id: 'b' }))).toEqual(['b']);
+      const shift = reduce(none(), { type: 'toggleSelect', id: 'b' });
+      expect([shift.selectedId, shift.extraIds]).toEqual(['b', []]);
+      expect(selectedIds(reduce(none(), { type: 'selectMany', ids: ['b', 'c'] }))).toEqual(['b', 'c']);
+    });
+
+    it('an action that names its topic still works: a fold from the canvas, a double-click edit, a drag', () => {
+      expect(node(reduce(none(), { type: 'toggleFold', id: 'a' }), 'a').collapsed).toBe(true);
+      const edit = reduce(none(), { type: 'startEdit', id: 'b' });
+      expect([edit.selectedId, edit.editing]).toEqual(['b', { id: 'b', isNew: false }]);
+      const moved = reduce(none(), { type: 'move', id: 'c', targetId: 'a' });
+      expect(kids(moved, 'a')).toEqual(['a1', 'a2', 'c']);
+      expect(selectedIds(moved)).toEqual(['c']);
+    });
+
+    it('undo and redo change the map and still select nothing', () => {
+      let s = reduce(reduce(initEditor(wide()), { type: 'select', id: 'b' }), { type: 'delete' });
+      s = reduce(s, { type: 'selectMany', ids: [] });
+      s = reduce(s, { type: 'undo' });
+      expect(kids(s, 'r')).toEqual(['a', 'b', 'c']);
+      expect(s.selectedId).toBeNull();
+      s = reduce(s, { type: 'redo' });
+      expect(kids(s, 'r')).toEqual(['a', 'c']);
+      expect(s.selectedId).toBeNull();
+    });
+
+    it('a new map loaded in its place starts on the central topic again', () => {
+      expect(selectedIds(reduce(none(), { type: 'replaceMap', map: wide(), dirty: false }))).toEqual(['r']);
+    });
   });
 });

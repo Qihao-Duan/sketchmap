@@ -21,7 +21,7 @@ import { browserStorage } from '../storage';
 import { ThemePicker } from '../ThemePicker';
 import { Autosaver, draftKey, readDraft, type Draft, type SaveStatus } from './autosave';
 import { Canvas, type CanvasHandle } from './Canvas';
-import { DetailsPanel } from './DetailsPanel';
+import { DetailsPanel, NoTopicDetails } from './DetailsPanel';
 import { ConflictDialog, DraftBanner, SaveBadge, Toolbar } from './EditorChrome';
 import { InlineEditor } from './InlineEditor';
 import { keyToCommand, type Command } from './keymap';
@@ -93,6 +93,9 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   stateRef.current = state;
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
+  /** The topic selected last: while nothing is selected, an arrow key goes back to it. */
+  const lastSelected = useRef(state.selectedId);
+  if (state.selectedId !== null) lastSelected.current = state.selectedId;
   const statusRef = useRef(status);
   statusRef.current = status;
   const modalRef = useRef(false);
@@ -187,7 +190,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   }, [chars]);
 
   useEffect(() => {
-    canvas.current?.ensureVisible(state.selectedId);
+    if (state.selectedId !== null) canvas.current?.ensureVisible(state.selectedId);
   }, [state.selectedId, layout]);
 
   // Refit when the layout changes (not on first render, where the canvas fits itself).
@@ -224,6 +227,10 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       const parsed = (html ? parseHtmlOutline(html) : null) ?? (text.trim() ? parseOutline(text) : null);
       if (!parsed) return;
       e.preventDefault();
+      if (stateRef.current.selectedId === null) {
+        setNotice('Not pasted: no topic is selected. Click the topic the pasted topics should go under, then paste again.');
+        return;
+      }
       dispatch({ type: 'pasteNodes', nodes: parsed.synthetic ? parsed.root.children : [parsed.root] });
     };
     window.addEventListener('paste', onPaste);
@@ -279,7 +286,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   useLayoutEffect(() => {
     if (!state.editing) applyPendingImages();
   }, [state.editing]);
-  const attachImage = async (id: string, file: File) => {
+  /** `id`: the topic the image goes to; null when nothing is selected and the image was not dropped on a topic. */
+  const attachImage = async (id: string | null, file: File) => {
+    if (id === null) {
+      setImageError('Image not added: no topic is selected. Click a topic first, or drop the image on one.');
+      return;
+    }
     if (stateRef.current.editing?.isNew) {
       setImageError('Image not added: finish the new topic first (Enter), then add the image.');
       return;
@@ -309,7 +321,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       // Storage blocked: the choice lasts until reload.
     }
   };
-  const selectedNode = layout.byId.get(state.selectedId)?.node ?? findNode(state.map.root, state.selectedId)?.node ?? null;
+  const selectedNode = state.selectedId === null ? null : layout.byId.get(state.selectedId)?.node ?? findNode(state.map.root, state.selectedId)?.node ?? null;
   const selection = selectedIds(state);
 
   /**
@@ -322,6 +334,26 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
 
   const run = useCallback((cmd: Command) => {
     const s = stateRef.current;
+    // These need no selected topic.
+    switch (cmd.type) {
+      case 'selectAll':
+        // Every topic on screen; topics inside a folded branch stay out, like for a box.
+        dispatch({ type: 'selectMany', ids: layoutRef.current.boxes.map((b) => b.id) });
+        return;
+      case 'undo':
+      case 'redo':
+        dispatch({ type: cmd.type });
+        return;
+    }
+    const current = s.selectedId;
+    if (current === null) {
+      // Nothing is selected (a click on the background). An arrow key selects the topic that was selected
+      // last, or the central one when that topic is gone or folded away. Every other key has no topic to act on.
+      if (cmd.type !== 'navigate') return;
+      const back = lastSelected.current;
+      dispatch({ type: 'select', id: back !== null && layoutRef.current.byId.has(back) ? back : s.map.root.id });
+      return;
+    }
     switch (cmd.type) {
       case 'edit':
         setEditInitial(cmd.initial ?? null);
@@ -331,31 +363,27 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
         dispatch({ type: 'toggleFold' });
         return;
       case 'navigate': {
-        const id = navigate(layoutRef.current, s.selectedId, cmd.dir, s.map.layout);
+        const id = navigate(layoutRef.current, current, cmd.dir, s.map.layout);
         if (id) dispatch({ type: 'select', id });
         return;
       }
       case 'reorder': {
         // Only the current topic moves, also when several are selected.
-        const place = stepSibling(layoutRef.current, s.selectedId, cmd.dir);
-        if (place) move(s.selectedId, place, true);
+        const place = stepSibling(layoutRef.current, current, cmd.dir);
+        if (place) move(current, place, true);
         return;
       }
       case 'emphasis':
         dispatch({ type: 'bumpEmphasis', delta: cmd.delta });
         return;
       case 'priority':
-        dispatch({ type: 'setPriority', id: s.selectedId, priority: cmd.value === 0 ? null : cmd.value });
+        dispatch({ type: 'setPriority', id: current, priority: cmd.value === 0 ? null : cmd.value });
         return;
       case 'link':
-        setLinkFor(s.selectedId);
-        return;
-      case 'selectAll':
-        // Every topic on screen; topics inside a folded branch stay out, like for a box.
-        dispatch({ type: 'selectMany', ids: layoutRef.current.boxes.map((b) => b.id) });
+        setLinkFor(current);
         return;
       case 'selectOne':
-        dispatch({ type: 'select', id: s.selectedId });
+        dispatch({ type: 'select', id: current });
         return;
       default:
         dispatch({ type: cmd.type });
@@ -563,7 +591,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           The server refused this save: {rejectedMessage}. Your changes are kept in this browser.
         </div>
       )}
-      <main className={detailsOpen && selectedNode ? 'editor-stage details-open' : 'editor-stage'}>
+      <main className={detailsOpen ? 'editor-stage details-open' : 'editor-stage'}>
         <Canvas
           ref={canvas}
           layout={layout}
@@ -641,6 +669,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             onFold={toggleDetails}
           />
         )}
+        {detailsOpen && !selectedNode && <NoTopicDetails onFold={toggleDetails} />}
         {outlineOpen && (
           <OutlinePanel initialText={toMarkdown(state.map.root)} onApply={applyOutline} onClose={() => setOutlineOpen(false)} lost={markdownLosses(state.map.root)} />
         )}
@@ -661,6 +690,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
           zoom={view.k}
           canUndo={state.past.length > 0}
           canRedo={state.future.length > 0}
+          canAdd={selection.length > 0}
           canDelete={selection.some((id) => id !== state.map.root.id)}
           onAddChild={() => { endEdit(); dispatch({ type: 'addChild' }); }}
           onAddSibling={() => { endEdit(); dispatch({ type: 'addSibling' }); }}

@@ -20,7 +20,7 @@ test('create a map, edit it, reload it, and see it inside a Notion-like embed', 
   const id = page.url().split('/e/')[1];
   await expect(page.locator('g.topic')).toHaveCount(1);
 
-  await page.locator('svg[aria-label="Mind map"]').click({ position: { x: 5, y: 5 } });
+  await page.locator('g.topic rect.hit').click();
   await page.keyboard.press('Tab');
   await page.keyboard.type('First idea');
   await page.keyboard.press('Enter');
@@ -198,6 +198,23 @@ test.describe('on a touch screen', () => {
     expect(box.y + box.height).toBeLessThanOrEqual(700 - 7);
     await page.touchscreen.tap(20, 680);
     await expect(card).toHaveCount(0);
+  });
+
+  test('in the editor, a tap on the background selects nothing, and a tap on a topic selects it again', async ({ page }) => {
+    await openNewMap(page);
+    const selected = page.locator('g.topic.selected');
+    await expect(selected).toHaveCount(1);
+    const central = (await page.locator('g.topic rect.hit').boundingBox())!;
+    // A point on the bare canvas, above the central topic.
+    const away = { x: central.x + central.width / 2, y: central.y - 70 };
+    expect(await page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      return !!el?.closest('svg[role="img"]') && !el.closest('g.topic');
+    }, away)).toBe(true);
+    await page.touchscreen.tap(away.x, away.y);
+    await expect(selected).toHaveCount(0);
+    await page.touchscreen.tap(central.x + central.width / 2, central.y + central.height / 2);
+    await expect(selected).toHaveCount(1);
   });
 });
 
@@ -469,6 +486,73 @@ test('the left button drags a selection box over several topics; the right butto
   expect(Math.abs(after.y - before.y - 40)).toBeLessThan(1);
   await page.getByRole('button', { name: 'Outline' }).click();
   expect(await page.locator('textarea[aria-label="Outline text"]').inputValue()).toMatch(/^# Central topic\n[\s\S]*- .*Alpha\n- .*Beta\n/); // both still under the central topic, in order
+});
+
+test('a click on the background selects nothing: keys then change no topic, and an arrow key goes back to the last topic', async ({ page }) => {
+  await openNewMap(page);
+  await addMainBranches(page, ['Alpha', 'Beta']);
+  // Logic chart: both topics sit to the right of the central one, with clear background below them.
+  await page.getByRole('button', { name: 'Logic chart' }).click();
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+  const details = page.getByRole('button', { name: 'Show topic details' });
+  if (await details.isVisible()) await details.click();
+
+  const topic = (text: string) => page.locator('g.topic', { has: page.locator('text', { hasText: text }) });
+  const box = async (text: string) => (await topic(text).locator('rect.hit').boundingBox())!;
+  const selected = page.locator('g.topic.selected');
+  const panel = page.locator('[aria-label="Topic details"]');
+  const beta = await box('Beta');
+  // A point on the bare canvas, below the lowest topic.
+  const away = { x: beta.x + beta.width / 2, y: beta.y + beta.height + 90 };
+  expect(await page.evaluate(({ x, y }) => {
+    const el = document.elementFromPoint(x, y);
+    return !!el?.closest('svg[role="img"]') && !el.closest('g.topic');
+  }, away)).toBe(true);
+
+  await topic('Alpha').locator('rect.hit').click();
+  await expect(selected).toHaveCount(1);
+  await expect(panel.locator('.topic-title')).toHaveText('Alpha');
+  await page.mouse.click(away.x, away.y);
+  await expect(selected).toHaveCount(0);
+  await expect(panel).toContainText('No topic selected');
+  await expect(page.getByRole('button', { name: '+ Child' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '+ Sibling' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
+
+  // No topic to act on: nothing is added, removed or opened for typing.
+  for (const key of ['Tab', 'Enter', 'Delete', 'Backspace', 'x', 'F2']) await page.keyboard.press(key);
+  await expect(page.locator('g.topic')).toHaveCount(3);
+  await expect(page.locator('textarea.inline-editor')).toHaveCount(0);
+  await expect(selected).toHaveCount(0);
+
+  // An arrow key selects the topic that was selected last; the next one moves on from it.
+  await page.keyboard.press('ArrowDown');
+  await expect(selected).toHaveCount(1);
+  await expect(panel.locator('.topic-title')).toHaveText('Alpha');
+  await page.keyboard.press('ArrowDown');
+  await expect(panel.locator('.topic-title')).toHaveText('Beta');
+
+  // A click on the background while typing keeps the text and then selects nothing.
+  await page.keyboard.press('F2');
+  await page.keyboard.type('Beta two');
+  await page.mouse.click(away.x, away.y);
+  await expect(topic('Beta two')).toHaveCount(1);
+  await expect(selected).toHaveCount(0);
+
+  // A small box drawn on the bare canvas touches nothing and selects nothing either.
+  await topic('Alpha').locator('rect.hit').click();
+  await expect(selected).toHaveCount(1);
+  await page.mouse.move(away.x, away.y);
+  await page.mouse.down();
+  await page.mouse.move(away.x + 30, away.y + 20, { steps: 4 });
+  await page.mouse.up();
+  await expect(selected).toHaveCount(0);
+
+  // Nothing of this is a change to the map: after a reload the topics are as they were typed.
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+  await page.reload();
+  await expect(page.locator('g.topic')).toHaveCount(3);
+  await expect(topic('Beta two')).toHaveCount(1);
 });
 
 test('the editor box fits a long link, and the link field sits below it (I1)', async ({ page }) => {

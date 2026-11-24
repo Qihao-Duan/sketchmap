@@ -26,6 +26,8 @@ export interface ToolbarProps {
   zoom: number;
   canUndo: boolean;
   canRedo: boolean;
+  /** A topic is selected: a child or a sibling has a topic to go to. */
+  canAdd: boolean;
   canDelete: boolean;
   onAddChild(): void;
   onAddSibling(): void;
@@ -41,8 +43,8 @@ export interface ToolbarProps {
 export function Toolbar(p: ToolbarProps) {
   return (
     <div className="float toolbar" role="toolbar" aria-label="Map tools">
-      <button type="button" onMouseDown={noFocus} onClick={p.onAddChild} title="Add child topic (Tab)">+ Child</button>
-      <button type="button" onMouseDown={noFocus} onClick={p.onAddSibling} title="Add sibling topic (Enter)">+ Sibling</button>
+      <button type="button" onMouseDown={noFocus} onClick={p.onAddChild} disabled={!p.canAdd} title="Add child topic (Tab)">+ Child</button>
+      <button type="button" onMouseDown={noFocus} onClick={p.onAddSibling} disabled={!p.canAdd} title="Add sibling topic (Enter)">+ Sibling</button>
       <button type="button" onMouseDown={noFocus} onClick={p.onDelete} disabled={!p.canDelete} title="Delete topic (Delete)">Delete</button>
       <span className="sep" />
       <button type="button" onMouseDown={noFocus} onClick={p.onUndo} disabled={!p.canUndo} title="Undo (⌘/Ctrl Z)">Undo</button>

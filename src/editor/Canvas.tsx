@@ -22,7 +22,10 @@ interface Props {
   onSelect?(id: string): void;
   /** Shift-click on a topic: it joins the selection or leaves it. */
   onToggleSelect?(id: string): void;
-  /** A box dragged over the background: every topic it touches, in drawing order (none: an empty list). */
+  /**
+   * A box dragged over the background: every topic it touches, in drawing order. An empty list, which a
+   * click or a tap on the background also gives, means nothing is selected.
+   */
   onSelectMany?(ids: string[]): void;
   onEdit?(id: string): void;
   /** Topic `id` (with the rest of a multi-selection it is part of) was dragged to a place: onto a topic, or next to one. */
@@ -37,13 +40,13 @@ interface Props {
 }
 
 type Gesture =
-  /** `link` / `note`: what a press that never became a drag opens (view-only page). */
-  | { kind: 'pan'; x: number; y: number; tx: number; ty: number; link: string | null; note: Element | null; moved: boolean }
   /**
-   * `base`: what Shift keeps selected while the box adds to it. `origin`: the current topic when the drag
-   * began, which stays selected when the box touches nothing. `last`: the selection last reported.
+   * `link` / `note`: what a press that never became a drag opens (view-only page). `clear`: a finger on the
+   * editor's background, where a tap that never became a drag selects nothing, like a click there.
    */
-  | { kind: 'box'; x: number; y: number; base: string[]; origin: string | null; last: string | null; moved: boolean }
+  | { kind: 'pan'; x: number; y: number; tx: number; ty: number; link: string | null; note: Element | null; clear: boolean; moved: boolean }
+  /** `base`: what Shift keeps selected while the box adds to it. `last`: the selection last reported. */
+  | { kind: 'box'; x: number; y: number; base: string[]; last: string | null; moved: boolean }
   /** `grouped`: the pressed topic is one of several selected ones, so a drag moves them all (`moving`). */
   | { kind: 'topic'; id: string; x: number; y: number; moved: boolean; dbl: boolean; grouped: boolean; moving: string[]; ghosts: SVGGElement[] }
   | { kind: 'link'; x: number; y: number; href: string; moved: boolean };
@@ -255,9 +258,9 @@ export function Canvas({
       releaseGesture(gesture.current);
       gesture.current = null;
     }
-    const startPan = (link: string | null, note: Element | null = null) => {
+    const startPan = (link: string | null, note: Element | null = null, clear = false) => {
       svgRef.current?.setPointerCapture?.(e.pointerId);
-      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, link, note, moved: false };
+      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, link, note, clear, moved: false };
     };
     if (panButton) {
       if (e.button === 2) holdMenu();
@@ -280,12 +283,12 @@ export function Canvas({
       // The view-only page has nothing to select, and a finger has no second button: there a drag on the
       // background moves the canvas. In the editor, with a mouse, it draws a selection box.
       if (!interactive || e.pointerType === 'touch') {
-        startPan(interactive ? null : href, notesOpen ? target.closest('[data-note]') : null);
+        startPan(interactive ? null : href, notesOpen ? target.closest('[data-note]') : null, interactive && !e.shiftKey);
         return;
       }
       svgRef.current?.setPointerCapture?.(e.pointerId);
       const base = e.shiftKey && selectedId ? [selectedId, ...extraIds] : [];
-      gesture.current = { kind: 'box', x: e.clientX, y: e.clientY, base, origin: selectedId, last: null, moved: false };
+      gesture.current = { kind: 'box', x: e.clientX, y: e.clientY, base, last: null, moved: false };
       return;
     }
     const id = topic.getAttribute('data-id')!;
@@ -324,9 +327,7 @@ export function Canvas({
     for (const b of layout.boxes) {
       if (!kept.has(b.id) && b.x < right && b.x + b.w > left && b.y < bottom && b.y + b.h > top) ids.push(b.id);
     }
-    // The editor follows every report, so once the box has selected a topic that topic is its current one.
-    // A box that has let go of everything therefore names the topic that was current before the drag.
-    if (!ids.length && g.origin) ids.push(g.origin);
+    // A box that touches nothing (and keeps nothing with Shift) reports no topic: nothing is selected then.
     // Every report redraws the map, so only a change in what is touched is reported.
     const key = ids.join(' ');
     if (key === g.last) return;
@@ -410,11 +411,12 @@ export function Canvas({
       if (!still || g.moved || cancelled) return;
       if (g.note) onNote?.(g.note.getAttribute('data-note')!);
       else if (g.link) openLink(g.link);
+      else if (g.clear) onSelectMany?.([]);
       return;
     }
     if (g.kind === 'box') {
       if (boxRef.current) boxRef.current.hidden = true;
-      // A plain click on the background (no box, no Shift) leaves only the current topic selected.
+      // A plain click on the background (no box, no Shift) selects nothing.
       if (!g.moved && !cancelled && !e.shiftKey) onSelectMany?.([]);
       return;
     }

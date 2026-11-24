@@ -8,9 +8,12 @@ export const HISTORY_LIMIT = 200;
 
 export interface EditorState {
   map: MindMap;
-  /** The current topic: the one keys, the Details panel and a paste act on. Always an existing topic. */
-  selectedId: string;
-  /** The other topics of a multi-selection (a box, Shift-click, select all). Never holds `selectedId`. */
+  /**
+   * The current topic: the one keys, the Details panel and a paste act on. An existing topic, or null while
+   * nothing is selected (after a click on the background): then those have no topic to act on.
+   */
+  selectedId: string | null;
+  /** The other topics of a multi-selection (a box, Shift-click, select all). Never holds `selectedId`; empty while that is null. */
   extraIds: readonly string[];
   editing: { id: string; isNew: boolean } | null;
   past: MindMap[];
@@ -65,9 +68,9 @@ export function initEditor(map: MindMap): EditorState {
   return { map: settled, selectedId: map.root.id, extraIds: NONE, editing: null, past: [], future: [], revision: 0 };
 }
 
-/** Every selected topic, the current one first. */
+/** Every selected topic, the current one first; none while nothing is selected. */
 export function selectedIds(state: Pick<EditorState, 'selectedId' | 'extraIds'>): string[] {
-  return [state.selectedId, ...state.extraIds];
+  return state.selectedId === null ? [] : [state.selectedId, ...state.extraIds];
 }
 
 /** The topics a change made to `id` applies to: the whole selection when `id` is the current topic. */
@@ -75,8 +78,12 @@ function targetsOf(state: EditorState, id: string): Set<string> {
   return new Set(id === state.selectedId ? selectedIds(state) : [id]);
 }
 
-/** After the map changed underneath (undo, redo): the selected topics that still exist, or the root. */
+/**
+ * After the map changed underneath (undo, redo): the selected topics that still exist, or the root. With
+ * nothing selected, nothing is selected afterwards either.
+ */
 function survivingSelection(map: MindMap, state: EditorState): Pick<EditorState, 'selectedId' | 'extraIds'> {
+  if (state.selectedId === null) return { selectedId: null, extraIds: NONE };
   if (!state.extraIds.length) return { selectedId: keepSelection(map, state.selectedId), extraIds: NONE };
   const wanted = new Set(selectedIds(state));
   const found = new Set<string>();
@@ -131,7 +138,7 @@ function onlyVisible(state: EditorState): EditorState {
   const all = selectedIds(state);
   if (!all.some((id) => hidden.has(id))) return state;
   const [first, ...rest] = all.filter((id) => !hidden.has(id));
-  if (first === undefined) return { ...state, selectedId: hidden.get(state.selectedId)!, extraIds: NONE };
+  if (first === undefined) return { ...state, selectedId: hidden.get(all[0])!, extraIds: NONE };
   return { ...state, selectedId: first, extraIds: rest.length ? rest : NONE };
 }
 
@@ -170,7 +177,7 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       if (!T.findNode(state.map.root, action.id)) return state;
       const all = selectedIds(state);
       // A topic that joins becomes the current one; the old current one stays selected behind it.
-      if (!all.includes(action.id)) return { ...state, selectedId: action.id, extraIds: all };
+      if (!all.includes(action.id)) return { ...state, selectedId: action.id, extraIds: all.length ? all : NONE };
       if (all.length === 1) return state;
       const [first, ...rest] = all.filter((id) => id !== action.id);
       return { ...state, selectedId: first, extraIds: rest.length ? rest : NONE };
@@ -181,8 +188,8 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const found = new Set<string>();
       T.eachNode(state.map.root, (n) => void (wanted.has(n.id) && found.add(n.id)));
       const ids = [...wanted].filter((id) => found.has(id));
-      // A box that touches nothing, or a click on the background: only the current topic stays selected.
-      const selectedId = ids.length === 0 || ids.includes(state.selectedId) ? state.selectedId : ids[0];
+      // A box that touches nothing, or a click on the background: nothing is selected.
+      const selectedId = state.selectedId !== null && ids.includes(state.selectedId) ? state.selectedId : ids[0] ?? null;
       const extra = ids.filter((id) => id !== selectedId);
       const same = selectedId === state.selectedId && extra.length === state.extraIds.length && extra.every((id, i) => id === state.extraIds[i]);
       return same ? state : { ...state, selectedId, extraIds: extra.length ? extra : NONE };
@@ -190,26 +197,29 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
 
     case 'addChild':
     case 'addSibling': {
+      const at = state.selectedId;
+      if (at === null) return state;
       const created = T.newNode();
       let ok = false;
       const next = produce(state.map, (d) => {
-        ok = action.type === 'addChild'
-          ? T.addChild(d.root, state.selectedId, created)
-          : T.addSiblingAfter(d.root, state.selectedId, created);
+        ok = action.type === 'addChild' ? T.addChild(d.root, at, created) : T.addSiblingAfter(d.root, at, created);
       });
       return ok ? commit(state, next, { selectedId: created.id, extraIds: NONE, editing: { id: created.id, isNew: true } }) : state;
     }
 
     case 'delete': {
+      const current = state.selectedId;
+      if (current === null) return state;
       let nextSel: string | null = null;
       const next = produce(state.map, (d) => {
-        nextSel = T.removeNodes(d.root, selectedIds(state), state.selectedId);
+        nextSel = T.removeNodes(d.root, selectedIds(state), current);
       });
       return nextSel ? commit(state, next, { selectedId: nextSel, extraIds: NONE, editing: null }) : state;
     }
 
     case 'toggleFold': {
       const id = action.id ?? state.selectedId;
+      if (id === null) return state;
       let ok = false;
       const next = produce(state.map, (d) => {
         ok = T.toggleCollapsed(d.root, id);
@@ -219,6 +229,7 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
 
     case 'startEdit': {
       const id = action.id ?? state.selectedId;
+      if (id === null) return state;
       return T.findNode(state.map.root, id) ? { ...state, selectedId: id, extraIds: NONE, editing: { id, isNew: false } } : state;
     }
 
@@ -270,9 +281,10 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
 
     case 'pasteNodes': {
       if (state.editing) return state;
-      if (!action.nodes.length || !T.findNode(state.map.root, state.selectedId)) return state;
+      const under = state.selectedId;
+      if (!action.nodes.length || under === null || !T.findNode(state.map.root, under)) return state;
       const next = produce(state.map, (d) => {
-        const f = T.findNode(d.root, state.selectedId)!;
+        const f = T.findNode(d.root, under)!;
         delete f.node.collapsed;
         f.node.children.push(...action.nodes);
       });
@@ -293,6 +305,7 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       return decorate(state, action.id, 'emphasis', () => action.emphasis);
 
     case 'bumpEmphasis':
+      if (state.selectedId === null) return state;
       // Each selected topic moves one step from its own level.
       return decorate(state, state.selectedId, 'emphasis', (node) => {
         const j = Math.max(0, Math.min(IMPORTANCE.length - 1, IMPORTANCE.indexOf(node.emphasis) + action.delta));
