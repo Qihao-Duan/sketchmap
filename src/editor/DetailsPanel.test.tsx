@@ -43,7 +43,7 @@ describe('DetailsPanel image row', () => {
         />,
       ),
     );
-    expect(container.querySelector('.image-size')!.textContent).toBe('260 × 130 px. For any other size, drag the corner of the image.');
+    expect(container.querySelector('.image-size')!.textContent).toBe('260 × 130 px. For any other size, drag the square on the image’s corner.');
     // 260 wide is none of S, M and L.
     expect(container.querySelectorAll('[aria-label="Image size"] button[aria-pressed="true"]')).toHaveLength(0);
   });

@@ -280,7 +280,7 @@ export function DetailsPanel({ node, count = 1, onEmphasis, onPriority, onMarker
             </button>
             {/* Locked while a replacement uploads: its late arrival would otherwise undo a Remove or a resize. */}
             <button type="button" onMouseDown={noFocus} onClick={onImageRemove} disabled={uploading}>Remove</button>
-            <p className="muted hint image-size">{node.image.w} × {node.image.h} px. For any other size, drag the corner of the image.</p>
+            <p className="muted hint image-size">{node.image.w} × {node.image.h} px. For any other size, drag the square on the image’s corner.</p>
           </div>
         ) : (
           <button

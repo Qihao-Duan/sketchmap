@@ -26,6 +26,19 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   await expect(page.locator('image.topic-image')).toHaveCount(1);
   expect(violations).toEqual([]);
 
+  // The image's corner can be dragged in the built app too: its handle is placed by the built CSS, and
+  // the picture is loaded once more, to read its proportions, without breaking the CSP.
+  await expect(page.locator('image.topic-image')).toHaveAttribute('width', '200');
+  const grip = (await page.locator('.image-handle').boundingBox())!;
+  expect(grip.width).toBe(22);
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2 + 50, grip.y + grip.height / 2 + 50, { steps: 5 });
+  await expect(page.locator('.image-size-box')).toBeVisible();
+  await page.mouse.up();
+  await expect(page.locator('image.topic-image')).not.toHaveAttribute('width', '200');
+  expect(violations).toEqual([]);
+
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'PNG' }).click();
   expect((await download).suggestedFilename()).toMatch(/\.png$/);
