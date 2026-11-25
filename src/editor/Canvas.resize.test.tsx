@@ -71,6 +71,16 @@ describe('Canvas: the corner of an image', () => {
     mount();
     expect(handle().hidden).toBe(false);
     expect(at()).toEqual([imageOf('p').right, imageOf('p').bottom]);
+    // For the pointer only: the keyboard and a screen reader have the S, M and L buttons.
+    expect(handle().getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('there is no handle where a new size would go nowhere (no onResizeImage)', () => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root!.render(<Canvas layout={layout} selectedId="p" interactive onToggleFold={() => {}} />));
+    expect(handle().hidden).toBe(true);
   });
 
   it('there is no handle while nothing is selected, on a topic without an image, or with several topics selected', () => {
@@ -186,6 +196,143 @@ describe('Canvas: the corner of an image', () => {
     expect(h.onResizeImage).toHaveBeenLastCalledWith('p', { w: 32, h: 16 });
     drag(9000, 9000);
     expect(h.onResizeImage).toHaveBeenLastCalledWith('p', { w: 2048, h: 1024 });
+  });
+
+  it('a move of a few pixels is already a drag', () => {
+    const h = mount();
+    drag(4, 3);
+    expect(h.onResizeImage).toHaveBeenCalledWith('p', { w: 204, h: 102 });
+  });
+
+  it('the handle takes the pointer for the whole drag, so moves off the small handle still reach it', () => {
+    mount();
+    const capture = vi.fn();
+    handle().setPointerCapture = capture;
+    const from = imageOf('p');
+    const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, buttons: 1, clientX: from.right, clientY: from.bottom });
+    Object.defineProperty(down, 'pointerId', { value: 7 });
+    act(() => void handle().dispatchEvent(down));
+    expect(capture).toHaveBeenCalledWith(7);
+  });
+
+  it('the canvas moved during a drag: the corner stays under the pointer', () => {
+    const h = mount();
+    const from = imageOf('p');
+    fire(handle(), 'pointerdown', from.right, from.bottom, { buttons: 1 });
+    fire(handle(), 'pointermove', from.right + 60, from.bottom + 30, { buttons: 1 });
+    expect(outline().textContent).toBe('260 × 130');
+    // The wheel moves the map 40px to the left under a pointer that stays where it is.
+    act(() => void handle().dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaX: 40, deltaY: 0 })));
+    fire(handle(), 'pointermove', from.right + 60, from.bottom + 30, { buttons: 1 });
+    expect(outline().style.left).toBe(`${from.left - 40}px`);
+    expect(outline().textContent).toBe('292 × 146');
+    expect(at()).toEqual([from.left - 40 + 292, from.top + 146]);
+    fire(handle(), 'pointerup', from.right + 60, from.bottom + 30);
+    expect(h.onResizeImage).toHaveBeenCalledWith('p', { w: 292, h: 146 });
+  });
+
+  describe('a drag ends without a new size when its image is no longer the one with the handle', () => {
+    const two = computeLayout({ id: 'r', text: 'Root', children: [
+      { id: 'p', text: 'Pic', image: picture('pic', 200, 100), children: [] },
+      { id: 's', text: 'Second', image: picture('second', 120, 90), children: [] },
+      { id: 'q', text: 'Plain', children: [] },
+    ] }, measure);
+    /** Presses the handle of `p` and drags it; the button stays down. */
+    function startDrag() {
+      const { canvas: _canvas, ...h } = mount({ layout: two });
+      const from = imageOf('p', two);
+      fire(handle(), 'pointerdown', from.right, from.bottom, { buttons: 1 });
+      fire(handle(), 'pointermove', from.right + 60, from.bottom + 30, { buttons: 1 });
+      expect(outline().hidden).toBe(false);
+      return { h, from };
+    }
+    const letGo = (from: { right: number; bottom: number }) => {
+      fire(handle(), 'pointermove', from.right + 80, from.bottom + 40, { buttons: 1 });
+      fire(handle(), 'pointerup', from.right + 80, from.bottom + 40);
+    };
+
+    it('the selection moved to a topic without an image: the outline goes away with the handle', () => {
+      const { h, from } = startDrag();
+      act(() => root!.render(<Canvas layout={two} selectedId="q" interactive {...h} />));
+      expect(outline().hidden).toBe(true);
+      expect(handle().hidden).toBe(true);
+      letGo(from);
+      expect(outline().hidden).toBe(true);
+      expect(h.onResizeImage).not.toHaveBeenCalled();
+    });
+
+    it('the selection moved to another topic with an image: the handle is on that image, and it is not resized', () => {
+      const { h, from } = startDrag();
+      act(() => root!.render(<Canvas layout={two} selectedId="s" interactive {...h} />));
+      expect(outline().hidden).toBe(true);
+      expect(at()).toEqual([imageOf('s', two).right, imageOf('s', two).bottom]);
+      letGo(from);
+      expect(outline().hidden).toBe(true);
+      expect(at()).toEqual([imageOf('s', two).right, imageOf('s', two).bottom]);
+      expect(h.onResizeImage).not.toHaveBeenCalled();
+    });
+
+    it('nothing is selected any more', () => {
+      const { h, from } = startDrag();
+      act(() => root!.render(<Canvas layout={two} selectedId={null} interactive {...h} />));
+      expect(outline().hidden).toBe(true);
+      letGo(from);
+      expect(h.onResizeImage).not.toHaveBeenCalled();
+    });
+
+    it('the topic got another picture (a replacement arrived): the new one is not given the old one’s shape', () => {
+      const { h, from } = startDrag();
+      const replaced = computeLayout({ id: 'r', text: 'Root', children: [
+        { id: 'p', text: 'Pic', image: picture('square', 200, 200), children: [] },
+        { id: 's', text: 'Second', image: picture('second', 120, 90), children: [] },
+        { id: 'q', text: 'Plain', children: [] },
+      ] }, measure);
+      act(() => root!.render(<Canvas layout={replaced} selectedId="p" interactive {...h} />));
+      expect(outline().hidden).toBe(true);
+      expect(at()).toEqual([imageOf('p', replaced).right, imageOf('p', replaced).bottom]);
+      letGo(from);
+      expect(h.onResizeImage).not.toHaveBeenCalled();
+    });
+
+    it('new sizes can no longer be taken (an upload started)', () => {
+      const { h, from } = startDrag();
+      const { onResizeImage: _off, ...rest } = h;
+      act(() => root!.render(<Canvas layout={two} selectedId="p" interactive {...rest} />));
+      expect(outline().hidden).toBe(true);
+      expect(handle().hidden).toBe(true);
+      letGo(from);
+      expect(h.onResizeImage).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a drag goes on when the map is drawn again and the image is still the same, from where the image is now', () => {
+    const { canvas: _canvas, ...h } = mount();
+    const from = imageOf('p');
+    fire(handle(), 'pointerdown', from.right, from.bottom, { buttons: 1 });
+    fire(handle(), 'pointermove', from.right + 60, from.bottom + 30, { buttons: 1 });
+    // The central topic got a longer text, which pushes the topics beside it outwards.
+    const moved = computeLayout({ id: 'r', text: 'Root, and now with a longer text', children: [
+      { id: 'p', text: 'Pic', image: picture('pic', 200, 100), children: [] },
+      { id: 'q', text: 'Plain', children: [] },
+    ] }, measure);
+    const now = imageOf('p', moved);
+    expect([now.left, now.top]).not.toEqual([from.left, from.top]);
+    act(() => root!.render(<Canvas layout={moved} selectedId="p" interactive {...h} />));
+    expect(outline().hidden).toBe(false);
+    expect(outline().style.left).toBe(`${now.left}px`);
+    expect(outline().style.top).toBe(`${now.top}px`);
+    // The pointer is let go 80, 40 from where it pressed: the corner it holds is that far from where it was.
+    fire(handle(), 'pointermove', from.right + 80, from.bottom + 40, { buttons: 1 });
+    const [cw, ch] = [from.right + 80 - now.left, from.bottom + 40 - now.top];
+    const width = Math.round(((cw * 200 + ch * 100) / (200 * 200 + 100 * 100)) * 200);
+    expect(width).not.toBe(280); // not what the drag would give had the image stayed where it was
+    fire(handle(), 'pointerup', from.right + 80, from.bottom + 40);
+    expect(h.onResizeImage).toHaveBeenCalledWith('p', { w: width, h: Math.round(width / 2) });
+  });
+
+  it('the browser’s menu stays shut on the handle, as on the rest of the canvas', () => {
+    mount();
+    expect(fire(handle(), 'contextmenu', 0, 0, { button: 2 }).defaultPrevented).toBe(true);
   });
 
   it('a press that never moves gives no new size', () => {

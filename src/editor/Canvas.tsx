@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type Ref } from 'react';
-import { sizeAtWidth } from '../io/imagePrep';
+import { displaySize } from '../io/imagePrep';
 import type { MapLayout } from '../layout/map';
 import { renderMap, storedImageKey } from '../render/renderMap';
 import { learnPictureSize, pictureSize } from './pictureSize';
@@ -61,16 +61,18 @@ interface Size {
 }
 
 /**
- * A drag of the corner of a topic's image. `x`, `y`: where the press was, on screen. `left`, `top`: the
- * image's top-left corner, in map units, which stays where it is. `from`: the size the image has. `own`: the
- * size whose proportions are kept. `size`: the size the drag is at now.
+ * A drag of the corner of a topic's image. `key`: the picture the image showed at the press. `x`, `y`: where
+ * the press was, on screen. `gx`, `gy`: how far from the corner the press was, in map units, so the corner
+ * keeps that distance to the pointer. `from`: the size the image had. `own`: the size whose proportions are
+ * kept. `size`: the size the drag is at now.
  */
 interface Resize {
   id: string;
+  key: string;
   x: number;
   y: number;
-  left: number;
-  top: number;
+  gx: number;
+  gy: number;
   from: Size;
   own: Size;
   size: Size;
@@ -138,25 +140,36 @@ export function Canvas({
     return [r?.width ?? 0, r?.height ?? 0];
   };
   /**
+   * The drag of the handle that is on. It is over, without a new size, once its image is no longer the one
+   * with the handle: the selection moved on, the image was replaced or removed, or no new size is taken
+   * any more (an upload started).
+   */
+  const liveResize = (): Resize | null => {
+    const r = resizing.current;
+    const b = sizedRef.current;
+    if (r && (b?.id !== r.id || b.node.image?.key !== r.key)) resizing.current = null;
+    return resizing.current;
+  };
+  /**
    * Puts the handle on the bottom-right corner of the selected topic's image. During a drag of the handle
    * it goes on the corner of the outline that shows the new size, which is drawn here too. Both are in
    * screen pixels, so they have the same size at every zoom.
    */
   const placeHandle = (v: View) => {
     const el = handleRef.current;
+    const outline = sizeBoxRef.current;
+    if (!el || !outline) return;
     const b = sizedRef.current;
-    if (!el) return;
+    const drag = liveResize();
+    const r = drag?.moved ? drag : null;
     el.hidden = !b?.image;
+    outline.hidden = !r;
     if (!b?.image) return;
-    const r = resizing.current?.moved ? resizing.current : null;
-    const x = v.tx + v.k * (r ? r.left : b.x + b.image.x);
-    const y = v.ty + v.k * (r ? r.top : b.y + b.image.y);
+    const x = v.tx + v.k * (b.x + b.image.x);
+    const y = v.ty + v.k * (b.y + b.image.y);
     const { w, h } = r ? r.size : b.image;
     el.style.left = `${x + v.k * w}px`;
     el.style.top = `${y + v.k * h}px`;
-    const outline = sizeBoxRef.current;
-    if (!outline) return;
-    outline.hidden = !r;
     if (!r) return;
     Object.assign(outline.style, { left: `${x}px`, top: `${y}px`, width: `${v.k * w}px`, height: `${v.k * h}px` });
     outline.firstElementChild!.textContent = `${w} × ${h}`;
@@ -194,6 +207,9 @@ export function Canvas({
       applyView(viewRef.current);
     }
   }, [layout, selectedId, selectedSet, dropInto, notesOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The handle comes and goes with the image it is for, also when the map itself is not drawn again
+  // (new sizes stop being taken while an image uploads).
+  useLayoutEffect(() => placeHandle(viewRef.current), [sized]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
     fit,
@@ -501,18 +517,30 @@ export function Canvas({
     if (g.dbl) onEdit?.(g.id);
   };
 
+  /** Where the pointer is on the map, in map units. */
+  const onMap = (e: PointerEvent<HTMLDivElement>): [number, number] => {
+    const r = canvasRef.current!.getBoundingClientRect();
+    const { tx, ty, k } = viewRef.current;
+    return [(e.clientX - r.left - tx) / k, (e.clientY - r.top - ty) / k];
+  };
   const startResize = (e: PointerEvent<HTMLDivElement>) => {
     const b = sizedRef.current;
     if (e.button !== 0 || !b?.image) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const from = { w: b.image.w, h: b.image.h };
-    // The picture's own proportions when the browser knows them; else those of the size it has now.
-    const own = pictureSize(b.node.image!.key) ?? from;
-    resizing.current = { id: b.id, x: e.clientX, y: e.clientY, left: b.x + b.image.x, top: b.y + b.image.y, from, own, size: from, moved: false };
+    const key = b.node.image!.key;
+    const [px, py] = onMap(e);
+    resizing.current = {
+      id: b.id, key, x: e.clientX, y: e.clientY,
+      gx: px - (b.x + b.image.x + from.w), gy: py - (b.y + b.image.y + from.h),
+      // The picture's own proportions when the browser knows them; else those of the size it has now.
+      from, own: pictureSize(key) ?? from, size: from, moved: false,
+    };
   };
   const moveResize = (e: PointerEvent<HTMLDivElement>) => {
-    const r = resizing.current;
-    if (!r) return;
+    const r = liveResize();
+    const b = sizedRef.current;
+    if (!r || !b?.image) return;
     if (e.buttons === 0) {
       // The release never arrived (see onPointerMove): stop without a new size.
       endResize(true);
@@ -520,20 +548,23 @@ export function Canvas({
     }
     if (!r.moved && Math.hypot(e.clientX - r.x, e.clientY - r.y) < 3) return;
     r.moved = true;
-    const { k } = viewRef.current;
-    const { w, h } = r.from;
+    // Where the pointer wants the corner, from the image's top-left corner. In map units, and from where
+    // the image is now, so the corner stays with the pointer when the canvas moves or zooms during the drag.
+    const [px, py] = onMap(e);
+    const cw = px - r.gx - (b.x + b.image.x);
+    const ch = py - r.gy - (b.y + b.image.y);
     // The proportions are kept, so the corner can only be somewhere on the image's diagonal: it goes to
-    // the point of the diagonal nearest to the pointer.
-    const scale = ((w + (e.clientX - r.x) / k) * w + (h + (e.clientY - r.y) / k) * h) / (w * w + h * h);
-    r.size = sizeAtWidth(r.own, scale * w);
+    // the point of the diagonal nearest to where the pointer wants it.
+    const { w, h } = r.from;
+    r.size = displaySize(r.own.w, r.own.h, ((cw * w + ch * h) / (w * w + h * h)) * w);
     placeHandle(viewRef.current);
   };
   const endResize = (cancelled: boolean) => {
-    const r = resizing.current;
+    const r = liveResize();
     if (!r) return;
     resizing.current = null;
     placeHandle(viewRef.current);
-    if (!cancelled && r.moved && r.size.w !== r.from.w) onResizeImage?.(r.id, r.size);
+    if (!cancelled && r.moved && r.size.w !== sizedRef.current?.image?.w) onResizeImage?.(r.id, r.size);
   };
 
   return (
@@ -613,6 +644,8 @@ export function Canvas({
             title="Drag to resize the image"
             // Keeps the keyboard where it is, like the buttons of the panels.
             onMouseDown={(e) => e.preventDefault()}
+            // No browser menu here either: on the canvas the right button moves the map.
+            onContextMenu={(e) => e.preventDefault()}
             onPointerDown={startResize}
             onPointerMove={moveResize}
             onPointerUp={() => endResize(false)}

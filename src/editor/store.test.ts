@@ -260,6 +260,12 @@ describe('setImage and resizeImage', () => {
     expect(nodeA(s).image).toEqual({ ...image, w: 16, h: 2048 });
   });
 
+  it('resizeImage changes the image when only one of its sides differs', () => {
+    const s = reduce(initEditor(base()), { type: 'setImage', id: 'a', image });
+    expect(nodeA(reduce(s, { type: 'resizeImage', id: 'a', w: 200, h: 120 })).image).toEqual({ ...image, w: 200, h: 120 });
+    expect(nodeA(reduce(s, { type: 'resizeImage', id: 'a', w: 220, h: 100 })).image).toEqual({ ...image, w: 220, h: 100 });
+  });
+
   it('resizeImage is a no-op for the same size, a size that is no number, without an image, for a topic that is gone, or while editing', () => {
     const s = reduce(initEditor(base()), { type: 'setImage', id: 'a', image });
     expect(reduce(s, { type: 'resizeImage', id: 'a', w: 200, h: 100 })).toBe(s);

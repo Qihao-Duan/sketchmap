@@ -60,5 +60,11 @@ describe('a stored picture’s own size', () => {
     learnPictureSize(key('four'));
     FakeImage.made[0].loaded(0, 0);
     expect(pictureSize(key('four'))).toBeNull();
+    learnPictureSize(key('five'));
+    FakeImage.made[1].loaded(0, 100);
+    expect(pictureSize(key('five'))).toBeNull();
+    learnPictureSize(key('six'));
+    FakeImage.made[2].loaded(100, 0);
+    expect(pictureSize(key('six'))).toBeNull();
   });
 });

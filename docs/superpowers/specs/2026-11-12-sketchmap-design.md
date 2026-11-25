@@ -140,12 +140,16 @@ The **marker set** is 💡 ✅ ⚠️ ❓ ⭐ 📌 🔥 ❌ 📅 👤, one marke
   - The longest side is scaled down to at most 2048 px.
   - Images with transparency become PNG; everything else becomes JPEG at quality 0.85.
   - SVG files are drawn into a PNG in the browser (an SVG drawn as an image can't run script), and only the PNG is stored.
-- **Sizes:** the display width defaults to 200 px. S, M and L presets set 120, 200 and 300 px.
+- **Sizes:** the display width defaults to 200 px. S, M and L presets set 120, 200 and 300 px. For a long thin picture these are the nearest widths that keep both sides within range (see free resize).
 - **Free resize (added 2026-11-25, asked for by the user; v1 had none):**
   - While a topic with an image is the only selected topic, a small square handle sits on the image's bottom-right corner (editor only). It is drawn in screen pixels, so it has the same size at every zoom, and it belongs to the canvas: the toolbar and the panels cover it.
-  - Dragging the handle shows a dashed outline from the image's top-left corner and the new size in px. The corner goes to the point of the image's diagonal nearest to the pointer, so a drag in any direction resizes. Nothing changes until the button is let go; then the image gets the size as one undo step. A press without a drag, a drag back to the same width, a cancelled drag and a lost release change nothing.
+  - Dragging the handle shows a dashed outline from the image's top-left corner and the new size in px. The corner goes to the point of the image's diagonal nearest to the pointer, so a drag in any direction resizes. The pointer is followed in map units, so the corner stays with it when the canvas moves or zooms during the drag. Nothing changes until the button is let go; then the image gets the size as one undo step. A press without a drag, a drag back to the same width, a cancelled drag and a lost release change nothing.
+  - The outline shows the size, not the place: on release the map is laid out again, which can move the topic (and the view, to keep the topic visible).
+  - A drag ends without a new size once its image is no longer the one with the handle: the selection moved on, or the image was replaced or removed. This also keeps a replacement that arrives during a drag from getting the old picture's shape.
+  - While an image is uploading there is no handle, as S, M and L are locked then: a replacement that arrives late would undo the new size.
+  - The right-click menu is off on the handle, as on the rest of the canvas.
   - **Proportions:** the map stores only the display size, in whole pixels. Going by that alone, each resize would bend the proportions a little more, until the frame (`preserveAspectRatio: slice`) cuts off the picture's edges. So the editor loads the stored picture once and uses its own pixel size for the proportions, for the handle and for S/M/L alike. Until the picture has loaded, the proportions of the current size are used.
-  - Both sides stay within the schema's 16–2048 px: the width stops where the other side would leave that range. Only a picture longer than 128:1 has its other side cut off at the limit.
+  - Both sides stay within the schema's 16–2048 px: the width stops where the other side would leave that range. This one rule (`displaySize`) sizes an image when it is added, imported, set to S/M/L and dragged, so a long thin picture is shown whole, wider or narrower than asked: a 16:1 strip is 256 × 16 at the least, where 200 × 16 would show only its middle. Only a picture longer than 128:1 has its other side cut off at the limit.
   - The handle is for a mouse, trackpad, pen or finger. The keyboard has S, M and L.
 - **Limits:** the server rejects uploads over 5 MB. A map's JSON is capped at 2 MB, which is thousands of topics.
 

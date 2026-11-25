@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { displaySize, IMAGE_SIZES, ImageError, prepareImage, sizeAtWidth, sniffKind } from './imagePrep';
+import { displaySize, IMAGE_SIZES, ImageError, prepareImage, sniffKind } from './imagePrep';
 
 describe('image preparation', () => {
   it('keeps the aspect ratio at the requested width, within the schema limits', () => {
@@ -11,24 +11,38 @@ describe('image preparation', () => {
   });
 
   it('sizes a picture to any width in its own proportions, in whole pixels', () => {
-    expect(sizeAtWidth({ w: 1200, h: 800 }, 240)).toEqual({ w: 240, h: 160 });
-    expect(sizeAtWidth({ w: 1200, h: 800 }, 239.6)).toEqual({ w: 240, h: 160 });
-    expect(sizeAtWidth({ w: 1200, h: 800 }, 100)).toEqual({ w: 100, h: 67 });
-    expect(sizeAtWidth({ w: 800, h: 1200 }, 100)).toEqual({ w: 100, h: 150 });
+    expect(displaySize(1200, 800, 240)).toEqual({ w: 240, h: 160 });
+    expect(displaySize(1200, 800, 239.6)).toEqual({ w: 240, h: 160 });
+    expect(displaySize(1200, 800, 100)).toEqual({ w: 100, h: 67 });
+    expect(displaySize(800, 1200, 100)).toEqual({ w: 100, h: 150 });
   });
 
   it('stops where a side would leave the 16-2048px range, so the picture is never cropped to fit', () => {
-    expect(sizeAtWidth({ w: 1200, h: 800 }, 5)).toEqual({ w: 24, h: 16 });
-    expect(sizeAtWidth({ w: 800, h: 1200 }, 5)).toEqual({ w: 16, h: 24 });
-    expect(sizeAtWidth({ w: 1200, h: 800 }, 9000)).toEqual({ w: 2048, h: 1365 });
-    expect(sizeAtWidth({ w: 800, h: 1200 }, 9000)).toEqual({ w: 1365, h: 2048 });
-    expect(sizeAtWidth({ w: 1200, h: 800 }, -50)).toEqual({ w: 24, h: 16 });
+    expect(displaySize(1200, 800, 5)).toEqual({ w: 24, h: 16 });
+    expect(displaySize(800, 1200, 5)).toEqual({ w: 16, h: 24 });
+    expect(displaySize(1200, 800, 9000)).toEqual({ w: 2048, h: 1365 });
+    expect(displaySize(800, 1200, 9000)).toEqual({ w: 1365, h: 2048 });
+    expect(displaySize(1200, 800, -50)).toEqual({ w: 24, h: 16 });
+    // 17 wide would be 15.45 high, which is under the range: 18 is the least.
+    expect(displaySize(1100, 1000, 5)).toEqual({ w: 18, h: 16 });
   });
 
-  it('a picture too long and thin for the range keeps the asked width, and its other side stops at the limit', () => {
-    expect(sizeAtWidth({ w: 4000, h: 10 }, 300)).toEqual({ w: 300, h: 16 });
-    expect(sizeAtWidth({ w: 10, h: 4000 }, 300)).toEqual({ w: 300, h: 2048 });
-    expect(sizeAtWidth({ w: 4000, h: 10 }, 9000)).toEqual({ w: 2048, h: 16 });
+  it('shows a long thin picture whole, wider than the size asked for, where that size would cut its ends off', () => {
+    // A 16:1 strip is 16px high at 256 wide. At 200 or 120 wide, 16px high would show only its middle.
+    expect(displaySize(1600, 100)).toEqual({ w: 256, h: 16 });
+    expect(displaySize(1600, 100, IMAGE_SIZES.S)).toEqual({ w: 256, h: 16 });
+    expect(displaySize(1600, 100, IMAGE_SIZES.L)).toEqual({ w: 300, h: 19 });
+    // A 1:15 strip is 2040px high at 136 wide.
+    expect(displaySize(100, 1500)).toEqual({ w: 136, h: 2040 });
+    expect(displaySize(100, 1500, IMAGE_SIZES.S)).toEqual({ w: 120, h: 1800 });
+    // Exactly 128:1 fits the range at one size only.
+    expect(displaySize(2048, 16, 300)).toEqual({ w: 2048, h: 16 });
+  });
+
+  it('a picture too long and thin for the range (over 128:1) keeps the asked width, and its other side stops at the limit', () => {
+    expect(displaySize(4000, 10, 300)).toEqual({ w: 300, h: 16 });
+    expect(displaySize(10, 4000, 300)).toEqual({ w: 300, h: 2048 });
+    expect(displaySize(4000, 10, 9000)).toEqual({ w: 2048, h: 16 });
   });
 
   it('recognises image types from their bytes', () => {

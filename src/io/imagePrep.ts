@@ -19,23 +19,19 @@ const SVG_DECODE_TIMEOUT_MS = 10_000;
 /** A decoded SVG is scaled up to at least this long on its longest side, so tiny icons stay crisp. */
 const MIN_SVG_PX = 64;
 
-/** Width = target; height keeps the aspect ratio, rounded. Both clamped to the schema's 16-2048px. */
-export function displaySize(width: number, height: number, target: number = IMAGE_SIZES.M): { w: number; h: number } {
-  const clamp = (n: number) => Math.min(IMAGE_MAX_PX, Math.max(IMAGE_MIN_PX, n));
-  return { w: clamp(target), h: clamp(Math.round((height / width) * target)) };
-}
-
 /**
- * The display size at `width` for a picture whose own size is `own`: its proportions, in whole pixels.
- * The width stops where a side would leave the schema's 16-2048px, so the picture is never cropped to fit.
- * Only a picture too long and thin for that range (over 128:1) has its other side cut off at the limit.
+ * The size a picture of `width` × `height` is shown at when it is asked to be `target` px wide: its own
+ * proportions, in whole pixels. The width stops where a side would leave the schema's 16-2048px, so a long
+ * thin picture is shown whole, wider or narrower than asked, instead of being cropped to fit. Only a
+ * picture over 128:1 fits at no width: it keeps the asked width, and its other side is cut off at the limit.
  */
-export function sizeAtWidth(own: { w: number; h: number }, width: number): { w: number; h: number } {
-  const ratio = own.w / own.h;
-  const least = Math.max(IMAGE_MIN_PX, Math.ceil(IMAGE_MIN_PX * ratio));
-  const most = Math.min(IMAGE_MAX_PX, Math.floor(IMAGE_MAX_PX * ratio));
+export function displaySize(width: number, height: number, target: number = IMAGE_SIZES.M): { w: number; h: number } {
+  const within = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+  const least = Math.max(IMAGE_MIN_PX, Math.ceil((IMAGE_MIN_PX * width) / height));
+  const most = Math.min(IMAGE_MAX_PX, Math.floor((IMAGE_MAX_PX * width) / height));
   const [lo, hi] = least <= most ? [least, most] : [IMAGE_MIN_PX, IMAGE_MAX_PX];
-  return displaySize(own.w, own.h, Math.min(hi, Math.max(lo, Math.round(width))));
+  const w = within(Math.round(target), lo, hi);
+  return { w, h: within(Math.round((height / width) * w), IMAGE_MIN_PX, IMAGE_MAX_PX) };
 }
 
 function looksLikeSvgText(bytes: Uint8Array): boolean {

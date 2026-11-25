@@ -740,7 +740,9 @@ test('dragging the corner of a topic’s image resizes it; the size is undone, s
   await expect(outline).toBeHidden();
   await page.mouse.move(x, y);
   await page.mouse.down();
-  await page.mouse.move(x + 60 * zoom, y + 60 * zoom, { steps: 6 });
+  // In two long steps: each leaves the small handle far behind, so the drag only works if the handle
+  // has taken the pointer.
+  await page.mouse.move(x + 60 * zoom, y + 60 * zoom, { steps: 2 });
   await expect(outline).toHaveText('260 × 260');
   await expect(image).toHaveAttribute('width', '200');
   await page.mouse.up();
@@ -765,6 +767,34 @@ test('dragging the corner of a topic’s image resizes it; the size is undone, s
   await page.goto(`/m/${id}`);
   await expect(page.locator('image.topic-image')).toHaveAttribute('width', '260');
   await expect(page.locator('.image-handle')).toHaveCount(0);
+});
+
+test('a resized picture keeps its own proportions, read from the picture itself and not from the size it was shown at', async ({ page }) => {
+  await openNewMap(page);
+  // 1000×328: at 200 wide it is 65.6 high, which whole pixels make 66. Going by 200×66, an image over 500
+  // wide would come out at least a pixel too high, and the frame would cut that much off the picture's sides.
+  const strip = '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="328"><rect width="1000" height="328" fill="#fff"/>'
+    + '<rect x="4" y="4" width="992" height="320" fill="none" stroke="#000" stroke-width="8"/></svg>';
+  await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'strip.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(strip) });
+  const image = page.locator('image.topic-image');
+  await expect(image).toHaveAttribute('width', '200');
+  await expect(image).toHaveAttribute('height', '66');
+  // Once nothing is loading any more, the editor has the picture and knows its size.
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+  await page.waitForLoadState('networkidle');
+
+  const grip = (await page.locator('.image-handle').boundingBox())!;
+  const [x, y] = [grip.x + grip.width / 2, grip.y + grip.height / 2];
+  const dx = page.viewportSize()!.width - 30 - x;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y + dx * 0.328, { steps: 3 });
+  await page.mouse.up();
+  await expect(image).not.toHaveAttribute('width', '200');
+  const [w, h] = [Number(await image.getAttribute('width')), Number(await image.getAttribute('height'))];
+  expect(w).toBeGreaterThan(520);
+  expect(h).toBe(Math.round(0.328 * w));
+  expect(h).not.toBe(Math.round((66 / 200) * w));
 });
 
 test('the image’s handle is part of the canvas: moved under the toolbar, it is covered by it and takes none of its clicks', async ({ page }) => {

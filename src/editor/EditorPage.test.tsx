@@ -740,6 +740,48 @@ describe('Images', () => {
       expect(container.querySelector('g.topic')!.textContent).toContain('Typed');
       expect(sizeOf()).toEqual(['260', '130']);
     });
+
+    it('there is no handle while an image is uploading, as S, M and L are locked then; it is back afterwards', async () => {
+      const { uploadImage, releases } = deferredUploads();
+      mount(fakeApi({ uploadImage }));
+      await chooseImage(file());
+      await act(async () => {
+        releases[0]();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(handle().hidden).toBe(false);
+      await chooseImage(file()); // a replacement, still on its way
+      expect(handle().hidden).toBe(true);
+      await act(async () => {
+        releases[1]();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(handle().hidden).toBe(false);
+    });
+  });
+
+  it('S, M and L while the topic’s text is open keep the typed text and resize', async () => {
+    mount(fakeApi());
+    await chooseImage(file());
+    keydown({ key: 'F2' });
+    const ta = container.querySelector('textarea.inline-editor') as HTMLTextAreaElement;
+    act(() => ta.focus());
+    type(ta, 'Typed');
+    await click('L');
+    expect(container.querySelector('textarea.inline-editor')).toBeNull();
+    expect(container.querySelector('g.topic')!.textContent).toContain('Typed');
+    expect(topicImage()!.getAttribute('width')).toBe('300');
+  });
+
+  it('a long thin picture is added whole: wide enough that its short side is 16px, where 200 wide would cut its ends off', async () => {
+    vi.mocked(prepareImage).mockResolvedValue({ blob: new Blob(['x'], { type: 'image/png' }), width: 1600, height: 100 });
+    mount(fakeApi());
+    await chooseImage(file());
+    expect([topicImage()!.getAttribute('width'), topicImage()!.getAttribute('height')]).toEqual(['256', '16']);
+    await click('S');
+    expect([topicImage()!.getAttribute('width'), topicImage()!.getAttribute('height')]).toEqual(['256', '16']);
+    await click('L');
+    expect([topicImage()!.getAttribute('width'), topicImage()!.getAttribute('height')]).toEqual(['300', '19']);
   });
 
   describe('the picture’s own proportions', () => {

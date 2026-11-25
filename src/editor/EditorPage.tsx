@@ -8,7 +8,7 @@ import { useAccess } from '../auth/useAccess';
 import { buildExcalidraw, EXCALIDRAW_MIME, excalidrawLosses } from '../io/excalidraw';
 import { buildSvg, download, fileName, svgToPng, visibleText } from '../io/exportImage';
 import { parseHtmlOutline } from '../io/htmlOutline';
-import { displaySize, IMAGE_SIZES, prepareImage, sizeAtWidth } from '../io/imagePrep';
+import { displaySize, IMAGE_SIZES, prepareImage } from '../io/imagePrep';
 import { mainBranchTextsInOutline, markdownLosses, parseOutline, toMarkdown } from '../io/markdown';
 import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
@@ -616,7 +616,9 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             dispatch({ type: 'startEdit', id });
           }}
           onMove={move}
-          onResizeImage={(id, size) => {
+          // No handle while an image uploads, as S, M and L are locked then: a replacement that arrives
+          // late would undo the new size.
+          onResizeImage={imageUploads > 0 ? undefined : (id, size) => {
             // The press on the handle takes no focus, so a text box that is open is closed here: its text is
             // kept first, and the image changes after (the reducer changes no image while a text is open).
             endEdit();
@@ -677,7 +679,8 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
               endEdit();
               // In the picture's own proportions when the browser knows them (the canvas asks for them when
               // the topic is selected); else in those of the size it has now.
-              dispatch({ type: 'resizeImage', id, ...sizeAtWidth(pictureSize(image.key) ?? image, IMAGE_SIZES[size]) });
+              const own = pictureSize(image.key) ?? image;
+              dispatch({ type: 'resizeImage', id, ...displaySize(own.w, own.h, IMAGE_SIZES[size]) });
             }}
             onImageRemove={() => {
               const id = selectedNode.id;
