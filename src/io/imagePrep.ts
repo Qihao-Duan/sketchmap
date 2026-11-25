@@ -27,6 +27,7 @@ const MIN_SVG_PX = 64;
  */
 export function displaySize(width: number, height: number, target: number = IMAGE_SIZES.M): { w: number; h: number } {
   const within = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+  // Rounded to the safe side: a width whose height only rounds up to 16 would crop a 16px strip by up to 3%.
   const least = Math.max(IMAGE_MIN_PX, Math.ceil((IMAGE_MIN_PX * width) / height));
   const most = Math.min(IMAGE_MAX_PX, Math.floor((IMAGE_MAX_PX * width) / height));
   const [lo, hi] = least <= most ? [least, most] : [IMAGE_MIN_PX, IMAGE_MAX_PX];
