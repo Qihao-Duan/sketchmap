@@ -302,6 +302,34 @@ describe('ListPage', () => {
     });
   });
 
+  it('imports a long thin .xmind image whole: wide enough that its short side is 16px', async () => {
+    localStorage.setItem('sketchmap:owner-key', 'k');
+    stubApi();
+    const saved: unknown[] = [];
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init = {}) => {
+      if (init.method === 'PUT') {
+        saved.push(JSON.parse(String(init.body)));
+        return Response.json(JSON.parse(String(init.body)), { headers: { ETag: '"e2"' } });
+      }
+      return base(url, init);
+    });
+    vi.mocked(prepareImage).mockResolvedValue({ blob: new Blob(['x'], { type: 'image/png' }), width: 1600, height: 100 });
+    await render();
+    const xmind = await makeZip([
+      { name: 'content.json', deflate: false, data: JSON.stringify([
+        { id: 's', class: 'sheet', title: 'S', rootTopic: { id: 'r', title: 'Trip', children: { attached: [{ id: 'a', title: 'Strip', image: { src: 'xap:resources/a.png' } }] } } },
+      ]) },
+      { name: 'resources/a.png', deflate: false, data: new Uint8Array([1, 2, 3]) },
+    ]);
+    const input = container.querySelector('input[aria-label="XMind file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File([xmind] as BlobPart[], 'strip.xmind')] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => {});
+    // 200 × 16 would show only the middle of a 16:1 strip.
+    expect(saved[0]).toMatchObject({ root: { children: [{ text: 'Strip', image: { key: stubKey, w: 256, h: 16 } }] } });
+  });
+
   it('counts an .xmind image that could not be added, without failing the rest of the import', async () => {
     localStorage.setItem('sketchmap:owner-key', 'k');
     stubApi();

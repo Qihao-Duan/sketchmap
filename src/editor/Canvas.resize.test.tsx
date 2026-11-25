@@ -231,6 +231,53 @@ describe('Canvas: the corner of an image', () => {
     expect(h.onResizeImage).toHaveBeenCalledWith('p', { w: 292, h: 146 });
   });
 
+  it('a press beside the middle of the handle keeps that distance: the corner does not jump to the pointer', () => {
+    const h = mount();
+    const from = imageOf('p');
+    // Pressed 8 right of and 6 below the corner, then moved 60, 30.
+    fire(handle(), 'pointerdown', from.right + 8, from.bottom + 6, { buttons: 1 });
+    fire(handle(), 'pointermove', from.right + 68, from.bottom + 36, { buttons: 1 });
+    expect(outline().textContent).toBe('260 × 130');
+    expect(at()).toEqual([from.left + 260, from.top + 130]);
+    fire(handle(), 'pointerup', from.right + 68, from.bottom + 36);
+    expect(h.onResizeImage).toHaveBeenCalledWith('p', { w: 260, h: 130 });
+  });
+
+  it('the canvas moved up or down during a drag: the corner stays under the pointer too', () => {
+    mount();
+    const from = imageOf('p');
+    fire(handle(), 'pointerdown', from.right, from.bottom, { buttons: 1 });
+    fire(handle(), 'pointermove', from.right + 60, from.bottom + 30, { buttons: 1 });
+    // The wheel moves the map 50px up under a pointer that stays where it is: 60, 80 from the press, on the map.
+    act(() => void handle().dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaX: 0, deltaY: 50 })));
+    fire(handle(), 'pointermove', from.right + 60, from.bottom + 30, { buttons: 1 });
+    // (260 × 200 + 180 × 100) / (200² + 100²) = 1.4
+    expect(outline().textContent).toBe('280 × 140');
+    expect(outline().style.top).toBe(`${from.top - 50}px`);
+  });
+
+  it('whether a drag changed the width is judged by the size the image has at the release', () => {
+    const { canvas: _canvas, ...h } = mount();
+    const from = imageOf('p');
+    fire(handle(), 'pointerdown', from.right, from.bottom, { buttons: 1 });
+    fire(handle(), 'pointermove', from.right + 60, from.bottom + 30, { buttons: 1 });
+    // The image got another size during the drag (an undo, say): 260 × 130, the same picture.
+    const resized = computeLayout(mapWith(picture('pic', 260, 130)), measure);
+    act(() => root!.render(<Canvas layout={resized} selectedId="p" interactive {...h} />));
+    const now = imageOf('p', resized);
+    // Let go where the corner is at 200 × 100 again, the size at the press: that is a change now.
+    fire(handle(), 'pointermove', now.left + 200, now.top + 100, { buttons: 1 });
+    fire(handle(), 'pointerup', now.left + 200, now.top + 100);
+    expect(h.onResizeImage).toHaveBeenCalledWith('p', { w: 200, h: 100 });
+    h.onResizeImage.mockClear();
+    // And where the corner is at the size it has now, it is none.
+    fire(handle(), 'pointerdown', now.right, now.bottom, { buttons: 1 });
+    fire(handle(), 'pointermove', now.right + 40, now.bottom + 20, { buttons: 1 });
+    fire(handle(), 'pointermove', now.right, now.bottom, { buttons: 1 });
+    fire(handle(), 'pointerup', now.right, now.bottom);
+    expect(h.onResizeImage).not.toHaveBeenCalled();
+  });
+
   describe('a drag ends without a new size when its image is no longer the one with the handle', () => {
     const two = computeLayout({ id: 'r', text: 'Root', children: [
       { id: 'p', text: 'Pic', image: picture('pic', 200, 100), children: [] },
