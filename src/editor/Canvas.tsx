@@ -1,6 +1,8 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type Ref } from 'react';
+import { sizeAtWidth } from '../io/imagePrep';
 import type { MapLayout } from '../layout/map';
-import { renderMap } from '../render/renderMap';
+import { renderMap, storedImageKey } from '../render/renderMap';
+import { learnPictureSize, pictureSize } from './pictureSize';
 import { dropAt, type Drop, type DropAt } from './reorder';
 import { ensureVisible, fitView, zoomAt, type View } from './viewport';
 
@@ -30,6 +32,8 @@ interface Props {
   onEdit?(id: string): void;
   /** Topic `id` (with the rest of a multi-selection it is part of) was dragged to a place: onto a topic, or next to one. */
   onMove?(id: string, drop: Drop): void;
+  /** The corner of topic `id`'s image was dragged to a new size (px, in the picture's proportions). */
+  onResizeImage?(id: string, size: Size): void;
   onViewChange?(view: View): void;
   onDropFile?(topicId: string | null, file: File): void;
   /** View-only page: the note icon of topic `id` was tapped, or activated from the keyboard. */
@@ -51,6 +55,28 @@ type Gesture =
   | { kind: 'topic'; id: string; x: number; y: number; moved: boolean; dbl: boolean; grouped: boolean; moving: string[]; ghosts: SVGGElement[] }
   | { kind: 'link'; x: number; y: number; href: string; moved: boolean };
 
+interface Size {
+  w: number;
+  h: number;
+}
+
+/**
+ * A drag of the corner of a topic's image. `x`, `y`: where the press was, on screen. `left`, `top`: the
+ * image's top-left corner, in map units, which stays where it is. `from`: the size the image has. `own`: the
+ * size whose proportions are kept. `size`: the size the drag is at now.
+ */
+interface Resize {
+  id: string;
+  x: number;
+  y: number;
+  left: number;
+  top: number;
+  from: Size;
+  own: Size;
+  size: Size;
+  moved: boolean;
+}
+
 const NO_IDS: readonly string[] = [];
 
 /**
@@ -71,7 +97,7 @@ function openLink(href: string) {
 }
 
 export function Canvas({
-  layout, selectedId, extraIds = NO_IDS, interactive, onToggleFold, onSelect, onToggleSelect, onSelectMany, onEdit, onMove, onViewChange, onDropFile, onNote,
+  layout, selectedId, extraIds = NO_IDS, interactive, onToggleFold, onSelect, onToggleSelect, onSelectMany, onEdit, onMove, onResizeImage, onViewChange, onDropFile, onNote,
   rightInset = 0, fitMaxK, ref,
 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -94,10 +120,46 @@ export function Canvas({
   const dropInto = drop?.where === 'into' ? drop.targetId : null;
   const onViewChangeRef = useRef(onViewChange);
   onViewChangeRef.current = onViewChange;
+  const handleRef = useRef<HTMLDivElement>(null);
+  const sizeBoxRef = useRef<HTMLDivElement>(null);
+  const resizing = useRef<Resize | null>(null);
+  // The image whose corner can be dragged: that of the only selected topic, when the canvas draws it.
+  const only = interactive && onResizeImage && selectedId !== null && extraIds.length === 0 ? layout.byId.get(selectedId) : undefined;
+  const sized = only?.image && storedImageKey(only) ? only : null;
+  const sizedRef = useRef(sized);
+  sizedRef.current = sized;
+  const sizedKey = sized?.node.image?.key;
+  useEffect(() => {
+    if (sizedKey) learnPictureSize(sizedKey);
+  }, [sizedKey]);
 
   const size = (): [number, number] => {
     const r = svgRef.current?.getBoundingClientRect();
     return [r?.width ?? 0, r?.height ?? 0];
+  };
+  /**
+   * Puts the handle on the bottom-right corner of the selected topic's image. During a drag of the handle
+   * it goes on the corner of the outline that shows the new size, which is drawn here too. Both are in
+   * screen pixels, so they have the same size at every zoom.
+   */
+  const placeHandle = (v: View) => {
+    const el = handleRef.current;
+    const b = sizedRef.current;
+    if (!el) return;
+    el.hidden = !b?.image;
+    if (!b?.image) return;
+    const r = resizing.current?.moved ? resizing.current : null;
+    const x = v.tx + v.k * (r ? r.left : b.x + b.image.x);
+    const y = v.ty + v.k * (r ? r.top : b.y + b.image.y);
+    const { w, h } = r ? r.size : b.image;
+    el.style.left = `${x + v.k * w}px`;
+    el.style.top = `${y + v.k * h}px`;
+    const outline = sizeBoxRef.current;
+    if (!outline) return;
+    outline.hidden = !r;
+    if (!r) return;
+    Object.assign(outline.style, { left: `${x}px`, top: `${y}px`, width: `${v.k * w}px`, height: `${v.k * h}px` });
+    outline.firstElementChild!.textContent = `${w} × ${h}`;
   };
   const applyView = (v: View) => {
     viewRef.current = v;
@@ -109,6 +171,7 @@ export function Canvas({
     photosGhostRef.current?.setAttribute('transform', t);
     framesRef.current?.setAttribute('transform', t);
     framesGhostRef.current?.setAttribute('transform', t);
+    placeHandle(v);
     onViewChangeRef.current?.(v);
   };
   const fit = () => {
@@ -150,9 +213,11 @@ export function Canvas({
     svg: () => svgRef.current,
   }));
 
-  // Wheel needs a non-passive listener so preventDefault works.
+  // Wheel needs a non-passive listener so preventDefault works. On the whole canvas, so that the wheel
+  // over the image handle moves the map too, instead of scrolling or zooming the page.
   useEffect(() => {
     const svg = svgRef.current!;
+    const canvas = canvasRef.current!;
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
@@ -163,8 +228,8 @@ export function Canvas({
         applyView({ ...viewRef.current, tx: viewRef.current.tx - e.deltaX, ty: viewRef.current.ty - e.deltaY });
       }
     };
-    svg.addEventListener('wheel', onWheel, { passive: false });
-    return () => svg.removeEventListener('wheel', onWheel);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
   }, [interactive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // On Windows and Linux the right-click menu opens when the button is released, wherever the pointer is
@@ -436,6 +501,41 @@ export function Canvas({
     if (g.dbl) onEdit?.(g.id);
   };
 
+  const startResize = (e: PointerEvent<HTMLDivElement>) => {
+    const b = sizedRef.current;
+    if (e.button !== 0 || !b?.image) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const from = { w: b.image.w, h: b.image.h };
+    // The picture's own proportions when the browser knows them; else those of the size it has now.
+    const own = pictureSize(b.node.image!.key) ?? from;
+    resizing.current = { id: b.id, x: e.clientX, y: e.clientY, left: b.x + b.image.x, top: b.y + b.image.y, from, own, size: from, moved: false };
+  };
+  const moveResize = (e: PointerEvent<HTMLDivElement>) => {
+    const r = resizing.current;
+    if (!r) return;
+    if (e.buttons === 0) {
+      // The release never arrived (see onPointerMove): stop without a new size.
+      endResize(true);
+      return;
+    }
+    if (!r.moved && Math.hypot(e.clientX - r.x, e.clientY - r.y) < 3) return;
+    r.moved = true;
+    const { k } = viewRef.current;
+    const { w, h } = r.from;
+    // The proportions are kept, so the corner can only be somewhere on the image's diagonal: it goes to
+    // the point of the diagonal nearest to the pointer.
+    const scale = ((w + (e.clientX - r.x) / k) * w + (h + (e.clientY - r.y) / k) * h) / (w * w + h * h);
+    r.size = sizeAtWidth(r.own, scale * w);
+    placeHandle(viewRef.current);
+  };
+  const endResize = (cancelled: boolean) => {
+    const r = resizing.current;
+    if (!r) return;
+    resizing.current = null;
+    placeHandle(viewRef.current);
+    if (!cancelled && r.moved && r.size.w !== r.from.w) onResizeImage?.(r.id, r.size);
+  };
+
   return (
     <div className="canvas" ref={canvasRef}>
       <svg
@@ -499,6 +599,28 @@ export function Canvas({
       </svg>
       {/* The selection box: screen pixels, moved by hand while dragging so each mouse move costs no render. */}
       <div ref={boxRef} className="select-box" hidden />
+      {interactive && (
+        <>
+          {/* The size an image is being dragged to. Screen pixels, moved by hand like the selection box. */}
+          <div ref={sizeBoxRef} className="image-size-box" hidden><span /></div>
+          {/* The corner of the selected topic's image: dragged to resize it. For the pointer only; the
+              keyboard has the S, M and L buttons of the Details panel. */}
+          <div
+            ref={handleRef}
+            className="image-handle"
+            hidden
+            aria-hidden="true"
+            title="Drag to resize the image"
+            // Keeps the keyboard where it is, like the buttons of the panels.
+            onMouseDown={(e) => e.preventDefault()}
+            onPointerDown={startResize}
+            onPointerMove={moveResize}
+            onPointerUp={() => endResize(false)}
+            onPointerCancel={() => endResize(true)}
+            onLostPointerCapture={() => endResize(true)}
+          />
+        </>
+      )}
     </div>
   );
 }

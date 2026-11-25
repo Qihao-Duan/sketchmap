@@ -217,7 +217,7 @@ describe('setLink', () => {
   });
 });
 
-describe('setImage and setImageSize', () => {
+describe('setImage and resizeImage', () => {
   const nodeA = (s: EditorState) => s.map.root.children[0];
   const image = { key: 'img/abcdefghijklmnopqrstu/a.png', w: 200, h: 100 };
 
@@ -241,23 +241,36 @@ describe('setImage and setImageSize', () => {
     expect(reduce(editing, { type: 'setImage', id: 'a', image: null })).toBe(editing);
   });
 
-  it('setImageSize scales a 200x100 image to each size, keeping the aspect ratio, as one undo step', () => {
+  it('resizeImage gives the image a new size and keeps its file, as one undo step', () => {
     let s = reduce(initEditor(base()), { type: 'setImage', id: 'a', image });
-    s = reduce(s, { type: 'setImageSize', id: 'a', size: 'S' });
-    expect(nodeA(s).image).toEqual({ ...image, w: 120, h: 60 });
+    s = reduce(s, { type: 'resizeImage', id: 'a', w: 260, h: 130 });
+    expect(nodeA(s).image).toEqual({ ...image, w: 260, h: 130 });
     expect(s.past).toHaveLength(2);
-    s = reduce(s, { type: 'setImageSize', id: 'a', size: 'L' });
-    expect(nodeA(s).image).toEqual({ ...image, w: 300, h: 150 });
+    s = reduce(s, { type: 'undo' });
+    expect(nodeA(s).image).toEqual(image);
+    s = reduce(s, { type: 'redo' });
+    expect(nodeA(s).image).toEqual({ ...image, w: 260, h: 130 });
   });
 
-  it('setImageSize is a no-op for the same size, without an image, or while editing', () => {
+  it('resizeImage keeps both sides whole and within what a saved map may hold (16-2048px)', () => {
     let s = reduce(initEditor(base()), { type: 'setImage', id: 'a', image });
-    s = reduce(s, { type: 'setImageSize', id: 'a', size: 'M' });
-    expect(reduce(s, { type: 'setImageSize', id: 'a', size: 'M' })).toBe(s);
+    s = reduce(s, { type: 'resizeImage', id: 'a', w: 260.4, h: 130.6 });
+    expect(nodeA(s).image).toEqual({ ...image, w: 260, h: 131 });
+    s = reduce(s, { type: 'resizeImage', id: 'a', w: 3, h: 5000 });
+    expect(nodeA(s).image).toEqual({ ...image, w: 16, h: 2048 });
+  });
+
+  it('resizeImage is a no-op for the same size, a size that is no number, without an image, for a topic that is gone, or while editing', () => {
+    const s = reduce(initEditor(base()), { type: 'setImage', id: 'a', image });
+    expect(reduce(s, { type: 'resizeImage', id: 'a', w: 200, h: 100 })).toBe(s);
+    expect(reduce(s, { type: 'resizeImage', id: 'a', w: 200.2, h: 99.8 })).toBe(s);
+    expect(reduce(s, { type: 'resizeImage', id: 'a', w: NaN, h: 100 })).toBe(s);
+    expect(reduce(s, { type: 'resizeImage', id: 'a', w: 200, h: Infinity })).toBe(s);
+    expect(reduce(s, { type: 'resizeImage', id: 'gone', w: 120, h: 60 })).toBe(s);
     const noImage = initEditor(base());
-    expect(reduce(noImage, { type: 'setImageSize', id: 'a', size: 'S' })).toBe(noImage);
+    expect(reduce(noImage, { type: 'resizeImage', id: 'a', w: 120, h: 60 })).toBe(noImage);
     const editing = reduce(s, { type: 'startEdit', id: 'a' });
-    expect(reduce(editing, { type: 'setImageSize', id: 'a', size: 'S' })).toBe(editing);
+    expect(reduce(editing, { type: 'resizeImage', id: 'a', w: 120, h: 60 })).toBe(editing);
   });
 
   it('commitEdit with empty text on an existing topic keeps it when it has an image, clearing its text as one undo step; a topic without an image keeps today’s behaviour (ignored)', () => {

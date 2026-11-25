@@ -1,5 +1,5 @@
 import { produce } from 'immer';
-import { displaySize, IMAGE_SIZES } from '../io/imagePrep';
+import { IMAGE_MAX_PX, IMAGE_MIN_PX } from '../io/imagePrep';
 import { linkWhole } from '../shared/rich';
 import type { BranchSide, Emphasis, LayoutKind, MapNode, MindMap } from '../shared/types';
 import * as T from '../model/tree';
@@ -55,7 +55,8 @@ export type EditorAction =
   | { type: 'setNote'; id: string; note: string }
   | { type: 'setLink'; id: string; href: string | null }
   | { type: 'setImage'; id: string; image: { key: string; w: number; h: number } | null }
-  | { type: 'setImageSize'; id: string; size: 'S' | 'M' | 'L' };
+  /** A new display size, in px. The caller keeps the picture's proportions; the sides are rounded and kept within 16-2048. */
+  | { type: 'resizeImage'; id: string; w: number; h: number };
 
 /** One shared empty list, so "no multi-selection" never looks like a change. */
 const NONE: readonly string[] = [];
@@ -359,15 +360,16 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       return commit(state, next);
     }
 
-    case 'setImageSize': {
+    case 'resizeImage': {
       if (state.editing) return state;
       const img = T.findNode(state.map.root, action.id)?.node.image;
-      if (!img) return state;
-      const resized = displaySize(img.w, img.h, IMAGE_SIZES[action.size]);
-      if (resized.w === img.w) return state;
+      if (!img || !Number.isFinite(action.w) || !Number.isFinite(action.h)) return state;
+      const side = (n: number) => Math.min(IMAGE_MAX_PX, Math.max(IMAGE_MIN_PX, Math.round(n)));
+      const [w, h] = [side(action.w), side(action.h)];
+      if (w === img.w && h === img.h) return state;
       const next = produce(state.map, (d) => {
         const node = T.findNode(d.root, action.id)!.node;
-        node.image = { ...node.image!, ...resized };
+        node.image = { ...node.image!, w, h };
       });
       return commit(state, next);
     }

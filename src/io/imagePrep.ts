@@ -3,8 +3,9 @@ export class ImageError extends Error {}
 
 export const IMAGE_SIZES = { S: 120, M: 200, L: 300 } as const;
 
-const MIN_PX = 16;
-const MAX_PX = 2048;
+/** The least and most a side of a displayed image may be, in px (the schema's limits). */
+export const IMAGE_MIN_PX = 16;
+export const IMAGE_MAX_PX = 2048;
 /** Largest image file accepted for preparation (before re-encoding shrinks it). */
 export const MAX_SOURCE_IMAGE_BYTES = 30 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = MAX_SOURCE_IMAGE_BYTES;
@@ -20,8 +21,21 @@ const MIN_SVG_PX = 64;
 
 /** Width = target; height keeps the aspect ratio, rounded. Both clamped to the schema's 16-2048px. */
 export function displaySize(width: number, height: number, target: number = IMAGE_SIZES.M): { w: number; h: number } {
-  const clamp = (n: number) => Math.min(MAX_PX, Math.max(MIN_PX, n));
+  const clamp = (n: number) => Math.min(IMAGE_MAX_PX, Math.max(IMAGE_MIN_PX, n));
   return { w: clamp(target), h: clamp(Math.round((height / width) * target)) };
+}
+
+/**
+ * The display size at `width` for a picture whose own size is `own`: its proportions, in whole pixels.
+ * The width stops where a side would leave the schema's 16-2048px, so the picture is never cropped to fit.
+ * Only a picture too long and thin for that range (over 128:1) has its other side cut off at the limit.
+ */
+export function sizeAtWidth(own: { w: number; h: number }, width: number): { w: number; h: number } {
+  const ratio = own.w / own.h;
+  const least = Math.max(IMAGE_MIN_PX, Math.ceil(IMAGE_MIN_PX * ratio));
+  const most = Math.min(IMAGE_MAX_PX, Math.floor(IMAGE_MAX_PX * ratio));
+  const [lo, hi] = least <= most ? [least, most] : [IMAGE_MIN_PX, IMAGE_MAX_PX];
+  return displaySize(own.w, own.h, Math.min(hi, Math.max(lo, Math.round(width))));
 }
 
 function looksLikeSvgText(bytes: Uint8Array): boolean {
@@ -89,7 +103,7 @@ export async function rasteriseSvg(file: Blob): Promise<{ blob: Blob; width: num
     const naturalWidth = img.naturalWidth || 512;
     const naturalHeight = img.naturalHeight || 512;
     const longest = Math.max(naturalWidth, naturalHeight);
-    const scale = longest > MAX_PX ? MAX_PX / longest : longest < MIN_SVG_PX ? MIN_SVG_PX / longest : 1;
+    const scale = longest > IMAGE_MAX_PX ? IMAGE_MAX_PX / longest : longest < MIN_SVG_PX ? MIN_SVG_PX / longest : 1;
     const width = Math.round(naturalWidth * scale);
     const height = Math.round(naturalHeight * scale);
 
@@ -143,7 +157,7 @@ export async function prepareImage(file: Blob): Promise<{ blob: Blob; width: num
     throw new ImageError('That image couldn’t be read.');
   }
   try {
-    const s = Math.min(1, MAX_PX / Math.max(bitmap.width, bitmap.height));
+    const s = Math.min(1, IMAGE_MAX_PX / Math.max(bitmap.width, bitmap.height));
     const width = Math.round(bitmap.width * s);
     const height = Math.round(bitmap.height * s);
 

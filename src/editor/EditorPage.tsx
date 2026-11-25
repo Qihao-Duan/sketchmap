@@ -8,7 +8,7 @@ import { useAccess } from '../auth/useAccess';
 import { buildExcalidraw, EXCALIDRAW_MIME, excalidrawLosses } from '../io/excalidraw';
 import { buildSvg, download, fileName, svgToPng, visibleText } from '../io/exportImage';
 import { parseHtmlOutline } from '../io/htmlOutline';
-import { displaySize, prepareImage } from '../io/imagePrep';
+import { displaySize, IMAGE_SIZES, prepareImage, sizeAtWidth } from '../io/imagePrep';
 import { mainBranchTextsInOutline, markdownLosses, parseOutline, toMarkdown } from '../io/markdown';
 import { layoutMap } from '../layout';
 import type { Measure } from '../layout/wrap';
@@ -29,6 +29,7 @@ import { shownSides, stepSibling, type Drop } from './reorder';
 import { LinkPrompt } from './LinkPrompt';
 import { navigate } from './navigate';
 import { OutlinePanel } from './OutlinePanel';
+import { pictureSize } from './pictureSize';
 import { editorReducer, initEditor, selectedIds } from './store';
 import type { View } from './viewport';
 
@@ -615,6 +616,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             dispatch({ type: 'startEdit', id });
           }}
           onMove={move}
+          onResizeImage={(id, size) => {
+            // The press on the handle takes no focus, so a text box that is open is closed here: its text is
+            // kept first, and the image changes after (the reducer changes no image while a text is open).
+            endEdit();
+            dispatch({ type: 'resizeImage', id, ...size });
+          }}
           onToggleFold={(id) => dispatch({ type: 'toggleFold', id })}
           onDropFile={(id, file) => void attachImage(id ?? state.selectedId, file)}
           onViewChange={setView}
@@ -664,9 +671,13 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             onNote={(id, note) => dispatch({ type: 'setNote', id, note })}
             onImageFile={(file) => void attachImage(selectedNode.id, file)}
             onImageSize={(size) => {
-              const id = selectedNode.id;
+              const { id, image } = selectedNode;
+              // The size it already has stays as it is, to the pixel.
+              if (!image || image.w === IMAGE_SIZES[size]) return;
               endEdit();
-              dispatch({ type: 'setImageSize', id, size });
+              // In the picture's own proportions when the browser knows them (the canvas asks for them when
+              // the topic is selected); else in those of the size it has now.
+              dispatch({ type: 'resizeImage', id, ...sizeAtWidth(pictureSize(image.key) ?? image, IMAGE_SIZES[size]) });
             }}
             onImageRemove={() => {
               const id = selectedNode.id;

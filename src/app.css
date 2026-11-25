@@ -35,6 +35,19 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
 /* The box dragged over the background to select topics: above the three drawing layers, never in the way of the pointer. */
 .select-box { position: absolute; z-index: 1; box-sizing: border-box; border: 1.5px dashed #4263eb; border-radius: 2px; background: rgb(66 99 235 / 0.1); pointer-events: none; }
 .select-box[hidden] { display: none; }
+/* The corner of the selected topic's image, dragged to resize it: the same size at every zoom, above the
+   drawing layers and below the panels. The square that shows is smaller than the area that takes the press. */
+.image-handle { position: absolute; z-index: 1; width: 22px; height: 22px; margin: -11px 0 0 -11px; cursor: nwse-resize; touch-action: none; }
+.image-handle::after { content: ''; position: absolute; inset: 6px; box-sizing: border-box; border: 1.5px solid #4263eb; border-radius: 2px; background: #fff; }
+.image-handle[hidden] { display: none; }
+@media (pointer: coarse) {
+  .image-handle { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
+  .image-handle::after { inset: 13px; }
+}
+/* The size the image is being dragged to, with the numbers under its left corner. */
+.image-size-box { position: absolute; z-index: 1; box-sizing: border-box; border: 1.5px dashed #4263eb; background: rgb(66 99 235 / 0.1); pointer-events: none; }
+.image-size-box[hidden] { display: none; }
+.image-size-box span { position: absolute; left: -1.5px; top: calc(100% + 5px); padding: 1px 6px; border-radius: 4px; background: #4263eb; color: #fff; font: 12px var(--ui); white-space: nowrap; }
 .canvas .topic.drop .hit { stroke: #4263eb; stroke-width: 2.5; stroke-dasharray: 5 5; }
 /* The place next to a topic that dragged topics would go to: the same width at every zoom. */
 .canvas .drop-line line { stroke: #4263eb; stroke-width: 3.5; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }

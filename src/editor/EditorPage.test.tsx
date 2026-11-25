@@ -687,6 +687,124 @@ describe('Images', () => {
     expect(topicImage()!.getAttribute('width')).toBe('200');
   });
 
+  describe('dragging the corner of the image', () => {
+    const handle = () => container.querySelector<HTMLElement>('.image-handle')!;
+    const sizeOf = () => [topicImage()!.getAttribute('width'), topicImage()!.getAttribute('height')];
+    /** Presses the handle where it is, moves by (dx, dy) and lets go. The view is not moved: jsdom has no size. */
+    function dragCorner(dx: number, dy: number) {
+      const x = parseFloat(handle().style.left);
+      const y = parseFloat(handle().style.top);
+      const fire = (type: string, cx: number, cy: number, buttons: number) =>
+        act(() => void handle().dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons, clientX: cx, clientY: cy })));
+      fire('pointerdown', x, y, 1);
+      fire('pointermove', x + dx, y + dy, 1);
+      fire('pointerup', x + dx, y + dy, 0);
+    }
+
+    it('gives it the new size, which is saved; one undo brings the old size back', async () => {
+      const api = fakeApi();
+      mount(api);
+      await chooseImage(file());
+      expect(sizeOf()).toEqual(['200', '100']);
+      await advance(1500);
+      vi.mocked(api.saveMap).mockClear();
+      dragCorner(60, 30);
+      expect(sizeOf()).toEqual(['260', '130']);
+      await advance(1500);
+      expect(vi.mocked(api.saveMap).mock.calls.at(-1)![0].root.image).toEqual({ key: 'img/abcdefghijklmnopqrstu/k.png', w: 260, h: 130 });
+      keydown({ key: 'z', metaKey: true });
+      expect(sizeOf()).toEqual(['200', '100']);
+    });
+
+    it('leaves the handle on the image’s new corner, and no S, M or L marked', async () => {
+      mount(fakeApi());
+      await chooseImage(file());
+      expect(pressedIn('Image size')).toEqual(['M']);
+      dragCorner(60, 30);
+      const image = topicImage()!;
+      const corner = (name: 'x' | 'y', side: 'width' | 'height') => Number(image.getAttribute(name)) + Number(image.getAttribute(side));
+      expect([parseFloat(handle().style.left), parseFloat(handle().style.top)]).toEqual([corner('x', 'width'), corner('y', 'height')]);
+      expect(pressedIn('Image size')).toEqual([]);
+      expect(container.querySelector('.details .image-size')!.textContent).toContain('260 × 130 px');
+    });
+
+    it('while the topic’s text is open, keeps the typed text and resizes', async () => {
+      mount(fakeApi());
+      await chooseImage(file());
+      keydown({ key: 'F2' });
+      const ta = container.querySelector('textarea.inline-editor') as HTMLTextAreaElement;
+      act(() => ta.focus());
+      type(ta, 'Typed');
+      dragCorner(60, 30);
+      expect(container.querySelector('textarea.inline-editor')).toBeNull();
+      expect(container.querySelector('g.topic')!.textContent).toContain('Typed');
+      expect(sizeOf()).toEqual(['260', '130']);
+    });
+  });
+
+  describe('the picture’s own proportions', () => {
+    class FakeImage {
+      static made: FakeImage[] = [];
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      src = '';
+      naturalWidth = 0;
+      naturalHeight = 0;
+      constructor() {
+        FakeImage.made.push(this);
+      }
+    }
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('S, M and L keep them once the browser knows them, where the size on show alone would be a pixel off', async () => {
+      FakeImage.made = [];
+      vi.stubGlobal('Image', FakeImage);
+      // A 1000×328 picture is shown at 200×66 (65.6 in whole pixels).
+      vi.mocked(prepareImage).mockResolvedValue({ blob: new Blob(['x'], { type: 'image/png' }), width: 1000, height: 328 });
+      mount(fakeApi({ uploadImage: vi.fn(async () => ({ key: 'img/abcdefghijklmnopqrstu/wide.png' })) }));
+      await chooseImage(file());
+      expect([topicImage()!.getAttribute('width'), topicImage()!.getAttribute('height')]).toEqual(['200', '66']);
+      const loading = FakeImage.made.find((i) => i.src === '/img/abcdefghijklmnopqrstu/wide.png')!;
+      Object.assign(loading, { naturalWidth: 1000, naturalHeight: 328 });
+      loading.onload?.();
+      await click('L');
+      // 300 × 0.328 = 98.4; going by 200×66 it would be 99.
+      expect([topicImage()!.getAttribute('width'), topicImage()!.getAttribute('height')]).toEqual(['300', '98']);
+      await click('S');
+      // 120 × 0.328 = 39.36; going by 300×98 it would be 39.2, and by 200×66 39.6.
+      expect([topicImage()!.getAttribute('width'), topicImage()!.getAttribute('height')]).toEqual(['120', '39']);
+    });
+
+    it('S, M and L go by the size on show until the browser has loaded the picture', async () => {
+      FakeImage.made = [];
+      vi.stubGlobal('Image', FakeImage);
+      vi.mocked(prepareImage).mockResolvedValue({ blob: new Blob(['x'], { type: 'image/png' }), width: 1000, height: 328 });
+      mount(fakeApi({ uploadImage: vi.fn(async () => ({ key: 'img/abcdefghijklmnopqrstu/unloaded.png' })) }));
+      await chooseImage(file());
+      await click('L');
+      expect([topicImage()!.getAttribute('width'), topicImage()!.getAttribute('height')]).toEqual(['300', '99']);
+    });
+
+    it('a click on the size the image already has changes nothing, not even by the pixel its height is off', async () => {
+      FakeImage.made = [];
+      vi.stubGlobal('Image', FakeImage);
+      // Shown at 200×66; the picture's own proportions would make that 200×70.
+      vi.mocked(prepareImage).mockResolvedValue({ blob: new Blob(['x'], { type: 'image/png' }), width: 1000, height: 328 });
+      const api = fakeApi({ uploadImage: vi.fn(async () => ({ key: 'img/abcdefghijklmnopqrstu/same.png' })) });
+      mount(api);
+      await chooseImage(file());
+      const loading = FakeImage.made.find((i) => i.src === '/img/abcdefghijklmnopqrstu/same.png')!;
+      Object.assign(loading, { naturalWidth: 1000, naturalHeight: 350 });
+      loading.onload?.();
+      await advance(1500);
+      vi.mocked(api.saveMap).mockClear();
+      await click('M');
+      expect([topicImage()!.getAttribute('width'), topicImage()!.getAttribute('height')]).toEqual(['200', '66']);
+      await advance(1500);
+      expect(api.saveMap).not.toHaveBeenCalled();
+    });
+  });
+
   it('Remove takes the image away, and undo brings it back', async () => {
     mount(fakeApi());
     await chooseImage(file());

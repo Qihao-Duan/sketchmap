@@ -30,6 +30,40 @@ describe('DetailsPanel image row', () => {
     expect(byText('Uploading…').disabled).toBe(true);
   });
 
+  it('says the size of the image, and how to give it any other size', () => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    const noop = vi.fn();
+    act(() =>
+      createRoot(container).render(
+        <DetailsPanel
+          node={{ id: 'a', text: 'Cat', image: { key: 'img/abcdefghijklmnopqrstu/c.png', w: 260, h: 130 }, children: [] }}
+          onEmphasis={noop} onPriority={noop} onMarker={noop} onNote={noop}
+          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop}
+        />,
+      ),
+    );
+    expect(container.querySelector('.image-size')!.textContent).toBe('260 × 130 px. For any other size, drag the corner of the image.');
+    // 260 wide is none of S, M and L.
+    expect(container.querySelectorAll('[aria-label="Image size"] button[aria-pressed="true"]')).toHaveLength(0);
+  });
+
+  it('says no size for a topic without an image', () => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    const noop = vi.fn();
+    act(() =>
+      createRoot(container).render(
+        <DetailsPanel
+          node={{ id: 'a', text: 'Cat', children: [] }}
+          onEmphasis={noop} onPriority={noop} onMarker={noop} onNote={noop}
+          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop}
+        />,
+      ),
+    );
+    expect(container.querySelector('.image-size')).toBeNull();
+  });
+
   it('lets the file picker offer SVG files too (they are drawn into PNG)', () => {
     container = document.createElement('div');
     document.body.appendChild(container);
