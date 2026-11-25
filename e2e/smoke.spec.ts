@@ -718,6 +718,75 @@ test('an image added from the details panel survives a reload, shows in the view
   expect(afterDelete.status()).toBe(404);
 });
 
+test('dragging the corner of a topic’s image resizes it; the size is undone, saved, kept after a reload and shown in the view', async ({ page }) => {
+  const id = await openNewMap(page);
+  await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PNG_2x2 });
+  const image = page.locator('image.topic-image');
+  await expect(image).toHaveAttribute('width', '200');
+  await expect(image).toHaveAttribute('height', '200');
+
+  // The handle sits on the image's bottom-right corner.
+  const handle = page.locator('.image-handle');
+  await expect(handle).toBeVisible();
+  const shown = (await image.boundingBox())!;
+  const grip = (await handle.boundingBox())!;
+  const [x, y] = [grip.x + grip.width / 2, grip.y + grip.height / 2];
+  expect(Math.abs(x - (shown.x + shown.width))).toBeLessThan(1.5);
+  expect(Math.abs(y - (shown.y + shown.height))).toBeLessThan(1.5);
+
+  // 60 map px along the diagonal: 200 → 260. The outline says the size before the button is let go.
+  const zoom = shown.width / 200;
+  const outline = page.locator('.image-size-box');
+  await expect(outline).toBeHidden();
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 60 * zoom, y + 60 * zoom, { steps: 6 });
+  await expect(outline).toHaveText('260 × 260');
+  await expect(image).toHaveAttribute('width', '200');
+  await page.mouse.up();
+  await expect(outline).toBeHidden();
+  await expect(image).toHaveAttribute('width', '260');
+  await expect(image).toHaveAttribute('height', '260');
+  await expect(page.locator('.details .image-size')).toContainText('260 × 260 px');
+  // The handle went with the corner.
+  const resized = (await image.boundingBox())!;
+  const moved = (await handle.boundingBox())!;
+  expect(Math.abs(moved.x + moved.width / 2 - (resized.x + resized.width))).toBeLessThan(1.5);
+  expect(Math.abs(moved.y + moved.height / 2 - (resized.y + resized.height))).toBeLessThan(1.5);
+
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(image).toHaveAttribute('width', '200');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect(image).toHaveAttribute('width', '260');
+
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+  await page.reload();
+  await expect(page.locator('image.topic-image')).toHaveAttribute('width', '260');
+  await page.goto(`/m/${id}`);
+  await expect(page.locator('image.topic-image')).toHaveAttribute('width', '260');
+  await expect(page.locator('.image-handle')).toHaveCount(0);
+});
+
+test('the image’s handle is part of the canvas: moved under the toolbar, it is covered by it and takes none of its clicks', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('input[aria-label="Image file"]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PNG_2x2 });
+  const handle = page.locator('.image-handle');
+  await expect(handle).toBeVisible();
+  const bar = (await page.getByRole('toolbar', { name: 'Map tools' }).boundingBox())!;
+  const grip = (await handle.boundingBox())!;
+  // A spot on the toolbar's own background, between its buttons and its edge.
+  const [toX, toY] = [bar.x + 3, bar.y + bar.height / 2];
+  // The wheel moves the canvas, and the handle with it.
+  await page.mouse.move(bar.x + 200, bar.y - 150);
+  await page.mouse.wheel(grip.x + grip.width / 2 - toX, grip.y + grip.height / 2 - toY);
+  await expect.poll(async () => {
+    const now = (await handle.boundingBox())!;
+    return Math.hypot(now.x + now.width / 2 - toX, now.y + now.height / 2 - toY);
+  }).toBeLessThan(2);
+  const onTop = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('.toolbar, .image-handle')?.className ?? null, [toX, toY]);
+  expect(onTop).toContain('toolbar');
+});
+
 test('an SVG image is drawn into a PNG, in the browser, and any script it carries never runs', async ({ page }) => {
   await openNewMap(page);
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="red"/><script>document.title=\'pwned\'</script></svg>';
