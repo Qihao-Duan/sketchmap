@@ -3,7 +3,7 @@ export class ImageError extends Error {}
 
 export const IMAGE_SIZES = { S: 120, M: 200, L: 300 } as const;
 
-/** The least and most a side of a displayed image may be, in px (the schema's limits). */
+/** The least and most a side of a displayed image may be, in px (the schema's limits). A stored picture's longest side is at most IMAGE_MAX_PX too. */
 export const IMAGE_MIN_PX = 16;
 export const IMAGE_MAX_PX = 2048;
 /** Largest image file accepted for preparation (before re-encoding shrinks it). */

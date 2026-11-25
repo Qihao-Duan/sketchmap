@@ -140,7 +140,13 @@ The **marker set** is 💡 ✅ ⚠️ ❓ ⭐ 📌 🔥 ❌ 📅 👤, one marke
   - The longest side is scaled down to at most 2048 px.
   - Images with transparency become PNG; everything else becomes JPEG at quality 0.85.
   - SVG files are drawn into a PNG in the browser (an SVG drawn as an image can't run script), and only the PNG is stored.
-- **Sizes:** the display width defaults to 200 px. S, M and L presets set 120, 200 and 300 px, the aspect ratio is kept, and v1 has no free drag-resize.
+- **Sizes:** the display width defaults to 200 px. S, M and L presets set 120, 200 and 300 px.
+- **Free resize (added 2026-11-25, asked for by the user; v1 had none):**
+  - While a topic with an image is the only selected topic, a small square handle sits on the image's bottom-right corner (editor only). It is drawn in screen pixels, so it has the same size at every zoom, and it belongs to the canvas: the toolbar and the panels cover it.
+  - Dragging the handle shows a dashed outline from the image's top-left corner and the new size in px. The corner goes to the point of the image's diagonal nearest to the pointer, so a drag in any direction resizes. Nothing changes until the button is let go; then the image gets the size as one undo step. A press without a drag, a drag back to the same width, a cancelled drag and a lost release change nothing.
+  - **Proportions:** the map stores only the display size, in whole pixels. Going by that alone, each resize would bend the proportions a little more, until the frame (`preserveAspectRatio: slice`) cuts off the picture's edges. So the editor loads the stored picture once and uses its own pixel size for the proportions, for the handle and for S/M/L alike. Until the picture has loaded, the proportions of the current size are used.
+  - Both sides stay within the schema's 16–2048 px: the width stops where the other side would leave that range. Only a picture longer than 128:1 has its other side cut off at the limit.
+  - The handle is for a mouse, trackpad, pen or finger. The keyboard has S, M and L.
 - **Limits:** the server rejects uploads over 5 MB. A map's JSON is capped at 2 MB, which is thousands of topics.
 
 ## 4. Editor behaviour
@@ -165,6 +171,7 @@ The **marker set** is 💡 ✅ ⚠️ ❓ ⭐ 📌 🔥 ❌ 📅 👤, one marke
 | Drag a topic to the edge of another | Puts it just before or after that topic, under the same parent. The edge is a quarter of the topic, at most 14 px (24 px in the first row of an org chart): the top and bottom where topics are listed one below the other, the left and right in the first row of an org chart. Just outside a topic (up to 14 px above or below it, within its width; 22 px beside one in an org chart's first row) counts for the nearer topic; further out there is no place. A line shows the place. In the list of an org chart the row under a topic that shows children is its first child, so the bottom edge of such a topic is the place before that child. Added 2026-11-16. |
 | Drag a topic onto the central topic (map layout) | It becomes the last main branch, on the side of the half it was dropped on; a line along that side says which. |
 | Left-button drag on the background | Draws a selection box: every topic it touches is selected. With Shift it adds to the selection. (XMind's mouse convention, asked for on 2026-11-14.) |
+| Drag the square on the corner of the selected topic's image | Resizes the image, keeping its proportions (§3 Images) |
 | Click on the background, or a tap with a finger | Selects nothing (asked for on 2026-11-24). With Shift held it changes nothing. A click of the right or middle button, which move the canvas, does not count. |
 | Shift-click a topic, ⌘/Ctrl A, Esc | Add the topic to the selection or take it out; select every topic on screen; back to one selected topic |
 | Right- or middle-button drag, wheel, ⌘/Ctrl wheel | Pan, pan, zoom. The right-click menu is suppressed on the editor canvas (on macOS it would open on button-down). |
@@ -186,7 +193,7 @@ How the remaining behaviours work:
   - **Marker**: the emoji set
   - the note
   - the list of links
-  - the image (add, replace, remove, S/M/L)
+  - the image (add, replace, remove, S/M/L, its size in px)
 - **Autosave:** a save is sent 1 s after the last change. The status reads "Saved" or "Saving…", or "Not saved, retrying" while offline. See §8.
 
 ## 5. Layouts
