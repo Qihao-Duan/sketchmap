@@ -65,6 +65,9 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
 .size-box { position: absolute; z-index: 1; box-sizing: border-box; border: 1.5px dashed #4263eb; background: rgb(66 99 235 / 0.1); pointer-events: none; }
 .size-box[hidden] { display: none; }
 .size-box span { position: absolute; left: -1.5px; top: calc(100% + 5px); padding: 1px 6px; border-radius: 4px; background: #4263eb; color: #fff; font: 12px var(--ui); white-space: nowrap; }
+/* The words are at the part of the outline that stays where it is while the rest grows. */
+.size-box[data-words="middle"] span { left: 50%; transform: translateX(-50%); }
+.size-box[data-words="end"] span { left: auto; right: -1.5px; }
 .canvas .topic.drop .hit { stroke: #4263eb; stroke-width: 2.5; stroke-dasharray: 5 5; }
 /* The place next to a topic that dragged topics would go to: the same width at every zoom. */
 .canvas .drop-line line { stroke: #4263eb; stroke-width: 3.5; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }

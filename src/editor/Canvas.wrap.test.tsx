@@ -212,6 +212,7 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(outline().style.width).toBe(`${becomes.w}px`);
     expect(outline().style.height).toBe(`${becomes.h}px`);
     expect(outline().textContent).toBe('447 px');
+    expect(outline().dataset.words).toBe('start');
     // The topic gets lower: the width is said under the topic as it is now, clear of its text.
     expect(becomes.h).toBeLessThan(t.h);
     expect(outline().querySelector('span')!.style.top).toBe(`${(t.h + becomes.h) / 2 + 5}px`);
@@ -232,6 +233,8 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(outline().style.left).toBe(`${l.x + l.w - becomes.w}px`);
     expect(outline().style.width).toBe(`${becomes.w}px`);
     expect(at()[0]).toBe(x - 200);
+    // The width is said at the edge that stays, so it is not carried out of sight with the edge that moves.
+    expect(outline().dataset.words).toBe('end');
   });
 
   it('the central topic grows to both sides: its edge follows the pointer, and the outline stays centred', () => {
@@ -246,6 +249,7 @@ describe('Canvas: the side of a topic’s text', () => {
     const becomes = wrappedAt('r', wrap, shown);
     expect(outline().style.left).toBe(`${r.x + r.w / 2 - becomes.w / 2}px`);
     expect(outline().textContent).toBe(`${wrap} px`);
+    expect(outline().dataset.words).toBe('middle');
     expect(at()[0]).toBe(x + 100);
     fire(handle(), 'pointerup', x + 100, y);
     expect(h.onWrapText).toHaveBeenCalledWith('r', wrap);

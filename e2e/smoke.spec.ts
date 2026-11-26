@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { makeZip } from '../src/test/zipFixture';
 import { PNG_2x2 } from './fixtures/pixel';
 import { seal, SESSION_COOKIE } from '../worker/session';
-import { enterOwnerKey, openNewMap } from './helpers';
+import { enterOwnerKey, openNewMap, settled } from './helpers';
 
 // The same sandbox Notion puts on a generic /embed iframe (observed on a public notion.site page, 2026-11-12).
 const NOTION_SANDBOX =
@@ -842,6 +842,7 @@ test('dragging the bar on a topic’s side sets where its text wraps; the width 
   await page.keyboard.press('Enter');
   const topic = page.locator('g.topic').nth(2);
   await expect(topic).toHaveClass(/selected/);
+  await settled(page);
   const lines = topic.locator('text');
   const before = await lines.count();
   expect(before).toBeGreaterThanOrEqual(5);
@@ -920,6 +921,7 @@ test('on the left of the map a topic’s text grows to the left: the bar is on i
   await page.keyboard.press('Enter');
   const topic = page.locator('g.topic.selected');
   await expect(topic).toHaveCount(1);
+  await settled(page);
   const root = await onMap(page.locator('g.topic').first());
   const before = await onMap(topic);
   expect(before.right).toBeLessThan(root.left);
@@ -928,7 +930,14 @@ test('on the left of the map a topic’s text grows to the left: the bar is on i
   const handle = page.locator('.wrap-handle');
   await expect(handle).toHaveClass(/left/);
   const zoom = await zoomOf(page);
+  // The topic is near the canvas's left edge. The wheel moves the map to the right first, so that the
+  // whole drag stays inside the page (a scripted pointer outside the page is not followed by every browser).
+  const world = await page.locator('g.world').getAttribute('transform');
+  await page.mouse.move(400, 300);
+  await page.mouse.wheel(-320, 0);
+  await expect(page.locator('g.world')).not.toHaveAttribute('transform', world!);
   const shown = (await topic.locator('rect.hit').boundingBox())!;
+  expect(shown.x).toBeGreaterThan(200 * zoom + 40);
   const grip = (await handle.boundingBox())!;
   // On this side its area reaches 4 px out of the topic and 12 px into it.
   expect(Math.abs(grip.x + 4 - (shown.x + 4 * zoom))).toBeLessThan(1.5);
@@ -938,6 +947,7 @@ test('on the left of the map a topic’s text grows to the left: the bar is on i
   await page.mouse.move(x - 200 * zoom, y, { steps: 4 });
   await page.mouse.up();
   await expect.poll(() => topic.locator('text').count()).toBeLessThan(lines);
+  await settled(page);
   const after = await onMap(topic);
   expect(after.right).toBeCloseTo(before.right, 3);
   expect(after.left).toBeLessThan(before.left);
@@ -955,6 +965,7 @@ test('the bar and the fold button of a topic sit side by side: the button still 
   await page.keyboard.press('ArrowLeft');
   const branch = page.locator('g.topic').nth(1);
   await expect(branch).toHaveClass(/selected/);
+  await settled(page);
   const fold = branch.locator('[data-fold]');
   const button = (await fold.boundingBox())!;
   const [fx, fy] = [button.x + button.width / 2, button.y + button.height / 2];
@@ -983,6 +994,7 @@ test('Wider, Narrower and Automatic step the width of a topic’s text; a double
   await page.keyboard.type(LONG_TEXT);
   await page.keyboard.press('Enter');
   const topic = page.locator('g.topic').nth(1);
+  await settled(page);
   const lines = topic.locator('text');
   const auto = await lines.count();
   const hint = page.locator('.details .text-width');
@@ -1015,6 +1027,7 @@ test('a long text is typed into a box as wide as the topic will be, which wraps 
   await page.keyboard.press('Tab');
   await page.keyboard.type('Method');
   await page.keyboard.press('Enter');
+  await settled(page);
   await page.keyboard.press('Tab');
   const box = page.locator('textarea.inline-editor');
   await expect(box).toBeVisible();
@@ -1035,6 +1048,7 @@ test('a long text is typed into a box as wide as the topic will be, which wraps 
   });
   await page.keyboard.press('Enter');
   await expect(box).toHaveCount(0);
+  await settled(page);
   await expect(page.locator('g.topic').nth(2).locator('text')).toHaveCount(shownLines);
 });
 

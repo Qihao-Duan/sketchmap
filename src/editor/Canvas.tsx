@@ -106,7 +106,9 @@ interface Rewrap {
 
 /**
  * What the dashed outline of a drag shows: a box in map units, and what it says under it. `under`: what
- * else the words go under (the topic as it is now, which may reach lower than the outline).
+ * else the words go under (the topic as it is now, which may reach lower than the outline). `words`: the
+ * part of the outline the words are at, which is the part that stays where it is while the rest grows
+ * (default: its start, the left edge).
  */
 interface Outline {
   x: number;
@@ -115,6 +117,7 @@ interface Outline {
   h: number;
   label: string;
   under?: number;
+  words?: 'middle' | 'end';
 }
 
 const NO_IDS: readonly string[] = [];
@@ -273,6 +276,7 @@ export function Canvas({
       x: b.parentId === null ? b.x + (b.w - becomes.w) / 2 : b.side === -1 ? b.x + b.w - becomes.w : b.x,
       y: kindRef.current === 'org' ? b.y : b.y + (b.h - becomes.h) / 2,
       w: becomes.w, h: becomes.h, label: changes ? `${r.wrap} px` : 'No change', under: b.y + b.h,
+      ...(b.parentId === null ? { words: 'middle' as const } : b.side === -1 ? { words: 'end' as const } : {}),
     };
   };
   /**
@@ -290,6 +294,7 @@ export function Canvas({
     Object.assign(outline.style, {
       left: `${v.tx + v.k * shown.x}px`, top: `${v.ty + v.k * shown.y}px`, width: `${v.k * shown.w}px`, height: `${v.k * shown.h}px`,
     });
+    outline.dataset.words = shown.words ?? 'start';
     const words = outline.firstElementChild as HTMLElement;
     words.textContent = shown.label;
     words.style.top = `${v.k * (Math.max(shown.under ?? shown.y, shown.y + shown.h) - shown.y) + 5}px`;

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { makeZip } from '../src/test/zipFixture';
 import { PNG_2x2 } from './fixtures/pixel';
-import { openNewMap } from './helpers';
+import { openNewMap, settled } from './helpers';
 
 test('the production build works under its strict CSP: editor, PNG export and view', async ({ page }) => {
   const violations: string[] = [];
@@ -43,13 +43,16 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   await page.keyboard.press('Enter');
   await page.keyboard.type('Long enough to wrap into several lines, so that a wider topic has fewer of them than before');
   await page.keyboard.press('Enter');
+  await settled(page);
   const wordy = page.locator('g.topic.selected text');
   const lines = await wordy.count();
   const bar = (await page.locator('.wrap-handle').boundingBox())!;
   expect(bar.width).toBe(16);
+  // Outwards: this branch is on the side the layout put it on, and its bar says which.
+  const outwards = (await page.locator('.wrap-handle').getAttribute('class'))!.includes('left') ? -220 : 220;
   await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
   await page.mouse.down();
-  await page.mouse.move(bar.x + bar.width / 2 + 220, bar.y + bar.height / 2, { steps: 5 });
+  await page.mouse.move(bar.x + bar.width / 2 + outwards, bar.y + bar.height / 2, { steps: 5 });
   await expect(page.locator('.size-box')).toHaveText(/^\d+ px$/);
   await page.mouse.up();
   await expect.poll(() => wordy.count()).toBeLessThan(lines);
