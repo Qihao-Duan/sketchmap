@@ -99,7 +99,7 @@ Browsers: the editor and the embed need Chrome/Edge 123+, Firefox 120+ or Safari
   - Drag with the right (or middle) button, or use the wheel or a two-finger scroll, to move the canvas. ⌘/Ctrl with the wheel zooms. The right-click menu is off on the canvas for this reason.
 - **Several topics at once.**
   - Besides the box, Shift-click adds a topic to the selection or takes it out, and ⌘/Ctrl A selects every topic on screen. Esc or a click on one topic goes back to one selected topic.
-  - Delete removes all selected topics, and dragging one of them moves them all to where you drop them. Importance, priority and marker (the panel or Alt ↑ / ↓ / 0–3) go to all of them. Each of these is one undo step.
+  - Delete removes all selected topics, and dragging one of them moves them all to where you drop them. Importance, priority and marker (the panel or Alt ↑ / ↓ / 0–3) go to all of them, and so do the text width buttons of the panel. Each of these is one undo step.
   - Everything else (Tab, Enter, editing, the note, links, images, paste, fold, ⌘/Ctrl with an arrow) acts on one of them, the current topic: the one the Details panel names.
 - **Layout switch.** Pick **Mind map**, **Logic chart** or **Org chart** from the header; the choice is saved with the map.
 - **Outline.** The **Outline** button opens the map as a Markdown outline: edit the text (or paste one from elsewhere) and **Replace map with this**, or close without applying.
@@ -112,6 +112,12 @@ Browsers: the editor and the embed need Chrome/Edge 123+, Firefox 120+ or Safari
 - **Importance:** Key, Highlight, Normal and Aside, with Alt ↑ / Alt ↓.
 - **Priority:** ①②③, with Alt 1–3, and Alt 0 to clear.
 - **Marker:** the ten markers. Clicking the active marker removes it.
+- **Text width:** where the topic's text wraps. By itself that is 300 px in the central topic, 230 px in a main branch and 250 px deeper (200 px in an org chart), which makes a long text tall and narrow.
+  - **Drag the small bar** on the side of the selected topic (the right side; the left side on the left of the map) to set the width. A dashed outline shows what the topic becomes, and the text is wrapped again when you let go (one undo step). A double click on the bar goes back to the automatic width.
+  - **Narrower**, **Wider** and **Automatic** in the Details panel do the same in steps of a quarter, also from the keyboard and for several selected topics at once (each from its own width).
+  - The width is the widest a line may get, from 60 to 1600 px. The topic stays as narrow as its text, and a word is never broken. A drag that would move no word to another line changes nothing.
+  - The bar is away while the topic's text is open, with several topics selected, and in the Notion view.
+  - **While typing**, the box is as wide as the topic will be: it grows with the text up to that width and wraps where the topic will, and the canvas moves so that the box stays in sight.
 - **Note:** saved as you type. Hover the little page icon on a topic to read it. In the Notion view a click or tap on the icon opens the whole note in a small card; Esc, the ×, or a tap anywhere else closes it.
 - **Links.** Write links as `[label](https://…)` in a topic, or paste a bare `https://…` address — a bare URL is always a link (there's no syntax to write one as plain text), shown shortened to its host and path (at most 28 characters) while keeping its full address. Write a literal `[`, `]` or `\` with `\[`, `\]` or `\\`. While editing, select words and press ⌘/Ctrl K, or paste a link over them. On a selected topic, ⌘/Ctrl K links the whole topic, with "Remove link" to take it off (not offered for a topic whose only link is a bare URL, which can't be unlinked). Links open with ⌘/Ctrl-click in the editor and with a plain click in the Notion view. The Details panel lists them.
 
@@ -153,10 +159,10 @@ In dark mode the drawing is inverted the way Excalidraw does it, but images are 
 - Not yet checked: Safari itself and iOS; Chinese input (IME) and a real clipboard paste in Safari and Firefox; opening a link from the embed in the Notion desktop and mobile apps; opening the `.excalidraw` export in excalidraw.com. XMind notes and XMind 8 files are imported from the documented format; no real sample with notes or from XMind 8 was available.
 - Sign in with Google is tested against a stand-in for Google (the Worker tests play Google's token endpoint, and the browser tests start from the session a sign-in ends in). It has not yet been tried against Google itself, which needs your own OAuth client.
 - Reading a note by tapping its icon in the Notion view is checked with the browsers' touch emulation, not yet on a real phone or in the Notion mobile app.
-- Dragging the corner of an image with a finger is checked with scripted touch events only, not yet on a real phone or tablet.
+- Dragging the corner of an image, or the bar on a topic's side, with a finger is checked with scripted touch events only, not yet on a real phone or tablet.
 - The selection box needs a mouse or trackpad. On a touch screen a finger on the editor's background moves the canvas, as it does in the Notion view, where the left button also still moves the canvas.
 - Large maps get slower to edit, because every change redraws the whole map. Measured in headless Chromium on the development machine (2026-11-13), the time from an arrow key to the screen updating was 33 ms at 100 and 300 topics (33 ms is the shortest time this measurement can show), about 68 ms at 1000 and about 118 ms at 2000.
-- The Markdown outline keeps topic text, nesting, Key, priority and markers. Line breaks inside a topic, folded state, topic identity, Highlight, Aside, notes and images are not kept, so replacing the map from the outline removes them (undo brings them back).
+- The Markdown outline keeps topic text, nesting, Key, priority and markers. Line breaks inside a topic, folded state, topic identity, Highlight, Aside, notes, images and text widths set by hand are not kept, so replacing the map from the outline removes them (undo brings them back).
 - Pasting a very large outline (thousands of topics) is slow, and a map over 2 MB cannot be saved; undo the paste if that happens.
 - An existing map's title where maps are listed keeps raw link syntax (`[label](https://…)`, a bare URL) until that map is next saved.
 
