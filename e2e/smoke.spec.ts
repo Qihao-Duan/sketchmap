@@ -1225,7 +1225,7 @@ test('a box wider than the canvas does not make the canvas jump back and forth w
   expect(Math.abs(after.ty + after.k * under[1] - (py - stage.y))).toBeLessThan(1.5);
 });
 
-test('opened on a topic, the box wraps its text the way the topic does, also with a narrow width set by hand and zoomed far out', async ({ page }) => {
+test('opened on a topic, the box wraps its text the way the topic does, also zoomed far out', async ({ page }) => {
   await openNewMap(page);
   await page.locator('g.topic').click();
   await page.keyboard.press('Tab');
@@ -1234,9 +1234,16 @@ test('opened on a topic, the box wraps its text the way the topic does, also wit
   await settled(page);
   const topic = page.locator('g.topic').nth(1);
   const box = page.locator('textarea.inline-editor');
+  // The lines of the text itself: the box is never lower than its topic, so its own height says nothing.
   const boxLines = () => box.evaluate((ta) => {
     const cs = getComputedStyle(ta);
-    return Math.round((ta.scrollHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / parseFloat(cs.lineHeight));
+    const [height, minHeight] = [ta.style.height, ta.style.minHeight];
+    ta.style.height = '0px';
+    ta.style.minHeight = '0px';
+    const text = ta.scrollHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    ta.style.height = height;
+    ta.style.minHeight = minHeight;
+    return Math.round(text / parseFloat(cs.lineHeight));
   });
   const compare = async (what: string) => {
     await settled(page);
@@ -1248,14 +1255,16 @@ test('opened on a topic, the box wraps its text the way the topic does, also wit
     await expect(box).toHaveCount(0);
   };
   await compare('automatic width');
-  // Narrower than the least width of the box: the text has the topic's room, not the box's.
-  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Narrower' }).click();
-  await expect(page.locator('.details .text-width')).toContainText('The text wraps at 90 px.');
-  await compare('90 px');
+  await page.getByRole('button', { name: 'Wider' }).click();
+  await compare('a step wider');
+  // Zoomed out, the topic is narrower on the screen than the least width of the box (140 px): the text
+  // has the topic's room to wrap in, not the box's.
   await page.getByRole('button', { name: 'Automatic' }).click();
-  for (let i = 0; i < 12 && (await zoomOf(page)) > 0.5; i++) await page.getByRole('button', { name: 'Zoom out' }).click();
-  expect(await zoomOf(page)).toBeLessThanOrEqual(0.5);
-  await compare('zoomed out');
+  for (const zoom of [0.5, 0.3]) {
+    for (let i = 0; i < 12 && (await zoomOf(page)) > zoom; i++) await page.getByRole('button', { name: 'Zoom out' }).click();
+    expect(await zoomOf(page)).toBeLessThanOrEqual(zoom);
+    await compare(`zoomed out to ${zoom}`);
+  }
 });
 
 test('a long text is typed into a box as wide as the topic will be, which wraps it the way the topic does and stays clear of the Details panel', async ({ page }) => {
