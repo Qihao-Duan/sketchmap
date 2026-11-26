@@ -58,4 +58,11 @@ describe('parseMindMap', () => {
     expect(parseMindMap(withSide('right')).root.children[0].side).toBe('right');
     expect(() => parseMindMap(withSide('up'))).toThrow(MapValidationError);
   });
+
+  it('accepts where a topic’s text wraps when set by hand: whole px from 60 to 1600', () => {
+    const withWrap = (wrap: unknown) => ({ ...valid, root: { ...valid.root, children: [{ id: 'child00001', text: 'A', children: [], wrap }] } });
+    expect(parseMindMap(withWrap(60)).root.children[0].wrap).toBe(60);
+    expect(parseMindMap(withWrap(1600)).root.children[0].wrap).toBe(1600);
+    for (const bad of [59, 1601, 250.5, '250', null]) expect(() => parseMindMap(withWrap(bad))).toThrow(MapValidationError);
+  });
 });

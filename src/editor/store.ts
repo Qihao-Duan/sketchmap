@@ -1,7 +1,8 @@
 import { produce } from 'immer';
 import { IMAGE_MAX_PX, IMAGE_MIN_PX } from '../io/imagePrep';
 import { linkWhole } from '../shared/rich';
-import type { BranchSide, Emphasis, LayoutKind, MapNode, MindMap } from '../shared/types';
+import { styleFor } from '../layout/styles';
+import { WRAP_MAX_PX, WRAP_MIN_PX, type BranchSide, type Emphasis, type LayoutKind, type MapNode, type MindMap } from '../shared/types';
 import * as T from '../model/tree';
 
 export const HISTORY_LIMIT = 200;
@@ -56,7 +57,20 @@ export type EditorAction =
   | { type: 'setLink'; id: string; href: string | null }
   | { type: 'setImage'; id: string; image: { key: string; w: number; h: number } | null }
   /** A new display size, in px. The caller keeps the picture's proportions; the sides are rounded and kept within 16-2048. */
-  | { type: 'resizeImage'; id: string; w: number; h: number };
+  | { type: 'resizeImage'; id: string; w: number; h: number }
+  /** Where the topic's text wraps, set by hand: px, rounded and kept within 60-1600. null: automatic again. */
+  | { type: 'setWrap'; id: string; wrap: number | null }
+  /**
+   * A step wider or narrower from where the text wraps now, or back to automatic: on `id`, or on every
+   * selected topic when `id` is the current one, each from its own width.
+   */
+  | { type: 'stepWrap'; id: string; step: WrapStep };
+
+export type WrapStep = 'wider' | 'narrower' | 'auto';
+
+const wrapWithin = (px: number) => Math.min(WRAP_MAX_PX, Math.max(WRAP_MIN_PX, Math.round(px)));
+/** A quarter wider or narrower, in whole tens: a step that shows at every width and leads back to where it came from. */
+const wrapStepped = (px: number, step: 'wider' | 'narrower') => wrapWithin(Math.round((step === 'wider' ? px * 1.25 : px / 1.25) / 10) * 10);
 
 /** One shared empty list, so "no multi-selection" never looks like a change. */
 const NONE: readonly string[] = [];
@@ -372,6 +386,49 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
         node.image = { ...node.image!, w, h };
       });
       return commit(state, next);
+    }
+
+    case 'setWrap': {
+      if (state.editing) return state;
+      const f = T.findNode(state.map.root, action.id);
+      if (!f || (action.wrap !== null && !Number.isFinite(action.wrap))) return state;
+      const wrap = action.wrap === null ? null : wrapWithin(action.wrap);
+      if ((f.node.wrap ?? null) === wrap) return state;
+      const next = produce(state.map, (d) => {
+        const node = T.findNode(d.root, action.id)!.node;
+        if (wrap === null) delete node.wrap;
+        else node.wrap = wrap;
+      });
+      return commit(state, next);
+    }
+
+    case 'stepWrap': {
+      if (state.editing) return state;
+      const targets = targetsOf(state, action.id);
+      const { step } = action;
+      let changed = false;
+      const next = produce(state.map, (d) => {
+        const walk = (node: MapNode, depth: number) => {
+          if (targets.has(node.id)) {
+            if (step === 'auto') {
+              if (node.wrap !== undefined) changed = true;
+              delete node.wrap;
+            } else {
+              // Automatic is the width that goes with the topic's level: a step starts from there.
+              const now = node.wrap ?? styleFor(depth, d.layout, node.emphasis).maxW;
+              const wrap = wrapStepped(now, step);
+              // At the least and at the most a step leads nowhere.
+              if (wrap !== now) {
+                changed = true;
+                node.wrap = wrap;
+              }
+            }
+          }
+          node.children.forEach((c) => walk(c, depth + 1));
+        };
+        walk(d.root, 0);
+      });
+      return changed ? commit(state, next) : state;
     }
 
     case 'undo': {

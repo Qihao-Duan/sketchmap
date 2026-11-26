@@ -107,7 +107,8 @@ export function measureTopic(node: MapNode, depth: number, measure: Measure, kin
   const display = prefix + rich.plain;
   // An image with nothing else to show is image-only: no text line. A marker, priority badge or note needs a line to sit on.
   const noText = !!node.image && !display.trim() && !node.priority && !node.note?.trim();
-  const wrapped = noText ? [] : wrapWithOffsets(display || ' ', style.fontSize, style.maxW, measure);
+  // Where the text wraps: the width set on this topic by hand, else the width that goes with its level.
+  const wrapped = noText ? [] : wrapWithOffsets(display || ' ', style.fontSize, node.wrap ?? style.maxW, measure);
   const lines = wrapped.map((l) => l.text);
   const lineWidths = lines.map((l) => measure(l, style.fontSize));
   const links = rich.links.map((l) => ({ start: l.start + prefix.length, end: l.end + prefix.length, href: l.href }));

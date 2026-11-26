@@ -736,7 +736,7 @@ test('dragging the corner of a topic’s image resizes it; the size is undone, s
 
   // 60 map px along the diagonal: 200 → 260. The outline says the size before the button is let go.
   const zoom = shown.width / 200;
-  const outline = page.locator('.image-size-box');
+  const outline = page.locator('.size-box');
   await expect(outline).toBeHidden();
   await page.mouse.move(x, y);
   await page.mouse.down();

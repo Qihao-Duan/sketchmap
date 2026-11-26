@@ -49,7 +49,7 @@ function fire(el: Element, type: string, x: number, y: number, init: MouseEventI
   return ev;
 }
 const handle = () => container.querySelector<HTMLElement>('.image-handle')!;
-const outline = () => container.querySelector<HTMLElement>('.image-size-box')!;
+const outline = () => container.querySelector<HTMLElement>('.size-box')!;
 /** Where topic `id`'s image is in map units: its top-left corner and its bottom-right one. */
 function imageOf(id: string, shown = layout) {
   const b = shown.byId.get(id)!;

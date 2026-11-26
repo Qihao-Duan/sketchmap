@@ -19,6 +19,12 @@ export interface MapNode {
    * was put on by hand. While no main branch has one, the layout balances the two sides itself.
    */
   side?: BranchSide;
+  /**
+   * Where this topic's text wraps, in px, when that was set by hand. Without it the text wraps at the
+   * width that goes with the topic's level (`maxW` in the layout's styles). The topic stays as narrow as
+   * its text: this is the widest a line may get, not the width of the box.
+   */
+  wrap?: number;
 }
 
 export interface MindMap {
@@ -37,6 +43,10 @@ export interface MapSummary {
 }
 
 export const LIMITS = { mapJsonBytes: 2_000_000 } as const;
+
+/** The least and the most a topic's text width may be set to by hand, in px (`MapNode.wrap`). */
+export const WRAP_MIN_PX = 60;
+export const WRAP_MAX_PX = 1600;
 
 /** A stored image's key: `img/<mapId>/<file>.<png|jpg|webp|gif>`. The schema, the Worker and the renderer all check it. */
 export const IMAGE_KEY_RE = /^img\/[A-Za-z0-9_-]{21}\/[A-Za-z0-9_-]{1,64}\.(png|jpg|webp|gif)$/;

@@ -34,7 +34,7 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
   await page.mouse.down();
   await page.mouse.move(grip.x + grip.width / 2 + 50, grip.y + grip.height / 2 + 50, { steps: 5 });
-  await expect(page.locator('.image-size-box')).toBeVisible();
+  await expect(page.locator('.size-box')).toBeVisible();
   await page.mouse.up();
   await expect(page.locator('image.topic-image')).not.toHaveAttribute('width', '200');
   expect(violations).toEqual([]);

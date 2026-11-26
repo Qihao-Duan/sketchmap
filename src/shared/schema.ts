@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IMAGE_KEY_RE, MARKERS, type MapNode, type MindMap } from './types';
+import { IMAGE_KEY_RE, MARKERS, WRAP_MAX_PX, WRAP_MIN_PX, type MapNode, type MindMap } from './types';
 
 export class MapValidationError extends Error {}
 
@@ -24,6 +24,7 @@ const mapNodeSchema: z.ZodType<MapNode> = z.lazy(() =>
       .optional(),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
     side: z.enum(['left', 'right']).optional(),
+    wrap: z.number().int().min(WRAP_MIN_PX).max(WRAP_MAX_PX).optional(),
   }),
 );
 

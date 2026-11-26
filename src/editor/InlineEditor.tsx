@@ -1,11 +1,14 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { TopicBox } from '../layout/map';
+import { wrapText, type Measure } from '../layout/wrap';
 import { linkRange, normalizeHref, parseRich } from '../shared/rich';
 import type { View } from './viewport';
 
 interface Props {
   box: TopicBox;
   view: View;
+  /** Measures text the way the layout does, so the box can be as wide as the topic will be. */
+  measure: Measure;
   initialText: string;
   selectAll: boolean;
   onCommit(text: string): void;
@@ -15,7 +18,7 @@ interface Props {
 
 const TOO_LONG = 'With this link the topic would be longer than 5000 characters.';
 
-export function InlineEditor({ box, view, initialText, selectAll, onCommit, onCancel, onTab }: Props) {
+export function InlineEditor({ box, view, measure, initialText, selectAll, onCommit, onCancel, onTab }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [value, setValue] = useState(initialText);
   const done = useRef(false);
@@ -72,10 +75,17 @@ export function InlineEditor({ box, view, initialText, selectAll, onCommit, onCa
   // Start below the image (if any), so the box never covers it, even while an image-only topic gets its first text.
   const textOffset = box.image ? box.image.y + box.image.h : 0;
   const minHeight = (box.h - textOffset) * k;
-  const width = Math.max(box.w * k, parseRich(value).plain !== value ? 280 : 140);
+  // As wide as the topic will be with this text: it grows while one types, up to where the topic's text
+  // wraps, so a long text is not typed into a narrow column. The 6 px are the border and a little air,
+  // which keep a line that fits the topic from wrapping in the box. Never narrower than the topic is now.
+  const widest = wrapText(value || ' ', fontSize, box.node.wrap ?? box.style.maxW, measure).reduce((m, line) => Math.max(m, measure(line, fontSize)), 0);
+  const typed = (widest + padX * 2 + box.badgeW + box.noteW) * k + 6;
+  const width = Math.max(box.w * k, typed, parseRich(value).plain !== value ? 280 : 140);
   const lines = Math.max(1, value.split('\n').length);
+  // It grows the way the topic will: away from its parent, and to both sides for the central topic.
+  const left = box.parentId === null ? (box.x + box.w / 2) * k - width / 2 : box.side === -1 ? (box.x + box.w) * k - width : box.x * k;
   const style: CSSProperties = {
-    left: view.tx + box.x * k + (kind === 'line' ? 0 : (box.w * k - width) / 2),
+    left: view.tx + left,
     top: view.ty + (box.y + textOffset) * k,
     width,
     minHeight,

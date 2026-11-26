@@ -1087,6 +1087,130 @@ describe('Excalidraw export', () => {
   });
 });
 
+describe('Text width', () => {
+  /** 24 words: in the central topic (28 px text, 14 px a character, wraps at 300 px) six lines of four words. */
+  const long = Array.from({ length: 24 }, () => 'word').join(' ');
+  const wordy: MindMap = { ...map, root: { ...map.root, text: long, children: [{ id: 'child00001', text: long, children: [] }] } };
+  const handle = () => container.querySelector<HTMLElement>('.wrap-handle')!;
+  const lines = (id = 'root000001') => container.querySelectorAll(`g.topic[data-id="${id}"] text`).length;
+  const hint = () => container.querySelector('.details .text-width')!.textContent;
+  const lastSaved = (api: ApiClient) => vi.mocked(api.saveMap).mock.calls.at(-1)![0];
+  const fire = (type: string, x: number, y: number, buttons: number) =>
+    act(() => void handle().dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons, clientX: x, clientY: y })));
+  /** Presses the handle where it is, moves it `dx` sideways and lets go. The view is not moved: jsdom has no size. */
+  function dragSide(dx: number) {
+    const x = parseFloat(handle().style.left);
+    const y = parseFloat(handle().style.top);
+    fire('pointerdown', x, y, 1);
+    fire('pointermove', x + dx, y, 1);
+    fire('pointerup', x + dx, y, 0);
+  }
+
+  it('dragging the bar on the topic’s side wraps its text at the new width, which is saved; one undo brings the old lines back', async () => {
+    const api = fakeApi();
+    mount(api, wordy);
+    expect(lines()).toBe(6);
+    expect(hint()).toContain('Automatic: the text wraps at 300 px.');
+    // The central topic grows to both sides: 100 px further out makes it 200 px wider, 518 px, of which 52 px are not text.
+    dragSide(100);
+    expect(lines()).toBe(4);
+    expect(hint()).toContain('The text wraps at 466 px.');
+    await advance(1500);
+    expect(lastSaved(api).root.wrap).toBe(466);
+    keydown({ key: 'z', metaKey: true });
+    expect(lines()).toBe(6);
+    await advance(1500);
+    expect('wrap' in lastSaved(api).root).toBe(false);
+  });
+
+  it('the bar is on the topic’s new edge afterwards', () => {
+    mount(fakeApi(), wordy);
+    const before = parseFloat(handle().style.left);
+    dragSide(100);
+    // Six words a line now: 29 characters, 406 px, and 52 px that are not text; the topic is centred on 0.
+    expect(parseFloat(handle().style.left)).toBe(458 / 2);
+    expect(parseFloat(handle().style.left)).toBeGreaterThan(before);
+  });
+
+  it('Wider, Narrower and Automatic in the Details panel do it in steps, from the keyboard too', async () => {
+    const api = fakeApi();
+    mount(api, wordy);
+    await click('Wider');
+    expect(hint()).toContain('The text wraps at 380 px.');
+    expect(lines()).toBe(5);
+    await click('Wider');
+    expect(hint()).toContain('The text wraps at 480 px.');
+    await click('Narrower');
+    expect(hint()).toContain('The text wraps at 380 px.');
+    await advance(1500);
+    expect(lastSaved(api).root.wrap).toBe(380);
+    await click('Automatic');
+    expect(hint()).toContain('Automatic: the text wraps at 300 px.');
+    expect(lines()).toBe(6);
+    expect(pressedIn('Text width')).toEqual(['Automatic']);
+    await advance(1500);
+    expect('wrap' in lastSaved(api).root).toBe(false);
+  });
+
+  it('a double click on the bar takes a width set by hand away', async () => {
+    mount(fakeApi(), wordy);
+    await click('Wider');
+    expect(lines()).toBe(5);
+    act(() => void handle().dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })));
+    expect(lines()).toBe(6);
+    expect(pressedIn('Text width')).toEqual(['Automatic']);
+  });
+
+  it('there is no bar while the topic’s text is open; it is back afterwards', () => {
+    mount(fakeApi(), wordy);
+    expect(handle().hidden).toBe(false);
+    keydown({ key: 'F2' });
+    expect(container.querySelector('textarea.inline-editor')).not.toBeNull();
+    expect(handle().hidden).toBe(true);
+    keydown({ key: 'Escape' }, container.querySelector('textarea.inline-editor')!);
+    expect(handle().hidden).toBe(false);
+  });
+
+  it('Wider while the topic’s text is open keeps the typed text and widens', async () => {
+    mount(fakeApi(), wordy);
+    keydown({ key: 'F2' });
+    const ta = container.querySelector('textarea.inline-editor') as HTMLTextAreaElement;
+    act(() => ta.focus());
+    type(ta, `${long} more`);
+    await click('Wider');
+    expect(container.querySelector('textarea.inline-editor')).toBeNull();
+    expect(container.querySelector('g.topic[data-id="root000001"]')!.textContent).toContain('more');
+    expect(hint()).toContain('The text wraps at 380 px.');
+  });
+
+  it('with several topics selected, a step goes to each of them from its own width, as one undo step', async () => {
+    const api = fakeApi();
+    mount(api, wordy);
+    keydown({ key: 'a', metaKey: true });
+    expect(handle().hidden).toBe(true);
+    await click('Wider');
+    await advance(1500);
+    // The central topic wraps at 300 px by itself, a main branch at 230 px.
+    expect([lastSaved(api).root.wrap, lastSaved(api).root.children[0].wrap]).toEqual([380, 290]);
+    keydown({ key: 'z', metaKey: true });
+    await advance(1500);
+    expect(['wrap' in lastSaved(api).root, 'wrap' in lastSaved(api).root.children[0]]).toEqual([false, false]);
+  });
+
+  it('the box a text is typed into grows with the text, up to where the topic’s text wraps', () => {
+    mount(fakeApi());
+    keydown({ key: 'Tab' });
+    const ta = container.querySelector('textarea.inline-editor') as HTMLTextAreaElement;
+    expect(parseFloat(ta.style.width)).toBe(140);
+    // A main branch: 20 px text, 10 px a character, 2 × 16 px beside the text, and 6 px for the border and some air.
+    type(ta, 'word word word word');
+    expect(parseFloat(ta.style.width)).toBe(190 + 32 + 6);
+    // It wraps at 230 px: four of these words to a line, however many are typed.
+    type(ta, long);
+    expect(parseFloat(ta.style.width)).toBe(190 + 32 + 6);
+  });
+});
+
 describe('Editor: several topics selected', () => {
   const three: MindMap = {
     ...map,

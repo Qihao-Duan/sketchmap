@@ -4,6 +4,7 @@ import { IMAGE_SIZES } from '../io/imagePrep';
 import { ASIDE_INK, HIGHLIGHTER, INK, PRIORITY_COLORS } from '../layout/styles';
 import { parseRich } from '../shared/rich';
 import { MARKERS, type Emphasis, type MapNode } from '../shared/types';
+import type { WrapStep } from './store';
 
 type Rough = ReturnType<typeof rough.svg>;
 type Draw = (rc: Rough, svg: SVGSVGElement) => void;
@@ -70,9 +71,14 @@ const PRIORITIES: Array<{ value: 1 | 2 | 3 | null; label: string; title: string;
 ];
 
 const IMAGE_SIZE_KEYS = ['S', 'M', 'L'] as const;
+const WRAP_STEPS: Array<{ step: WrapStep; label: string; title: string }> = [
+  { step: 'narrower', label: 'Narrower', title: 'The text wraps sooner' },
+  { step: 'wider', label: 'Wider', title: 'The text wraps later' },
+  { step: 'auto', label: 'Automatic', title: 'The text wraps where the topic’s level says' },
+];
 
 export interface DetailsPanelProps {
-  /** The current topic. With several topics selected, importance, priority and marker go to all of them. */
+  /** The current topic. With several topics selected, importance, priority, marker and text width go to all of them. */
   node: MapNode;
   /** How many topics are selected (default 1). Above 1 the panel shows only what applies to all of them. */
   count?: number;
@@ -83,6 +89,10 @@ export interface DetailsPanelProps {
   onImageFile(file: File): void;
   onImageSize(size: 'S' | 'M' | 'L'): void;
   onImageRemove(): void;
+  /** A step wider or narrower for the text of the selected topics, or back to automatic. */
+  onTextWidth(step: WrapStep): void;
+  /** Where the current topic's text wraps while no width was set by hand: the width that goes with its level. */
+  autoWrap?: number;
   /** An image is being uploaded: the Add/Replace button is disabled and reads "Uploading…". */
   uploading?: boolean;
   /** A new topic is open for typing: finish it before writing a note. */
@@ -107,7 +117,9 @@ export function NoTopicDetails({ onFold }: { onFold(): void }) {
 }
 
 /** The selected topic's importance, priority, marker, note and image. Mount it with `key={node.id}`. */
-export function DetailsPanel({ node, count = 1, onEmphasis, onPriority, onMarker, onNote, onImageFile, onImageSize, onImageRemove, uploading, newTopicOpen, onFold }: DetailsPanelProps) {
+export function DetailsPanel({
+  node, count = 1, onEmphasis, onPriority, onMarker, onNote, onImageFile, onImageSize, onImageRemove, onTextWidth, autoWrap, uploading, newTopicOpen, onFold,
+}: DetailsPanelProps) {
   const many = count > 1;
   const [note, setNote] = useState(node.note ?? '');
   const noteBox = useRef<HTMLTextAreaElement>(null);
@@ -160,7 +172,7 @@ export function DetailsPanel({ node, count = 1, onEmphasis, onPriority, onMarker
           ▸
         </button>
       </div>
-      {many ? <p className="muted hint">Importance, priority and marker go to all of them. Shown here: {title}.</p> : <div className="topic-title">{title}</div>}
+      {many ? <p className="muted hint">Importance, priority, marker and text width go to all of them. Shown here: {title}.</p> : <div className="topic-title">{title}</div>}
       <div className="field">
         <span className="flabel">Importance</span>
         <div className="chips importance" role="group" aria-label="Importance">
@@ -216,6 +228,30 @@ export function DetailsPanel({ node, count = 1, onEmphasis, onPriority, onMarker
             </button>
           ))}
         </div>
+      </div>
+      <div className="field">
+        <span className="flabel">Text width</span>
+        <div className="chips" role="group" aria-label="Text width">
+          {WRAP_STEPS.map((it) => (
+            <button
+              key={it.step}
+              type="button"
+              className="chip word"
+              title={it.title}
+              aria-pressed={it.step === 'auto' ? node.wrap === undefined : undefined}
+              onMouseDown={noFocus}
+              onClick={() => onTextWidth(it.step)}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+        {!many && (
+          <p className="muted hint text-width">
+            {node.wrap !== undefined ? `The text wraps at ${node.wrap} px.` : autoWrap !== undefined ? `Automatic: the text wraps at ${autoWrap} px.` : 'Automatic.'}
+            {' '}For any other width, drag the bar on the topic’s side.
+          </p>
+        )}
       </div>
       {!many && <label className="field">
         <span className="flabel">Note</span>

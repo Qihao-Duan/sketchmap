@@ -44,9 +44,10 @@ export function readDecorations(raw: string): Pick<MapNode, 'text' | 'priority' 
 }
 
 /**
- * What Markdown can't carry, for the "not kept" notice (spec §9): Highlight, Aside, notes and images. Images are
- * listed here even when `toMarkdown` is asked to inline them (`imageBase`): pasting that text back into the Outline
- * panel and applying it turns `![](…)` into inert text, never back into a topic image (spec §9 ruling).
+ * What Markdown can't carry, for the "not kept" notice (spec §9): Highlight, Aside, notes, images and text
+ * widths set by hand. Images are listed here even when `toMarkdown` is asked to inline them (`imageBase`):
+ * pasting that text back into the Outline panel and applying it turns `![](…)` into inert text, never back
+ * into a topic image (spec §9 ruling).
  */
 export function markdownLosses(root: MapNode): string[] {
   const found = new Set<string>();
@@ -57,10 +58,11 @@ export function markdownLosses(root: MapNode): string[] {
     if (n.emphasis === 'aside') found.add('Aside');
     if (n.note?.trim()) found.add('notes');
     if (n.image) found.add('images');
+    if (n.wrap !== undefined) found.add('text widths');
     if (n.emphasis === 'key' && n.text.includes('**')) found.add(KEY_WITH_STARS);
     stack.push(...n.children);
   }
-  return ['Highlight', 'Aside', 'notes', 'images', KEY_WITH_STARS].filter((x) => found.has(x));
+  return ['Highlight', 'Aside', 'notes', 'images', 'text widths', KEY_WITH_STARS].filter((x) => found.has(x));
 }
 
 /** `# Root`, then nested `- ` bullets, 2 spaces per level. Pastes into Notion as a nested list.

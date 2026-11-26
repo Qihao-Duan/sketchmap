@@ -57,6 +57,12 @@ describe('parseOutline', () => {
     expect(markdownLosses(n('R', [{ ...n('a'), note: 'x', image }]))).toEqual(['notes', 'images']);
   });
 
+  it('lists text widths set by hand, ordered after images', () => {
+    const image = { key: 'img/abcdefghijklmnopqrstu/c.png', w: 200, h: 100 };
+    expect(markdownLosses(n('R', [{ ...n('a'), wrap: 420 }]))).toEqual(['text widths']);
+    expect(markdownLosses({ ...n('R', [{ ...n('a'), image }]), wrap: 420 })).toEqual(['images', 'text widths']);
+  });
+
   it('round-trips toMarkdown', () => {
     const tree = n('Plan', [n('A', [n('A1'), n('A2', [n('Deep')])]), n('B')]);
     const parsed = parseOutline(toMarkdown(tree))!;

@@ -18,7 +18,7 @@ describe('DetailsPanel image row', () => {
         <DetailsPanel
           node={{ id: 'a', text: 'Cat', image: { key: 'img/abcdefghijklmnopqrstu/c.png', w: 200, h: 100 }, children: [] }}
           onEmphasis={noop} onPriority={noop} onMarker={noop} onNote={noop}
-          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop}
+          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop} onTextWidth={noop}
           uploading
         />,
       ),
@@ -39,7 +39,7 @@ describe('DetailsPanel image row', () => {
         <DetailsPanel
           node={{ id: 'a', text: 'Cat', image: { key: 'img/abcdefghijklmnopqrstu/c.png', w: 260, h: 130 }, children: [] }}
           onEmphasis={noop} onPriority={noop} onMarker={noop} onNote={noop}
-          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop}
+          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop} onTextWidth={noop}
         />,
       ),
     );
@@ -57,7 +57,7 @@ describe('DetailsPanel image row', () => {
         <DetailsPanel
           node={{ id: 'a', text: 'Cat', children: [] }}
           onEmphasis={noop} onPriority={noop} onMarker={noop} onNote={noop}
-          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop}
+          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop} onTextWidth={noop}
         />,
       ),
     );
@@ -73,10 +73,68 @@ describe('DetailsPanel image row', () => {
         <DetailsPanel
           node={{ id: 'a', text: 'Cat', children: [] }}
           onEmphasis={noop} onPriority={noop} onMarker={noop} onNote={noop}
-          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop}
+          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop} onTextWidth={noop}
         />,
       ),
     );
     expect(container.querySelector('input[aria-label="Image file"]')!.getAttribute('accept')).toContain('image/svg+xml');
   });
 });
+
+describe('DetailsPanel text width row', () => {
+  function show(node: Parameters<typeof DetailsPanel>[0]['node'], extra: Partial<Parameters<typeof DetailsPanel>[0]> = {}) {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    const noop = vi.fn();
+    const onTextWidth = vi.fn();
+    act(() =>
+      createRoot(container).render(
+        <DetailsPanel
+          node={node}
+          onEmphasis={noop} onPriority={noop} onMarker={noop} onNote={noop}
+          onImageFile={noop} onImageSize={noop} onImageRemove={noop} onFold={noop}
+          onTextWidth={onTextWidth} autoWrap={250}
+          {...extra}
+        />,
+      ),
+    );
+    const row = container.querySelector('[aria-label="Text width"]')!;
+    const button = (t: string) => [...row.querySelectorAll('button')].find((b) => b.textContent === t)!;
+    return { onTextWidth, button, hint: () => container.querySelector('.text-width')?.textContent };
+  }
+
+  it('has Narrower, Wider and Automatic, which ask for that step', () => {
+    const { onTextWidth, button } = show({ id: 'a', text: 'Cat', children: [] });
+    act(() => button('Wider').click());
+    act(() => button('Narrower').click());
+    act(() => button('Automatic').click());
+    expect(onTextWidth.mock.calls).toEqual([['wider'], ['narrower'], ['auto']]);
+  });
+
+  it('a topic with no width of its own has Automatic marked, and the panel says where its text wraps', () => {
+    const { button, hint } = show({ id: 'a', text: 'Cat', children: [] });
+    expect(button('Automatic').getAttribute('aria-pressed')).toBe('true');
+    expect(hint()).toBe('Automatic: the text wraps at 250 px. For any other width, drag the bar on the topic’s side.');
+  });
+
+  it('a topic with a width set by hand says that width, and Automatic is not marked', () => {
+    const { button, hint } = show({ id: 'a', text: 'Cat', wrap: 420, children: [] });
+    expect(button('Automatic').getAttribute('aria-pressed')).toBe('false');
+    expect(hint()).toBe('The text wraps at 420 px. For any other width, drag the bar on the topic’s side.');
+  });
+
+  it('with several topics selected the buttons are there, for all of them, and no width of one topic is said', () => {
+    const { button, hint } = show({ id: 'a', text: 'Cat', wrap: 420, children: [] }, { count: 3 });
+    expect(button('Wider')).toBeDefined();
+    expect(hint()).toBeUndefined();
+    expect(container.textContent).toContain('Importance, priority, marker and text width go to all of them.');
+  });
+
+  it('a click on a button leaves the keyboard where it is', () => {
+    const { button } = show({ id: 'a', text: 'Cat', children: [] });
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    act(() => void button('Wider').dispatchEvent(down));
+    expect(down.defaultPrevented).toBe(true);
+  });
+});
+

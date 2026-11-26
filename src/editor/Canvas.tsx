@@ -1,7 +1,9 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type Ref } from 'react';
 import { displaySize } from '../io/imagePrep';
-import type { MapLayout } from '../layout/map';
+import { measureTopic, type MapLayout, type Measured, type TopicBox } from '../layout/map';
+import type { Measure } from '../layout/wrap';
 import { renderMap, storedImageKey } from '../render/renderMap';
+import { WRAP_MAX_PX, WRAP_MIN_PX } from '../shared/types';
 import { learnPictureSize, pictureSize } from './pictureSize';
 import { dropAt, type Drop, type DropAt } from './reorder';
 import { ensureVisible, fitView, zoomAt, type View } from './viewport';
@@ -34,6 +36,13 @@ interface Props {
   onMove?(id: string, drop: Drop): void;
   /** The corner of topic `id`'s image was dragged to a new size (px, in the picture's proportions). */
   onResizeImage?(id: string, size: Size): void;
+  /**
+   * The side of topic `id` was dragged to where its text is to wrap (px), or double-clicked (null: where
+   * its level says, again). Needs `measure`, which shows what the topic becomes during the drag.
+   */
+  onWrapText?(id: string, wrap: number | null): void;
+  /** Measures text the way the layout was measured. */
+  measure?: Measure;
   onViewChange?(view: View): void;
   onDropFile?(topicId: string | null, file: File): void;
   /** View-only page: the note icon of topic `id` was tapped, or activated from the keyboard. */
@@ -79,7 +88,49 @@ interface Resize {
   moved: boolean;
 }
 
+/**
+ * A drag of the side of a topic's text. `x`, `y`: where the press was, on screen. `g`: how far from the
+ * topic's edge the press was, in map units, so the edge keeps that distance to the pointer. `wrap`: the
+ * width the drag is at now.
+ */
+interface Rewrap {
+  id: string;
+  x: number;
+  y: number;
+  g: number;
+  wrap: number;
+  moved: boolean;
+}
+
+/** What the dashed outline of a drag shows: a box in map units, and what it says under it. */
+interface Outline {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+}
+
 const NO_IDS: readonly string[] = [];
+
+/** What of a topic's width is not text: its padding, and the room of a priority badge and of the note icon. */
+const notText = (b: TopicBox): number => b.style.padX * 2 + b.badgeW + b.noteW;
+/** The edge a topic's text grows towards: its left one on the left of the map, else its right one. */
+const outerEdge = (b: TopicBox): number => (b.side === -1 ? b.x : b.x + b.w);
+/**
+ * Where that edge is when the text is `wrap` wide. The central topic is centred, so it grows to both
+ * sides; every other topic grows away from its parent.
+ */
+function edgeAt(b: TopicBox, wrap: number): number {
+  const w = wrap + notText(b);
+  if (b.parentId === null) return b.x + b.w / 2 + w / 2;
+  return b.side === -1 ? b.x + b.w - w : b.x + w;
+}
+/** The text width that puts that edge at `edge`, within what a map may hold. */
+function wrapAt(b: TopicBox, edge: number): number {
+  const w = b.parentId === null ? 2 * (edge - (b.x + b.w / 2)) : b.side === -1 ? b.x + b.w - edge : edge - b.x;
+  return Math.min(WRAP_MAX_PX, Math.max(WRAP_MIN_PX, Math.round(w - notText(b))));
+}
 
 /**
  * The world groups a dragged topic's bits live on besides the drawing's own overlay ghost: the photo
@@ -99,8 +150,8 @@ function openLink(href: string) {
 }
 
 export function Canvas({
-  layout, selectedId, extraIds = NO_IDS, interactive, onToggleFold, onSelect, onToggleSelect, onSelectMany, onEdit, onMove, onResizeImage, onViewChange, onDropFile, onNote,
-  rightInset = 0, fitMaxK, ref,
+  layout, selectedId, extraIds = NO_IDS, interactive, onToggleFold, onSelect, onToggleSelect, onSelectMany, onEdit, onMove, onResizeImage, onWrapText, measure,
+  onViewChange, onDropFile, onNote, rightInset = 0, fitMaxK, ref,
 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -125,11 +176,23 @@ export function Canvas({
   const handleRef = useRef<HTMLDivElement>(null);
   const sizeBoxRef = useRef<HTMLDivElement>(null);
   const resizing = useRef<Resize | null>(null);
-  // The image whose corner can be dragged: that of the only selected topic, when the canvas draws it.
-  const only = interactive && onResizeImage && selectedId !== null && extraIds.length === 0 ? layout.byId.get(selectedId) : undefined;
-  const sized = only?.image && storedImageKey(only) ? only : null;
+  const wrapHandleRef = useRef<HTMLDivElement>(null);
+  const rewrapping = useRef<Rewrap | null>(null);
+  // The handles are for the only selected topic.
+  const only = interactive && selectedId !== null && extraIds.length === 0 ? layout.byId.get(selectedId) : undefined;
+  // The image whose corner can be dragged: that topic's, when the canvas draws it.
+  const sized = onResizeImage && only?.image && storedImageKey(only) ? only : null;
   const sizedRef = useRef(sized);
   sizedRef.current = sized;
+  // The topic whose side can be dragged: that topic, when it has text to wrap.
+  const wrapped = onWrapText && measure && only && only.lines.length > 0 ? only : null;
+  const wrappedRef = useRef(wrapped);
+  wrappedRef.current = wrapped;
+  // Read through refs: the wheel moves the canvas with the functions of the first render.
+  const measureRef = useRef(measure);
+  measureRef.current = measure;
+  const kindRef = useRef(layout.kind);
+  kindRef.current = layout.kind;
   const sizedKey = sized?.node.image?.key;
   useEffect(() => {
     if (sizedKey) learnPictureSize(sizedKey);
@@ -150,29 +213,83 @@ export function Canvas({
     if (r && (b?.id !== r.id || b.node.image?.key !== r.key)) resizing.current = null;
     return resizing.current;
   };
+  /** The same for a drag of the side of a topic's text: over once that topic is no longer the one with the handle. */
+  const liveRewrap = (): Rewrap | null => {
+    const r = rewrapping.current;
+    if (r && wrappedRef.current?.id !== r.id) rewrapping.current = null;
+    return rewrapping.current;
+  };
+  /** The topic as it is when its text wraps at `wrap`, and whether any word is on another line then. */
+  const rewrapped = (b: TopicBox, wrap: number): { becomes: Measured; changes: boolean } => {
+    const becomes = measureTopic({ ...b.node, wrap }, b.depth, measureRef.current!, kindRef.current);
+    return { becomes, changes: becomes.lines.join('\n') !== b.lines.join('\n') };
+  };
   /**
    * Puts the handle on the bottom-right corner of the selected topic's image. During a drag of the handle
-   * it goes on the corner of the outline that shows the new size, which is drawn here too. Both are in
-   * screen pixels, so they have the same size at every zoom.
+   * it goes on the corner of the new size, which is what the outline is to show then.
    */
-  const placeHandle = (v: View) => {
+  const placeImageHandle = (v: View): Outline | null => {
     const el = handleRef.current;
-    const outline = sizeBoxRef.current;
-    if (!el || !outline) return;
+    if (!el) return null;
     const b = sizedRef.current;
     const drag = liveResize();
     const r = drag?.moved ? drag : null;
     el.hidden = !b?.image;
-    outline.hidden = !r;
-    if (!b?.image) return;
-    const x = v.tx + v.k * (b.x + b.image.x);
-    const y = v.ty + v.k * (b.y + b.image.y);
+    if (!b?.image) return null;
+    const x = b.x + b.image.x;
+    const y = b.y + b.image.y;
     const { w, h } = r ? r.size : b.image;
-    el.style.left = `${x + v.k * w}px`;
-    el.style.top = `${y + v.k * h}px`;
-    if (!r) return;
-    Object.assign(outline.style, { left: `${x}px`, top: `${y}px`, width: `${v.k * w}px`, height: `${v.k * h}px` });
-    outline.firstElementChild!.textContent = `${w} × ${h}`;
+    el.style.left = `${v.tx + v.k * (x + w)}px`;
+    el.style.top = `${v.ty + v.k * (y + h)}px`;
+    return r && { x, y, w, h, label: `${w} × ${h}` };
+  };
+  /**
+   * Puts the other handle on the edge the selected topic's text grows towards, at the middle of the text,
+   * or above the fold button where that is in its way. During a drag of the handle it goes where the
+   * pointer wants the edge, and the outline is to show the topic with its text wrapped at that width:
+   * it grows from where the topic is held by the layout, as the topic itself will.
+   */
+  const placeWrapHandle = (v: View): Outline | null => {
+    const el = wrapHandleRef.current;
+    if (!el) return null;
+    const b = wrappedRef.current;
+    const drag = liveRewrap();
+    const r = drag?.moved ? drag : null;
+    el.hidden = !b;
+    if (!b) return null;
+    let top = v.ty + v.k * (b.y + b.textTop + (b.lines.length * b.style.lineHeight) / 2);
+    if (b.depth > 0 && b.node.children.length > 0) {
+      // The fold button is 22 map units across; the handle has its size on the screen (none in jsdom).
+      const fold = v.ty + v.k * b.fold.y;
+      const clear = 11 * v.k + (el.offsetHeight || 28) / 2 + 2;
+      if (Math.abs(top - fold) < clear) top = fold - clear;
+    }
+    el.style.left = `${v.tx + v.k * (r ? edgeAt(b, r.wrap) : outerEdge(b))}px`;
+    el.style.top = `${top}px`;
+    if (!r) return null;
+    const { becomes, changes } = rewrapped(b, r.wrap);
+    return {
+      x: b.parentId === null ? b.x + (b.w - becomes.w) / 2 : b.side === -1 ? b.x + b.w - becomes.w : b.x,
+      y: kindRef.current === 'org' ? b.y : b.y + (b.h - becomes.h) / 2,
+      w: becomes.w, h: becomes.h, label: changes ? `${r.wrap} px` : 'No change',
+    };
+  };
+  /**
+   * Places both handles, and the dashed outline of the drag that is on. All in screen pixels, so they
+   * have the same size at every zoom.
+   */
+  const placeHandles = (v: View) => {
+    const ofImage = placeImageHandle(v);
+    const ofText = placeWrapHandle(v);
+    const shown = ofImage ?? ofText;
+    const outline = sizeBoxRef.current;
+    if (!outline) return;
+    outline.hidden = !shown;
+    if (!shown) return;
+    Object.assign(outline.style, {
+      left: `${v.tx + v.k * shown.x}px`, top: `${v.ty + v.k * shown.y}px`, width: `${v.k * shown.w}px`, height: `${v.k * shown.h}px`,
+    });
+    outline.firstElementChild!.textContent = shown.label;
   };
   const applyView = (v: View) => {
     viewRef.current = v;
@@ -184,7 +301,7 @@ export function Canvas({
     photosGhostRef.current?.setAttribute('transform', t);
     framesRef.current?.setAttribute('transform', t);
     framesGhostRef.current?.setAttribute('transform', t);
-    placeHandle(v);
+    placeHandles(v);
     onViewChangeRef.current?.(v);
   };
   const fit = () => {
@@ -207,9 +324,9 @@ export function Canvas({
       applyView(viewRef.current);
     }
   }, [layout, selectedId, selectedSet, dropInto, notesOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The handle comes and goes with the image it is for, also when the map itself is not drawn again
-  // (new sizes stop being taken while an image uploads).
-  useLayoutEffect(() => placeHandle(viewRef.current), [sized]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A handle comes and goes with what it is for, also when the map itself is not drawn again (new sizes
+  // stop being taken while an image uploads, new widths while a text box is open).
+  useLayoutEffect(() => placeHandles(viewRef.current), [sized, wrapped]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
     fit,
@@ -526,6 +643,8 @@ export function Canvas({
   const startResize = (e: PointerEvent<HTMLDivElement>) => {
     const b = sizedRef.current;
     if (e.button !== 0 || !b?.image) return;
+    // One drag at a time: a press here (a second finger) ends a drag of the other handle, without a change.
+    endRewrap(true);
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const from = { w: b.image.w, h: b.image.h };
     const key = b.node.image!.key;
@@ -557,14 +676,49 @@ export function Canvas({
     // the point of the diagonal nearest to where the pointer wants it.
     const { w, h } = r.from;
     r.size = displaySize(r.own.w, r.own.h, ((cw * w + ch * h) / (w * w + h * h)) * w);
-    placeHandle(viewRef.current);
+    placeHandles(viewRef.current);
   };
   const endResize = (cancelled: boolean) => {
     const r = liveResize();
     if (!r) return;
     resizing.current = null;
-    placeHandle(viewRef.current);
+    placeHandles(viewRef.current);
     if (!cancelled && r.moved && r.size.w !== sizedRef.current?.image?.w) onResizeImage?.(r.id, r.size);
+  };
+
+  const startRewrap = (e: PointerEvent<HTMLDivElement>) => {
+    const b = wrappedRef.current;
+    if (e.button !== 0 || !b) return;
+    endResize(true);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const edge = outerEdge(b);
+    rewrapping.current = { id: b.id, x: e.clientX, y: e.clientY, g: onMap(e)[0] - edge, wrap: wrapAt(b, edge), moved: false };
+  };
+  const moveRewrap = (e: PointerEvent<HTMLDivElement>) => {
+    const r = liveRewrap();
+    const b = wrappedRef.current;
+    if (!r || !b) return;
+    if (e.buttons === 0) {
+      // The release never arrived (see onPointerMove): stop without a new width.
+      endRewrap(true);
+      return;
+    }
+    if (!r.moved && Math.hypot(e.clientX - r.x, e.clientY - r.y) < 3) return;
+    r.moved = true;
+    // Where the pointer wants the edge, in map units and from where the topic is now, so the edge stays
+    // with the pointer when the canvas moves or zooms during the drag.
+    r.wrap = wrapAt(b, onMap(e)[0] - r.g);
+    placeHandles(viewRef.current);
+  };
+  const endRewrap = (cancelled: boolean) => {
+    const r = liveRewrap();
+    if (!r) return;
+    rewrapping.current = null;
+    placeHandles(viewRef.current);
+    const b = wrappedRef.current;
+    // The topic is as narrow as its text, so a width that leaves every word on its line would change
+    // nothing that shows. It is not kept: it would only wrap a later, longer text somewhere unexpected.
+    if (!cancelled && r.moved && b && rewrapped(b, r.wrap).changes) onWrapText?.(r.id, r.wrap);
   };
 
   return (
@@ -632,8 +786,9 @@ export function Canvas({
       <div ref={boxRef} className="select-box" hidden />
       {interactive && (
         <>
-          {/* The size an image is being dragged to. Screen pixels, moved by hand like the selection box. */}
-          <div ref={sizeBoxRef} className="image-size-box" hidden><span /></div>
+          {/* What a handle is being dragged to: the image's new size, or the topic with its text wrapped
+              at the new width. Screen pixels, moved by hand like the selection box. */}
+          <div ref={sizeBoxRef} className="size-box" hidden><span /></div>
           {/* The corner of the selected topic's image: dragged to resize it. For the pointer only; the
               keyboard has the S, M and L buttons of the Details panel. */}
           <div
@@ -651,6 +806,26 @@ export function Canvas({
             onPointerUp={() => endResize(false)}
             onPointerCancel={() => endResize(true)}
             onLostPointerCapture={() => endResize(true)}
+          />
+          {/* The side of the selected topic's text: dragged to set where the text wraps. For the pointer
+              only too; the keyboard has Narrower, Wider and Automatic in the Details panel. */}
+          <div
+            ref={wrapHandleRef}
+            className="wrap-handle"
+            hidden
+            aria-hidden="true"
+            title="Drag to set where the text wraps. Double-click for the automatic width."
+            onMouseDown={(e) => e.preventDefault()}
+            onContextMenu={(e) => e.preventDefault()}
+            onPointerDown={startRewrap}
+            onPointerMove={moveRewrap}
+            onPointerUp={() => endRewrap(false)}
+            onPointerCancel={() => endRewrap(true)}
+            onLostPointerCapture={() => endRewrap(true)}
+            onDoubleClick={() => {
+              const b = wrappedRef.current;
+              if (b && b.node.wrap !== undefined) onWrapText?.(b.id, null);
+            }}
           />
         </>
       )}

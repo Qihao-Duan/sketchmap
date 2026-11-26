@@ -313,3 +313,51 @@ describe('image topics keep their badge, marker and note inside the box', () => 
     }
   });
 });
+
+describe('a text width set by hand (wrap)', () => {
+  // 17 px text in a deeper topic: 8.5 px a character, so 250 px (the width of its level) holds 29 characters: 6 words.
+  const long = Array.from({ length: 24 }, () => 'word').join(' ');
+  const deep = (extra: Partial<MapNode> = {}) => computeLayout(n('r', 'Root', [n('a', 'A', [n('t', long, [], extra)])]), measure).byId.get('t')!;
+
+  it('the text wraps at that width instead of the width of its level', () => {
+    expect(deep().lines).toHaveLength(4);
+    expect(deep({ wrap: 500 }).lines).toHaveLength(3);
+    expect(deep({ wrap: 100 }).lines).toHaveLength(12);
+    for (const wrap of [100, 500]) for (const w of deep({ wrap }).lineWidths) expect(w).toBeLessThanOrEqual(wrap);
+  });
+
+  it('the topic gets wider and lower, and its box still fits the text exactly', () => {
+    const [auto, wide] = [deep(), deep({ wrap: 500 })];
+    expect(wide.w).toBeGreaterThan(auto.w);
+    expect(wide.h).toBeLessThan(auto.h);
+    expect(wide.w).toBe(Math.ceil(Math.max(...wide.lineWidths) + wide.style.padX * 2));
+  });
+
+  it('a topic with less text than that stays as narrow as its text', () => {
+    const short = (extra: Partial<MapNode> = {}) => computeLayout(n('r', 'Root', [n('a', 'A', [n('t', 'Two words', [], extra)])]), measure).byId.get('t')!;
+    expect(short({ wrap: 500 }).w).toBe(short().w);
+    expect(short({ wrap: 500 }).lines).toEqual(['Two words']);
+  });
+
+  it('a word is never broken: one that is longer than the width keeps its line', () => {
+    const t = computeLayout(n('r', 'Root', [n('a', 'A', [n('t', 'Supercalifragilistic is longer', [], { wrap: 60 })])]), measure).byId.get('t')!;
+    expect(t.lines).toEqual(['Supercalifragilistic', 'is', 'longer']);
+    expect(t.textW).toBe(20 * 8.5);
+  });
+
+  it('holds for the central topic, for main branches and in every layout', () => {
+    for (const kind of ['map', 'logic', 'org'] as LayoutKind[]) {
+      const at = (wrap?: number) => layoutMap(n('r', long, [n('a', long, [n('t', long, [], wrap ? { wrap } : {})], wrap ? { wrap } : {})], wrap ? { wrap } : {}), kind, measure);
+      for (const id of ['r', 'a', 't']) {
+        expect(at(600).byId.get(id)!.lines.length, `${kind} ${id}`).toBeLessThan(at().byId.get(id)!.lines.length);
+      }
+    }
+  });
+
+  it('an image-only topic has no text to wrap: the width changes nothing', () => {
+    const image = { key: 'img/abcdefghijklmnopqrstu/x.png', w: 200, h: 100 };
+    const pic = (extra: Partial<MapNode> = {}) => computeLayout(n('r', 'Root', [n('p', '', [], { image, ...extra })]), measure).byId.get('p')!;
+    expect(pic({ wrap: 600 }).lines).toEqual([]);
+    expect([pic({ wrap: 600 }).w, pic({ wrap: 600 }).h]).toEqual([pic().w, pic().h]);
+  });
+});

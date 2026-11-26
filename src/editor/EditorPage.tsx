@@ -624,6 +624,9 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             endEdit();
             dispatch({ type: 'resizeImage', id, ...size });
           }}
+          // No bar on the topic's side while a text box is open: the box is over the topic then.
+          onWrapText={state.editing ? undefined : (id, wrap) => dispatch({ type: 'setWrap', id, wrap })}
+          measure={measure}
           onToggleFold={(id) => dispatch({ type: 'toggleFold', id })}
           onDropFile={(id, file) => void attachImage(id ?? state.selectedId, file)}
           onViewChange={setView}
@@ -634,6 +637,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             key={editing.id}
             box={editBox}
             view={view}
+            measure={measure}
             initialText={editInitial ?? editBox.node.text}
             selectAll={editInitial === null}
             onCommit={commit}
@@ -687,6 +691,12 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
               endEdit();
               dispatch({ type: 'setImage', id, image: null });
             }}
+            onTextWidth={(step) => {
+              const id = selectedNode.id;
+              endEdit();
+              dispatch({ type: 'stepWrap', id, step });
+            }}
+            autoWrap={layout.byId.get(selectedNode.id)?.style.maxW}
             uploading={imageUploads > 0}
             newTopicOpen={!!state.editing?.isNew}
             onFold={toggleDetails}

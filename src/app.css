@@ -46,10 +46,20 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
   .image-handle { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
   .image-handle::after { inset: 13px; }
 }
-/* The size the image is being dragged to, with the numbers under its left corner. */
-.image-size-box { position: absolute; z-index: 1; box-sizing: border-box; border: 1.5px dashed #4263eb; background: rgb(66 99 235 / 0.1); pointer-events: none; }
-.image-size-box[hidden] { display: none; }
-.image-size-box span { position: absolute; left: -1.5px; top: calc(100% + 5px); padding: 1px 6px; border-radius: 4px; background: #4263eb; color: #fff; font: 12px var(--ui); white-space: nowrap; }
+/* The side of the selected topic's text, dragged to set where the text wraps: a bar on the topic's edge,
+   the same size at every zoom. The bar that shows is smaller than the area that takes the press. */
+.wrap-handle { position: absolute; z-index: 1; width: 16px; height: 28px; margin: -14px 0 0 -8px; cursor: ew-resize; touch-action: none; }
+.wrap-handle::after { content: ''; position: absolute; inset: 4px 5px; box-sizing: border-box; border: 1.5px solid #4263eb; border-radius: 3px; background: #fff; }
+.wrap-handle[hidden] { display: none; }
+@media (pointer: coarse) {
+  .wrap-handle { width: 36px; height: 44px; margin: -22px 0 0 -18px; }
+  .wrap-handle::after { inset: 11px 14px; }
+}
+/* What a handle is being dragged to (an image's new size, a topic with its text wrapped anew), with the
+   numbers under its left corner. */
+.size-box { position: absolute; z-index: 1; box-sizing: border-box; border: 1.5px dashed #4263eb; background: rgb(66 99 235 / 0.1); pointer-events: none; }
+.size-box[hidden] { display: none; }
+.size-box span { position: absolute; left: -1.5px; top: calc(100% + 5px); padding: 1px 6px; border-radius: 4px; background: #4263eb; color: #fff; font: 12px var(--ui); white-space: nowrap; }
 .canvas .topic.drop .hit { stroke: #4263eb; stroke-width: 2.5; stroke-dasharray: 5 5; }
 /* The place next to a topic that dragged topics would go to: the same width at every zoom. */
 .canvas .drop-line line { stroke: #4263eb; stroke-width: 3.5; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
@@ -158,6 +168,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .details .chip { font-size: 17px; line-height: 1; padding: 5px 6px; border-radius: 7px; border: 1px solid transparent; }
 .details .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+/* A chip that is a word, not a sign: Narrower, Wider, Automatic. */
+.details .chip.word { font: 600 12px/1 var(--ui); padding: 7px 8px; border-color: var(--line); }
+.details .chip.word[aria-pressed="true"] { border-color: var(--accent); }
 .details .chip.tool { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; font: 600 11px/1 var(--ui); color: var(--ink-2); padding: 6px 3px; }
 .details .chip.tool[aria-pressed="true"] { color: var(--accent); }
 .details .importance { flex-wrap: nowrap; gap: 2px; }

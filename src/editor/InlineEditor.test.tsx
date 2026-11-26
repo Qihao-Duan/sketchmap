@@ -3,17 +3,19 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { computeLayout } from '../layout/map';
+import type { Measure } from '../layout/wrap';
 import { InlineEditor } from './InlineEditor';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const box = computeLayout({ id: 'r', text: 'Root', children: [] }, (t, s) => t.length * s * 0.5).byId.get('r')!;
+const measure: Measure = (t, s) => t.length * s * 0.5;
+const box = computeLayout({ id: 'r', text: 'Root', children: [] }, measure).byId.get('r')!;
 let container: HTMLDivElement;
 
 function mount(props: Partial<Parameters<typeof InlineEditor>[0]> = {}) {
   const handlers = { onCommit: vi.fn(), onCancel: vi.fn(), onTab: vi.fn() };
   container = document.createElement('div');
   document.body.appendChild(container);
-  act(() => createRoot(container).render(<InlineEditor box={box} view={{ tx: 0, ty: 0, k: 1 }} initialText="Root" selectAll {...handlers} {...props} />));
+  act(() => createRoot(container).render(<InlineEditor box={box} view={{ tx: 0, ty: 0, k: 1 }} measure={measure} initialText="Root" selectAll {...handlers} {...props} />));
   return { ta: container.querySelector('textarea')!, ...handlers };
 }
 function type(ta: HTMLTextAreaElement, value: string) {
@@ -181,5 +183,87 @@ describe('InlineEditor', () => {
     const { ta } = mount({ box: withImage, initialText: '' });
     const imageBottom = withImage.y + withImage.image!.y + withImage.image!.h;
     expect(parseFloat(ta.style.top)).toBeGreaterThanOrEqual(imageBottom);
+  });
+
+  describe('the box is as wide as the topic will be', () => {
+    const long = Array.from({ length: 24 }, () => 'word').join(' ');
+    /** A map with a new, still empty topic on each side, and the boxes of both. */
+    const shown = (extra: object = {}, text = '') => computeLayout({ id: 'r', text: 'Root', children: [
+      { id: 'a', text: 'Alpha', side: 'right', children: [{ id: 't', text, children: [], ...extra }] },
+      { id: 'b', text: 'Beta', side: 'left', children: [{ id: 'l', text, children: [], ...extra }] },
+    ] }, measure);
+    const px = (v: string) => parseFloat(v);
+
+    it('an empty topic opens at the least width', () => {
+      const { ta } = mount({ box: shown().byId.get('t')!, initialText: '' });
+      expect(px(ta.style.width)).toBe(140);
+    });
+
+    it('it grows with the text that is typed, and stops where the topic’s text wraps', () => {
+      const { ta } = mount({ box: shown().byId.get('t')!, initialText: '' });
+      // 17 px text: 8.5 px a character. 24 characters and 2 × 5 px beside them, and 6 px for the border and some air.
+      type(ta, 'word word word word word');
+      expect(px(ta.style.width)).toBe(24 * 8.5 + 10 + 6);
+      // A deeper topic wraps at 250 px: six of these words (29 characters) are its widest line.
+      type(ta, long);
+      expect(px(ta.style.width)).toBe(29 * 8.5 + 10 + 6);
+    });
+
+    it('a topic whose text width was set by hand grows up to that width', () => {
+      const { ta } = mount({ box: shown({ wrap: 500 }).byId.get('t')!, initialText: '' });
+      type(ta, long);
+      // 500 px hold 58 characters: eleven of these words (54 characters).
+      expect(px(ta.style.width)).toBe(54 * 8.5 + 10 + 6);
+    });
+
+    it('a line break ends a line: the widest line counts', () => {
+      const { ta } = mount({ box: shown().byId.get('t')!, initialText: '' });
+      type(ta, 'word word word word word\nword');
+      expect(px(ta.style.width)).toBe(24 * 8.5 + 10 + 6);
+    });
+
+    it('it never gets narrower than the topic is now', () => {
+      const t = shown({}, long).byId.get('t')!;
+      const { ta } = mount({ box: t, initialText: long });
+      const before = px(ta.style.width);
+      expect(before).toBeGreaterThanOrEqual(t.w);
+      type(ta, 'word');
+      expect(px(ta.style.width)).toBe(Math.max(t.w, 140));
+    });
+
+    it('the room of a priority badge and of the note icon is added', () => {
+      const t = shown({ priority: 1, note: 'n' }).byId.get('t')!;
+      const { ta } = mount({ box: t, initialText: '' });
+      type(ta, 'word word word word word');
+      expect(px(ta.style.width)).toBe(24 * 8.5 + 10 + t.badgeW + t.noteW + 6);
+    });
+
+    it('zoomed, it is as wide on the screen as the topic will be there', () => {
+      const { ta } = mount({ box: shown().byId.get('t')!, initialText: '', view: { tx: 0, ty: 0, k: 2 } });
+      type(ta, 'word word word word word');
+      expect(px(ta.style.width)).toBe((24 * 8.5 + 10) * 2 + 6);
+    });
+
+    it('with link syntax in it, it is wide enough for the address', () => {
+      const { ta } = mount({ box: shown().byId.get('t')!, initialText: '' });
+      type(ta, '[a](https://example.com)');
+      expect(px(ta.style.width)).toBe(280);
+    });
+
+    it('it grows the way the topic will: to the right on the right of the map, to the left on the left, to both sides for the central topic', () => {
+      const map = shown();
+      const [t, l, r] = ['t', 'l', 'r'].map((id) => map.byId.get(id)!);
+      expect([t.side, l.side]).toEqual([1, -1]);
+      const view = { tx: 30, ty: 0, k: 1 };
+      const right = mount({ box: t, initialText: '', view }).ta;
+      type(right, long);
+      expect(px(right.style.left)).toBe(30 + t.x);
+      const left = mount({ box: l, initialText: '', view }).ta;
+      type(left, long);
+      expect(px(left.style.left) + px(left.style.width)).toBe(30 + l.x + l.w);
+      const centre = mount({ box: r, initialText: 'Root', view }).ta;
+      type(centre, long);
+      expect(px(centre.style.left) + px(centre.style.width) / 2).toBe(30 + r.x + r.w / 2);
+    });
   });
 });
