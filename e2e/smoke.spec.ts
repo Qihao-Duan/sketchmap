@@ -817,6 +817,227 @@ test('the image’s handle is part of the canvas: moved under the toolbar, it is
   expect(onTop).toContain('toolbar');
 });
 
+const LONG_TEXT = 'Per-base diploid labels are built from the two haplotype assemblies, then checked against the short reads of the same sample, so every label has two kinds of evidence behind it.';
+
+/** The zoom of the canvas, read from the drawing. */
+async function zoomOf(page: import('@playwright/test').Page): Promise<number> {
+  const t = await page.locator('g.world').getAttribute('transform');
+  return Number(/scale\(([\d.]+)\)/.exec(t ?? '')![1]);
+}
+/** Where a topic is on the map, in map units (its hit area is 4 wider on every side). */
+async function onMap(topic: import('@playwright/test').Locator): Promise<{ left: number; right: number }> {
+  const hit = topic.locator('rect.hit');
+  const [x, w] = [Number(await hit.getAttribute('x')), Number(await hit.getAttribute('width'))];
+  return { left: x + 4, right: x + w - 4 };
+}
+
+test('dragging the bar on a topic’s side sets where its text wraps; the width is undone, saved, kept after a reload and shown in the view', async ({ page }) => {
+  const id = await openNewMap(page);
+  await page.locator('g.topic').click();
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Method');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type(LONG_TEXT);
+  await page.keyboard.press('Enter');
+  const topic = page.locator('g.topic').nth(2);
+  await expect(topic).toHaveClass(/selected/);
+  const lines = topic.locator('text');
+  const before = await lines.count();
+  expect(before).toBeGreaterThanOrEqual(5);
+  await expect(page.locator('.details .text-width')).toContainText('Automatic: the text wraps at 250 px.');
+
+  // The bar sits at the topic's right edge, at the middle of its text.
+  const handle = page.locator('.wrap-handle');
+  await expect(handle).toBeVisible();
+  const zoom = await zoomOf(page);
+  const shown = (await topic.locator('rect.hit').boundingBox())!;
+  const grip = (await handle.boundingBox())!;
+  expect(grip.width).toBe(16);
+  // Its area reaches 12 px into the topic and 4 px out of it.
+  expect(Math.abs(grip.x + 12 - (shown.x + shown.width - 4 * zoom))).toBeLessThan(1.5);
+  expect(Math.abs(grip.y + grip.height / 2 - (shown.y + shown.height / 2))).toBeLessThan(1.5);
+
+  // 250 map px outwards. The outline says the width before the button is let go.
+  const { left, right } = await onMap(topic);
+  const [x, y] = [grip.x + grip.width / 2, grip.y + grip.height / 2];
+  const outline = page.locator('.size-box');
+  await expect(outline).toBeHidden();
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  // In two long steps: each leaves the small bar far behind, so the drag only works if the bar has taken the pointer.
+  await page.mouse.move(x + 250 * zoom, y + 30, { steps: 2 });
+  await expect(outline).toHaveText(/^\d+ px$/);
+  const wrap = Number((await outline.textContent())!.replace(' px', ''));
+  // The topic's width and 250 more, less the 2 × 5 px beside the text.
+  expect(Math.abs(wrap - (right - left + 250 - 10))).toBeLessThanOrEqual(1);
+  expect(await lines.count()).toBe(before);
+  await page.mouse.up();
+  await expect(outline).toBeHidden();
+  await expect.poll(() => lines.count()).toBeLessThan(before);
+  const after = await lines.count();
+  await expect(page.locator('.details .text-width')).toContainText(`The text wraps at ${wrap} px.`);
+  // The topic is as narrow as its text: no wider than asked, and the bar is on its new edge.
+  const now = await onMap(topic);
+  expect(now.right - now.left).toBeGreaterThan(right - left);
+  expect(now.right - now.left).toBeLessThanOrEqual(wrap + 10);
+  const moved = (await handle.boundingBox())!;
+  const wide = (await topic.locator('rect.hit').boundingBox())!;
+  expect(Math.abs(moved.x + 12 - (wide.x + wide.width - 4 * (await zoomOf(page))))).toBeLessThan(1.5);
+
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(lines).toHaveCount(before);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect(lines).toHaveCount(after);
+
+  await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
+  await page.reload();
+  await expect(page.locator('g.topic').nth(2).locator('text')).toHaveCount(after);
+  await page.goto(`/m/${id}`);
+  await expect(page.locator('g.topic').nth(2).locator('text')).toHaveCount(after);
+  await expect(page.locator('.wrap-handle')).toHaveCount(0);
+});
+
+test('on the left of the map a topic’s text grows to the left: the bar is on its left edge, and its right edge stays', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('g.topic').click();
+  // Three main branches, the first and the last with a long text under them: the last one goes to the left.
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('A');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type(LONG_TEXT);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('B');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('C');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type(LONG_TEXT);
+  await page.keyboard.press('Enter');
+  const topic = page.locator('g.topic.selected');
+  await expect(topic).toHaveCount(1);
+  const root = await onMap(page.locator('g.topic').first());
+  const before = await onMap(topic);
+  expect(before.right).toBeLessThan(root.left);
+  const lines = await topic.locator('text').count();
+
+  const handle = page.locator('.wrap-handle');
+  await expect(handle).toHaveClass(/left/);
+  const zoom = await zoomOf(page);
+  const shown = (await topic.locator('rect.hit').boundingBox())!;
+  const grip = (await handle.boundingBox())!;
+  // On this side its area reaches 4 px out of the topic and 12 px into it.
+  expect(Math.abs(grip.x + 4 - (shown.x + 4 * zoom))).toBeLessThan(1.5);
+  const [x, y] = [grip.x + grip.width / 2, grip.y + grip.height / 2];
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 200 * zoom, y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => topic.locator('text').count()).toBeLessThan(lines);
+  const after = await onMap(topic);
+  expect(after.right).toBeCloseTo(before.right, 3);
+  expect(after.left).toBeLessThan(before.left);
+});
+
+test('the bar and the fold button of a topic sit side by side: the button still folds, and the bar still drags', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('g.topic').click();
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('A main branch with enough words to wrap when it is made narrower');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Child');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowLeft');
+  const branch = page.locator('g.topic').nth(1);
+  await expect(branch).toHaveClass(/selected/);
+  const fold = branch.locator('[data-fold]');
+  const button = (await fold.boundingBox())!;
+  const [fx, fy] = [button.x + button.width / 2, button.y + button.height / 2];
+  // The middle of the fold button belongs to the button, not to the bar beside it.
+  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('.wrap-handle') !== null, [fx, fy])).toBe(false);
+  await page.mouse.click(fx, fy);
+  await expect(page.locator('g.topic')).toHaveCount(2);
+  await page.mouse.click(fx, fy);
+  await expect(page.locator('g.topic')).toHaveCount(3);
+
+  const lines = await branch.locator('text').count();
+  const grip = (await page.locator('.wrap-handle').boundingBox())!;
+  const [x, y] = [grip.x + grip.width / 2, grip.y + grip.height / 2];
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 110 * (await zoomOf(page)), y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => branch.locator('text').count()).toBeGreaterThan(lines);
+  await expect(page.locator('g.topic')).toHaveCount(3);
+});
+
+test('Wider, Narrower and Automatic step the width of a topic’s text; a double click on the bar goes back to automatic', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('g.topic').click();
+  await page.keyboard.press('Tab');
+  await page.keyboard.type(LONG_TEXT);
+  await page.keyboard.press('Enter');
+  const topic = page.locator('g.topic').nth(1);
+  const lines = topic.locator('text');
+  const auto = await lines.count();
+  const hint = page.locator('.details .text-width');
+  await expect(hint).toContainText('Automatic: the text wraps at 230 px.');
+  await page.getByRole('button', { name: 'Wider' }).click();
+  await expect(hint).toContainText('The text wraps at 290 px.');
+  await page.getByRole('button', { name: 'Wider' }).click();
+  await expect(hint).toContainText('The text wraps at 360 px.');
+  expect(await lines.count()).toBeLessThan(auto);
+  await page.getByRole('button', { name: 'Narrower' }).click();
+  await expect(hint).toContainText('The text wraps at 290 px.');
+  await page.getByRole('button', { name: 'Automatic' }).click();
+  await expect(hint).toContainText('Automatic: the text wraps at 230 px.');
+  await expect(lines).toHaveCount(auto);
+  // The buttons take no focus: the keyboard still works on the map.
+  await page.getByRole('button', { name: 'Wider' }).click();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(hint).toContainText('Automatic: the text wraps at 230 px.');
+
+  await page.getByRole('button', { name: 'Wider' }).click();
+  await expect(hint).toContainText('The text wraps at 290 px.');
+  await page.locator('.wrap-handle').dblclick();
+  await expect(hint).toContainText('Automatic: the text wraps at 230 px.');
+  await expect(lines).toHaveCount(auto);
+});
+
+test('a long text is typed into a box as wide as the topic will be, which wraps it the way the topic does and stays clear of the Details panel', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('g.topic').click();
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Method');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  const box = page.locator('textarea.inline-editor');
+  await expect(box).toBeVisible();
+  const zoom = await zoomOf(page);
+  const empty = (await box.boundingBox())!;
+  expect(empty.width).toBe(140);
+  await page.keyboard.type(LONG_TEXT);
+  const typed = (await box.boundingBox())!;
+  // A deeper topic wraps at 250 px: the box is about that wide, with the 2 × 5 px beside the text.
+  expect(typed.width).toBeGreaterThan(200 * zoom);
+  expect(typed.width).toBeLessThanOrEqual(260 * zoom + 6);
+  const panel = (await page.locator('.details').boundingBox())!;
+  expect(typed.x + typed.width).toBeLessThanOrEqual(panel.x);
+  // The lines the box shows: its height without the padding, in line heights.
+  const shownLines = await box.evaluate((ta) => {
+    const cs = getComputedStyle(ta);
+    return Math.round((ta.scrollHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / parseFloat(cs.lineHeight));
+  });
+  await page.keyboard.press('Enter');
+  await expect(box).toHaveCount(0);
+  await expect(page.locator('g.topic').nth(2).locator('text')).toHaveCount(shownLines);
+});
+
 test('an SVG image is drawn into a PNG, in the browser, and any script it carries never runs', async ({ page }) => {
   await openNewMap(page);
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="red"/><script>document.title=\'pwned\'</script></svg>';

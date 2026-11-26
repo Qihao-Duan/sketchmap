@@ -39,6 +39,23 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   await expect(page.locator('image.topic-image')).not.toHaveAttribute('width', '200');
   expect(violations).toEqual([]);
 
+  // The side of a topic's text can be dragged in the built app too: the bar is placed by the built CSS.
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Long enough to wrap into several lines, so that a wider topic has fewer of them than before');
+  await page.keyboard.press('Enter');
+  const wordy = page.locator('g.topic.selected text');
+  const lines = await wordy.count();
+  const bar = (await page.locator('.wrap-handle').boundingBox())!;
+  expect(bar.width).toBe(16);
+  await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bar.x + bar.width / 2 + 220, bar.y + bar.height / 2, { steps: 5 });
+  await expect(page.locator('.size-box')).toHaveText(/^\d+ px$/);
+  await page.mouse.up();
+  await expect.poll(() => wordy.count()).toBeLessThan(lines);
+  await expect(page.locator('.details .text-width')).toContainText('The text wraps at');
+  expect(violations).toEqual([]);
+
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'PNG' }).click();
   expect((await download).suggestedFilename()).toMatch(/\.png$/);
@@ -52,7 +69,7 @@ test('the production build works under its strict CSP: editor, PNG export and vi
   await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
 
   await page.goto(`/m/${id}`);
-  await expect(page.locator('g.topic')).toHaveCount(2);
+  await expect(page.locator('g.topic')).toHaveCount(3);
   expect(violations).toEqual([]);
 
   // Import a small .xmind through the list page, still under the same strict CSP (the owner key is already set).

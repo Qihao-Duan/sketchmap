@@ -51,14 +51,14 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
    fold button is just outside it. The bar that shows is smaller than the area that takes the press. */
 .wrap-handle { position: absolute; z-index: 1; width: 16px; height: 28px; margin: -14px 0 0 -12px; cursor: ew-resize; touch-action: none; }
 .wrap-handle.left { margin-left: -4px; }
-.wrap-handle::after { content: ''; position: absolute; top: 4px; bottom: 4px; left: 7px; width: 6px; box-sizing: border-box; border: 1.5px solid #4263eb; border-radius: 3px; background: #fff; }
-.wrap-handle.left::after { left: 3px; }
+.wrap-handle::after { content: ''; position: absolute; top: 4px; bottom: 4px; left: 8px; width: 6px; box-sizing: border-box; border: 1.5px solid #4263eb; border-radius: 3px; background: #fff; }
+.wrap-handle.left::after { left: 2px; }
 .wrap-handle[hidden] { display: none; }
 @media (pointer: coarse) {
   .wrap-handle { width: 36px; height: 44px; margin: -22px 0 0 -28px; }
   .wrap-handle.left { margin-left: -8px; }
-  .wrap-handle::after { top: 11px; bottom: 11px; left: 23px; }
-  .wrap-handle.left::after { left: 7px; }
+  .wrap-handle::after { top: 11px; bottom: 11px; left: 24px; }
+  .wrap-handle.left::after { left: 6px; }
 }
 /* What a handle is being dragged to (an image's new size, a topic with its text wrapped anew), with the
    numbers under its left corner. */
