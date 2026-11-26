@@ -363,26 +363,41 @@ export function Canvas({
     },
     reveal: (place, grows = 'right') => {
       const [w, h] = size();
-      if (w <= 0) return;
-      // A place too large for what shows is cut down to the part to keep in view: the side it grows
-      // towards, and its bottom, where the typing goes on. Left whole, it would be moved to its left edge
-      // and to its right edge in turn. A pixel less than the room, so that the part always fits.
-      const { k } = viewRef.current;
-      const roomW = Math.max(0, w - rightInset - 49) / k;
-      const roomH = Math.max(0, h - 49) / k;
-      let { x, y, w: pw, h: ph } = place;
-      if (pw > roomW) {
-        x += grows === 'left' ? 0 : grows === 'right' ? pw - roomW : (pw - roomW) / 2;
-        pw = roomW;
-      }
-      if (ph > roomH) {
-        y += ph - roomH;
-        ph = roomH;
-      }
+      const shows = w - rightInset;
+      if (w <= 0 || shows <= 0) return;
       const now = viewRef.current;
-      const next = ensureVisible(now, { x, y, w: pw, h: ph }, w - rightInset, h, 24);
+      const { k } = now;
+      // 24 px of room around the place; on a canvas with next to none, a quarter of what shows, so that
+      // there is always something between the two margins.
+      const mx = Math.min(24, shows / 4);
+      const my = Math.min(24, h / 4);
+      const [left, right] = [now.tx + k * place.x, now.tx + k * (place.x + place.w)];
+      const [top, bottom] = [now.ty + k * place.y, now.ty + k * (place.y + place.h)];
+      let { tx, ty } = now;
+      if (right - left <= shows - 2 * mx) {
+        // It fits: bring in whichever side is out.
+        if (left < mx) tx += mx - left;
+        else if (right > shows - mx) tx -= right - (shows - mx);
+      } else if (grows === 'both') {
+        // Too large, and growing around its middle: the middle is put in the middle.
+        tx += shows / 2 - (left + right) / 2;
+      } else if (grows === 'right') {
+        // Too large: only the side it grows towards is followed, and only outwards. Bringing in whichever
+        // side is out would move the canvas to one edge and to the other in turn, and following the side
+        // back when a word wraps would make the canvas creep one way and jump the other.
+        if (right > shows - mx) tx -= right - (shows - mx);
+      } else if (left < mx) {
+        tx += mx - left;
+      }
+      if (bottom - top <= h - 2 * my) {
+        if (top < my) ty += my - top;
+        else if (bottom > h - my) ty -= bottom - (h - my);
+      } else if (bottom > h - my) {
+        // Too high: its bottom, where the typing goes on.
+        ty -= bottom - (h - my);
+      }
       // Not for less than half a pixel: that is rounding, and would be asked for again at every key.
-      if (Math.abs(next.tx - now.tx) >= 0.5 || Math.abs(next.ty - now.ty) >= 0.5) applyView(next);
+      if (Math.abs(tx - now.tx) >= 0.5 || Math.abs(ty - now.ty) >= 0.5) applyView({ ...now, tx, ty });
     },
     svg: () => svgRef.current,
   }));
@@ -729,12 +744,16 @@ export function Canvas({
 
   const startRewrap = (e: PointerEvent<HTMLDivElement>) => {
     const b = wrappedRef.current;
-    if (e.button !== 0 || !b) return;
+    // Shift with a press on the one selected topic does nothing; so it does here.
+    if (e.button !== 0 || !b || e.shiftKey) return;
     const [px, py] = onMap(e);
-    // The bar has its size on the screen and the fold button its size on the map, so on a topic that is
-    // small on the screen (and for a finger's larger area) the bar's area lies over the button. A press
-    // inside the button's own area, 22 map units across, is the button's.
-    if (b.depth > 0 && b.node.children.length > 0 && Math.abs(px - b.fold.x) <= 11 && Math.abs(py - b.fold.y) <= 11) {
+    const edge = outerEdge(b);
+    // The bar's area reaches a little beyond the topic's edge, where the fold button's area (22 map units
+    // across) begins. The bar itself shows up to 2 px beyond the edge and is always the bar's; a press
+    // further out that is inside the button's area is the button's. That keeps the button usable where it
+    // is small on the screen (a low zoom) and the bar, which has its size on the screen, is not.
+    const beyond = (b.side === -1 ? edge - px : px - edge) * viewRef.current.k;
+    if (beyond > 2 && b.depth > 0 && b.node.children.length > 0 && Math.abs(px - b.fold.x) <= 11 && Math.abs(py - b.fold.y) <= 11) {
       onToggleFold(b.id);
       return;
     }
@@ -746,7 +765,6 @@ export function Canvas({
     const now = Date.now();
     const dbl = lastDown.current.id === b.id && now - lastDown.current.t < 420;
     lastDown.current = { id: b.id, t: dbl ? 0 : now };
-    const edge = outerEdge(b);
     rewrapping.current = { id: b.id, x: e.clientX, y: e.clientY, g: px - edge, wrap: wrapAt(b, edge), moved: false, dbl };
   };
   const moveRewrap = (e: PointerEvent<HTMLDivElement>) => {
@@ -758,7 +776,9 @@ export function Canvas({
       endRewrap(true);
       return;
     }
-    if (!r.moved && Math.hypot(e.clientX - r.x, e.clientY - r.y) < 3) return;
+    // As far as a press on a topic may move before it is a drag: the second click of a double click
+    // slips a few px, and must still open the text instead of re-wrapping it.
+    if (!r.moved && Math.hypot(e.clientX - r.x, e.clientY - r.y) < 6) return;
     r.moved = true;
     // Where the pointer wants the edge, in map units and from where the topic is now, so the edge stays
     // with the pointer when the canvas moves or zooms during the drag.

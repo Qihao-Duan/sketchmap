@@ -130,16 +130,25 @@ describe('DetailsPanel text width row', () => {
     expect(container.textContent).toContain('Importance, priority, marker and text width go to all of them.');
   });
 
-  it('a step that would show nothing is not offered: its button is off', () => {
+  it('a step that would show nothing is not offered: its button is off, and a press on it does nothing', () => {
+    const off = (b: HTMLButtonElement) => b.getAttribute('aria-disabled') === 'true';
     const one = show({ id: 'a', text: 'Cat', children: [] }, { steps: { wider: false, narrower: false } });
-    expect([one.button('Wider').disabled, one.button('Narrower').disabled, one.button('Automatic').disabled]).toEqual([true, true, false]);
+    expect([off(one.button('Wider')), off(one.button('Narrower')), off(one.button('Automatic'))]).toEqual([true, true, false]);
+    act(() => one.button('Wider').click());
+    act(() => one.button('Narrower').click());
+    expect(one.onTextWidth).not.toHaveBeenCalled();
+    // Off, but still a button the keyboard can be on: a button that goes off while it has the focus
+    // would otherwise drop the focus, and the next key would go to the map.
+    expect([one.button('Wider').disabled, one.button('Narrower').disabled]).toEqual([false, false]);
     container.remove();
     const some = show({ id: 'a', text: 'Two words', children: [] }, { steps: { wider: false, narrower: true } });
-    expect([some.button('Wider').disabled, some.button('Narrower').disabled]).toEqual([true, false]);
+    expect([off(some.button('Wider')), off(some.button('Narrower'))]).toEqual([true, false]);
+    act(() => some.button('Narrower').click());
+    expect(some.onTextWidth.mock.calls).toEqual([['narrower']]);
     container.remove();
     // Not told which steps lead somewhere (several topics, an open text box): both are offered.
     const unknown = show({ id: 'a', text: 'Cat', children: [] });
-    expect([unknown.button('Wider').disabled, unknown.button('Narrower').disabled]).toEqual([false, false]);
+    expect([off(unknown.button('Wider')), off(unknown.button('Narrower'))]).toEqual([false, false]);
   });
 
   it('a click on a button leaves the keyboard where it is', () => {

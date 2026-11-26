@@ -411,10 +411,19 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
       if (stateRef.current.editing || modalRef.current) return;
       const t = e.target as HTMLElement | null;
       const cmd = keyToCommand(e);
-      // Keys pressed in a field or on a control belong to it. The exception: a focused button or link has
-      // no use for ⌘/Ctrl with an arrow, and left alone ⌘← would send the browser back.
+      // Keys pressed in a field or on a control belong to it. The exceptions, for a focused button or link:
+      // it has no use for ⌘/Ctrl with an arrow, and left alone ⌘← would send the browser back; and undo
+      // and redo are the map's, so that a change made with a button can be taken back from there.
       const ownKeys = !!t && (IGNORE_KEYS_IN.has(t.tagName) || t.isContentEditable);
-      if (ownKeys && !(cmd?.type === 'reorder' && (t.tagName === 'BUTTON' || t.tagName === 'A'))) return;
+      const onControl = !!t && (t.tagName === 'BUTTON' || t.tagName === 'A');
+      // Escape on a control of the Details panel gives the keyboard back to the map (a button there
+      // keeps the focus when it is pressed from the keyboard).
+      if (e.key === 'Escape' && onControl && t.closest('.details')) {
+        e.preventDefault();
+        t.blur();
+        return;
+      }
+      if (ownKeys && !(onControl && (cmd?.type === 'reorder' || cmd?.type === 'undo' || cmd?.type === 'redo'))) return;
       if (!cmd) return;
       e.preventDefault();
       run(cmd);

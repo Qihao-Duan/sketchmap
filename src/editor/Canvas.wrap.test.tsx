@@ -297,7 +297,7 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(h.onWrapText).not.toHaveBeenCalled();
     // Also for a text with several lines, when no word changes its line.
     remount({ selectedId: 't' });
-    drag(4);
+    drag(8);
     expect(h.onWrapText).not.toHaveBeenCalled();
   });
 
@@ -368,12 +368,16 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(capture).toHaveBeenCalledWith(7);
   });
 
-  it('a press that never moves, or moves less than 3 px, gives no width', () => {
+  it('a press that never moves, or moves less than 6 px (as much as a press on a topic may), gives no width', () => {
     const h = mount();
     drag(0);
-    drag(2);
+    drag(5);
+    drag(-5);
     expect(h.onWrapText).not.toHaveBeenCalled();
     expect(outline().hidden).toBe(true);
+    // 6 px is a drag: on this topic far enough to take a word to the next line.
+    drag(-6);
+    expect(h.onWrapText).toHaveBeenCalledTimes(1);
   });
 
   it('a drag that comes back to where it started gives no width', () => {
@@ -525,6 +529,32 @@ describe('Canvas: the side of a topic’s text', () => {
       }
     });
 
+    it('the second press may slip a few px, as the second click of a double click does: the text still opens and nothing is re-wrapped', () => {
+      const h = mount();
+      const [x, y] = at();
+      for (const slip of [-5, 5]) {
+        tap(x - 6, y);
+        fire(handle(), 'pointerdown', x - 6, y, { buttons: 1 });
+        fire(handle(), 'pointermove', x - 6 + slip, y + 2, { buttons: 1 });
+        expect(outline().hidden).toBe(true);
+        fire(handle(), 'pointerup', x - 6 + slip, y + 2);
+      }
+      expect(h.onEdit).toHaveBeenCalledTimes(2);
+      expect(h.onWrapText).not.toHaveBeenCalled();
+    });
+
+    it('with Shift held a press on the handle does nothing, as Shift on the one selected topic does nothing', () => {
+      const h = mount();
+      const [x, y] = at();
+      tap(x, y);
+      fire(handle(), 'pointerdown', x, y, { buttons: 1, shiftKey: true });
+      fire(handle(), 'pointermove', x + 200, y, { buttons: 1, shiftKey: true });
+      expect(outline().hidden).toBe(true);
+      fire(handle(), 'pointerup', x + 200, y, { shiftKey: true });
+      expect(h.onEdit).not.toHaveBeenCalled();
+      expect(h.onWrapText).not.toHaveBeenCalled();
+    });
+
     it('a second press that drags sets the width and opens nothing', () => {
       const h = mount();
       const [x, y] = at();
@@ -541,11 +571,16 @@ describe('Canvas: the side of a topic’s text', () => {
     });
   });
 
-  describe('where the handle’s area lies over the fold button (a small topic at a low zoom, a finger’s larger area)', () => {
-    it('a press inside the button’s own area is the button’s: it folds, and starts no drag', () => {
+  describe('where the handle’s area lies over the fold button (beyond the topic’s edge)', () => {
+    const wide = computeLayout({ id: 'r', text: 'Root', children: [
+      { id: 'a', text: long, side: 'right', children: [{ id: 'c', text: 'Child', children: [] }] },
+      { id: 'b', text: long, side: 'left', children: [{ id: 'd', text: 'Child', children: [] }] },
+    ] }, measure);
+
+    it('a press inside the button’s own area, and beyond the bar that shows, is the button’s: it folds, and starts no drag', () => {
       const h = mount({ selectedId: 'a' });
       const a = boxOf('a');
-      // The fold button's area is 22 map units across, around a point 11 beyond the edge.
+      // The fold button's area is 22 map units across, around a point 11 beyond the edge: this is 3 px beyond it.
       fire(handle(), 'pointerdown', a.fold.x - 8, a.fold.y + 9, { buttons: 1 });
       expect(h.onToggleFold).toHaveBeenCalledTimes(1);
       expect(h.onToggleFold).toHaveBeenCalledWith('a');
@@ -556,38 +591,60 @@ describe('Canvas: the side of a topic’s text', () => {
       expect(h.onEdit).not.toHaveBeenCalled();
     });
 
-    it('zoomed out, the button’s area is smaller on the screen, and so is the part of the handle that is the button’s', () => {
-      const { canvas, onToggleFold, onWrapText } = mount({ selectedId: 'a' });
+    it('the bar itself is never the button’s: it shows up to 2 px beyond the edge, and a press there drags', () => {
+      const h = mount({ layout: wide, selectedId: 'a' });
+      const a = boxOf('a', wide);
+      for (const beyond of [0, 1, 2]) {
+        fire(handle(), 'pointerdown', a.x + a.w + beyond, a.fold.y, { buttons: 1 });
+        fire(handle(), 'pointermove', a.x + a.w + beyond + 200, a.fold.y, { buttons: 1 });
+        expect(outline().hidden, `${beyond} px beyond the edge`).toBe(false);
+        fire(handle(), 'pointerup', a.x + a.w + beyond + 200, a.fold.y);
+      }
+      expect(h.onToggleFold).not.toHaveBeenCalled();
+      expect(h.onWrapText).toHaveBeenCalledTimes(3);
+      // And 3 px beyond it is the button's.
+      fire(handle(), 'pointerdown', a.x + a.w + 3, a.fold.y, { buttons: 1 });
+      expect(h.onToggleFold).toHaveBeenCalledTimes(1);
+    });
+
+    it('on the left of the map both are on the left edge, and beyond is to the left', () => {
+      const h = mount({ layout: wide, selectedId: 'b' });
+      const b = boxOf('b', wide);
+      expect(b.fold.x).toBe(b.x - 11);
+      fire(handle(), 'pointerdown', b.x - 3, b.fold.y, { buttons: 1 });
+      expect(h.onToggleFold).toHaveBeenCalledWith('b');
+      fire(handle(), 'pointerup', b.x - 3, b.fold.y);
+      fire(handle(), 'pointerdown', b.x - 1, b.fold.y, { buttons: 1 });
+      fire(handle(), 'pointermove', b.x - 1 - 200, b.fold.y, { buttons: 1 });
+      fire(handle(), 'pointerup', b.x - 1 - 200, b.fold.y);
+      expect(h.onToggleFold).toHaveBeenCalledTimes(1);
+      expect(h.onWrapText).toHaveBeenCalledTimes(1);
+    });
+
+    it('zoomed out, the button is smaller on the screen and the bar is not: the bar keeps its 2 px, the button what is beyond', () => {
+      const { canvas, onToggleFold } = mount({ layout: wide, selectedId: 'a' });
       act(() => canvas.current!.zoomBy(0.25));
       const { tx, ty, k } = canvas.current!.view();
       expect(k).toBe(0.25);
-      const a = boxOf('a');
-      const [fx, fy] = [tx + k * a.fold.x, ty + k * a.fold.y];
-      // 2 px from the button's middle is inside its area (2.75 px each way); 4 px above it is not.
-      fire(handle(), 'pointerdown', fx - 2, fy + 2, { buttons: 1 });
-      fire(handle(), 'pointerup', fx - 2, fy + 2);
+      const a = boxOf('a', wide);
+      const [edge, fy] = [tx + k * (a.x + a.w), ty + k * a.fold.y];
+      // The button's middle is 2.75 px beyond the edge, and its area 2.75 px each way.
+      fire(handle(), 'pointerdown', edge + 2.75, fy + 2, { buttons: 1 });
+      fire(handle(), 'pointerup', edge + 2.75, fy + 2);
       expect(onToggleFold).toHaveBeenCalledTimes(1);
-      fire(handle(), 'pointerdown', fx - 2, fy - 4, { buttons: 1 });
-      fire(handle(), 'pointermove', fx - 2 - 20, fy - 4, { buttons: 1 });
-      fire(handle(), 'pointerup', fx - 2 - 20, fy - 4);
+      // On the bar, and beside the button's area (4 px above its middle), a press is the bar's.
+      fire(handle(), 'pointerdown', edge + 1, fy, { buttons: 1 });
+      fire(handle(), 'pointerup', edge + 1, fy);
+      fire(handle(), 'pointerdown', edge + 3, fy - 4, { buttons: 1 });
+      fire(handle(), 'pointerup', edge + 3, fy - 4);
       expect(onToggleFold).toHaveBeenCalledTimes(1);
-      expect(onWrapText).not.toHaveBeenCalled(); // 'Alpha' is one word: the drag changes no line
-      expect(outline().hidden).toBe(true);
     });
 
-    it('a press beside the button’s area drags, and so does any press on a topic that has no fold button', () => {
-      const wide = computeLayout({ id: 'r', text: 'Root', children: [{ id: 'a', text: long, children: [{ id: 'c', text: 'Child', children: [] }] }] }, measure);
-      const h = mount({ layout: wide, selectedId: 'a' });
-      const a = boxOf('a', wide);
-      fire(handle(), 'pointerdown', a.x + a.w - 5, a.fold.y, { buttons: 1 });
-      fire(handle(), 'pointermove', a.x + a.w - 5 + 200, a.fold.y, { buttons: 1 });
-      fire(handle(), 'pointerup', a.x + a.w - 5 + 200, a.fold.y);
-      expect(h.onToggleFold).not.toHaveBeenCalled();
-      expect(h.onWrapText).toHaveBeenCalledTimes(1);
-      // The central topic has no fold button: 3 px beyond its edge is the handle's.
-      remount({ layout: wide, selectedId: 'r' });
+    it('any press on a topic that has no fold button is the bar’s', () => {
+      const h = mount({ layout: wide, selectedId: 'r' });
       const [x, y] = at();
       fire(handle(), 'pointerdown', x + 3, y, { buttons: 1 });
+      fire(handle(), 'pointerup', x + 3, y);
       expect(h.onToggleFold).not.toHaveBeenCalled();
     });
   });

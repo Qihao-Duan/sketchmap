@@ -194,9 +194,11 @@ describe('InlineEditor', () => {
     ] }, measure);
     const px = (v: string) => parseFloat(v);
 
-    it('an empty topic opens at the least width', () => {
+    it('an empty topic opens at the least width, with room for the word that stands in for its text', () => {
       const { ta } = mount({ box: shown().byId.get('t')!, initialText: '' });
       expect(px(ta.style.width)).toBe(140);
+      expect(ta.placeholder).toBe('Topic');
+      expect(140 - 3 - px(ta.style.paddingLeft) - px(ta.style.paddingRight)).toBe(measure('Topic', 17) + 2);
     });
 
     it('it grows with the text that is typed, and stops where the topic’s text wraps', () => {
@@ -304,6 +306,51 @@ describe('InlineEditor', () => {
       expect(px(ta.style.width)).toBe(280);
     });
 
+    it('the least width adds room beside the text, not for it: the text wraps in the box where it wraps in the topic', () => {
+      const map = computeLayout({ id: 'r', text: 'Root', children: [
+        { id: 'a', text: 'Aa', side: 'right', children: [{ id: 't', text: '', children: [] }] },
+      ] }, measure);
+      const [a, t] = ['a', 't'].map((id) => map.byId.get(id)!);
+      // An underlined topic: its text starts on the left, so the room is after it. A new topic is as wide
+      // as the word that stands in for its text ("Topic", 5 characters) with 2 × 5 px beside it.
+      const line = mount({ box: t, initialText: '' }).ta;
+      expect(px(line.style.width)).toBe(140);
+      expect(px(line.style.paddingLeft)).toBe(5);
+      expect(px(line.style.paddingRight)).toBe(5 + 140 - (5 * 8.5 + 10 + 5));
+      // Zoomed out, the wrap width is less than the least width on the screen: a long text still has
+      // exactly the topic's 250 px (and the air) to wrap in.
+      const far = mount({ box: t, initialText: '', view: { tx: 0, ty: 0, k: 0.5 } }).ta;
+      type(far, long);
+      expect(px(far.style.width)).toBe(140);
+      const room = 140 - 3 - px(far.style.paddingLeft) - px(far.style.paddingRight);
+      expect(room).toBe((29 * 8.5 + 2) * 0.5);
+      // A boxed topic: its text is centred, so the room is on both sides.
+      const boxed = mount({ box: a, initialText: 'Aa' }).ta;
+      expect(px(boxed.style.paddingLeft)).toBe(16 + (140 - (a.w + 5)) / 2);
+      expect(px(boxed.style.paddingRight)).toBe(16 + (140 - (a.w + 5)) / 2);
+      // With link syntax the least width is there for the syntax to be read: it is room for the text.
+      const link = mount({ box: t, initialText: '' }).ta;
+      type(link, '[a](https://example.com)');
+      expect(px(link.style.width)).toBe(280);
+      expect(px(link.style.paddingRight)).toBe(5);
+    });
+
+    it('while it is open it never gets narrower: not when text is deleted, not when a link is recognised and shown as its short label', () => {
+      const map = shown();
+      const l = map.byId.get('l')!;
+      const { ta } = mount({ box: l, initialText: '' });
+      type(ta, 'a'.repeat(28));
+      const [left, width] = [px(ta.style.left), px(ta.style.width)];
+      expect(width).toBe(28 * 8.5 + 10 + 5);
+      // On the left of the map the box grows to the left: getting narrower would move the text under the caret.
+      type(ta, `https://example.org/${'a'.repeat(8)}`);
+      expect(px(ta.style.left)).toBe(left);
+      type(ta, `[a](https://example.org/${'a'.repeat(8)})`);
+      expect(px(ta.style.left)).toBe(left);
+      type(ta, 'a');
+      expect([px(ta.style.left), px(ta.style.width)]).toEqual([left, width]);
+    });
+
     it('it grows the way the topic will: to the right on the right of the map, to the left on the left, to both sides for the central topic', () => {
       const map = shown();
       const [t, l, r] = ['t', 'l', 'r'].map((id) => map.byId.get(id)!);
@@ -405,6 +452,22 @@ describe('InlineEditor', () => {
       expect(onGrow.mock.calls.at(-1)![1]).toBe('left');
       type(mount({ box: map.byId.get('r')!, initialText: 'Root', onGrow }).ta, long);
       expect(onGrow.mock.calls.at(-1)![1]).toBe('both');
+    });
+
+    it('when it moves outwards without getting wider: a new topic on the left of the map, still under the least width', () => {
+      const map = computeLayout({ id: 'r', text: 'Root', children: [
+        { id: 'a', text: 'Alpha', side: 'right', children: [] },
+        { id: 'b', text: 'Beta', side: 'left', children: [{ id: 'l', text: '', children: [] }] },
+      ] }, measure);
+      const onGrow = vi.fn();
+      const px = (v: string) => parseFloat(v);
+      const { ta } = mount({ box: map.byId.get('l')!, initialText: '', onGrow });
+      const before = px(ta.style.left);
+      type(ta, 'A deeper to');
+      expect(px(ta.style.width)).toBe(140);
+      expect(px(ta.style.left)).toBeLessThan(before);
+      expect(onGrow).toHaveBeenCalledTimes(1);
+      expect(onGrow.mock.calls[0][0].x).toBe(px(ta.style.left));
     });
 
     it('when a line break makes it higher', () => {

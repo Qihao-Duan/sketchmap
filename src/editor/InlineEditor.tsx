@@ -22,6 +22,8 @@ interface Props {
 }
 
 const TOO_LONG = 'With this link the topic would be longer than 5000 characters.';
+/** What stands in for the text of a topic that has none yet. */
+const PLACEHOLDER = 'Topic';
 
 export function InlineEditor({ box, view, measure, initialText, selectAll, onCommit, onCancel, onTab, onGrow }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -89,16 +91,25 @@ export function InlineEditor({ box, view, measure, initialText, selectAll, onCom
   // address would make as wide as the address. A word longer than the topic's width is broken by the
   // box, so the box stops at that width. Never narrower than the topic is now.
   const rich = parseRich(value);
+  const hasSyntax = rich.plain !== value;
   const limit = box.node.wrap ?? box.style.maxW;
   const shownText = (box.node.emoji ? `${box.node.emoji} ` : '') + rich.plain;
-  const widest = wrapText(shownText || ' ', fontSize, limit, measure).reduce((m, line) => Math.max(m, measure(line, fontSize)), 0);
-  const topicW = Math.max(box.w, Math.min(widest, limit) + padX * 2 + box.badgeW + box.noteW) * k;
+  const widest = wrapText(shownText || PLACEHOLDER, fontSize, limit, measure).reduce((m, line) => Math.max(m, measure(line, fontSize)), 0);
+  // While the box is open it never gets narrower: a text that gets shorter, or is shown shorter once a
+  // link is recognised in it, would move the box under the caret.
+  const widestYet = useRef(0);
+  widestYet.current = Math.max(widestYet.current, Math.min(widest, limit));
+  const topicW = Math.max(box.w, widestYet.current + padX * 2 + box.badgeW + box.noteW) * k;
   // Around that: the box's own 1.5 px border, and 1 map unit of air on either side, which keeps a line
   // that fits the topic from wrapping in the box at any zoom.
   const air = 3 + 2 * k;
-  // The least width leaves room to type in, and for link syntax to be read.
-  const width = Math.max(topicW + air, rich.plain !== value ? 280 : 140);
+  // The least width leaves room to aim at, and for link syntax to be read.
+  const width = Math.max(topicW + air, hasSyntax ? 280 : 140);
   const spare = width - (topicW + air);
+  // What the least width adds is room beside the text, not for it: with more room than the topic has,
+  // the box would wrap the text later than the topic does (a narrow width set by hand, a low zoom). Only
+  // link syntax, which the topic does not show, gets it as room for text.
+  const beside = hasSyntax ? 0 : spare;
   const lines = Math.max(1, value.split('\n').length);
   // It grows the way the topic will: away from its parent, and to both sides for the central topic.
   const grows = box.parentId === null ? 'both' : box.side === -1 ? 'left' : 'right';
@@ -114,7 +125,7 @@ export function InlineEditor({ box, view, measure, initialText, selectAll, onCom
     height: lines * lineHeight * k + padY * 2 * k + 4,
     fontSize: fontSize * k,
     lineHeight: `${lineHeight * k}px`,
-    padding: `${padY * k}px ${(padX + box.noteW) * k}px ${padY * k}px ${(padX + box.badgeW) * k}px`,
+    padding: `${padY * k}px ${(padX + box.noteW) * k + (kind === 'line' ? beside : beside / 2)}px ${padY * k}px ${(padX + box.badgeW) * k + (kind === 'line' ? 0 : beside / 2)}px`,
     textAlign: kind === 'line' ? 'left' : 'center',
   };
 
@@ -137,16 +148,21 @@ export function InlineEditor({ box, view, measure, initialText, selectAll, onCom
   // Says so when typing made the box larger. Not when it opens (its topic was brought into view when it was
   // selected), and not when only the zoom changed: the height measured at the zoom before says nothing
   // about this one, so the comparison starts again once the height at this zoom is in.
+  // Larger: an edge further out, which under the least width happens without the box getting wider
+  // (a new topic on the left of the map moves to the left as its text grows).
   const shownH = taH || Math.max(minHeight, style.height as number);
-  const last = useRef<{ w: number; h: number } | null>(null);
+  const last = useRef<{ left: number; right: number; h: number } | null>(null);
   useLayoutEffect(() => {
     if (taH === null) {
       last.current = null;
       return;
     }
     const was = last.current;
-    last.current = { w: width, h: shownH };
-    if (was && (width > was.w || shownH > was.h)) onGrow?.({ x: left / k, y: box.y + textOffset, w: width / k, h: shownH / k }, grows);
+    const now = { left, right: left + width, h: shownH };
+    last.current = now;
+    if (was && (now.left < was.left - 0.01 || now.right > was.right + 0.01 || now.h > was.h)) {
+      onGrow?.({ x: left / k, y: box.y + textOffset, w: width / k, h: shownH / k }, grows);
+    }
   });
 
   return (
@@ -155,7 +171,7 @@ export function InlineEditor({ box, view, measure, initialText, selectAll, onCom
         ref={ref}
         className="inline-editor"
         aria-label="Topic text"
-        placeholder="Topic"
+        placeholder={PLACEHOLDER}
         spellCheck={false}
         maxLength={5000}
         value={value}

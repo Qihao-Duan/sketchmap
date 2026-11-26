@@ -245,9 +245,13 @@ export function DetailsPanel({
               className="chip word"
               title={it.title}
               aria-pressed={it.step === 'auto' ? node.wrap === undefined : undefined}
-              disabled={it.step !== 'auto' && steps?.[it.step] === false}
+              // Off, not disabled: a button that is disabled while the keyboard is on it drops the focus,
+              // and the next Enter would add a topic to the map.
+              aria-disabled={(it.step !== 'auto' && steps?.[it.step] === false) || undefined}
               onMouseDown={noFocus}
-              onClick={() => onTextWidth(it.step)}
+              onClick={() => {
+                if (it.step === 'auto' || steps?.[it.step] !== false) onTextWidth(it.step);
+              }}
             >
               {it.label}
             </button>

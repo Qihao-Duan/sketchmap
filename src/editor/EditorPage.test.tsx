@@ -1196,15 +1196,57 @@ describe('Text width', () => {
   it('a step that would show nothing is not offered', async () => {
     // One short word: it cannot get narrower, and it is on one line already.
     mount(fakeApi());
-    const button = (t: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === t)!;
-    expect([button('Wider').disabled, button('Narrower').disabled, button('Automatic').disabled]).toEqual([true, true, false]);
+    const off = (t: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === t)!.getAttribute('aria-disabled') === 'true';
+    expect([off('Wider'), off('Narrower'), off('Automatic')]).toEqual([true, true, false]);
     act(() => roots.splice(0).forEach((root) => root.unmount()));
     container.remove();
     mount(fakeApi(), wordy);
-    expect([button('Wider').disabled, button('Narrower').disabled]).toEqual([false, false]);
+    expect([off('Wider'), off('Narrower')]).toEqual([false, false]);
     // With several topics selected each may differ: both are offered.
     keydown({ key: 'a', metaKey: true });
-    expect([button('Wider').disabled, button('Narrower').disabled]).toEqual([false, false]);
+    expect([off('Wider'), off('Narrower')]).toEqual([false, false]);
+  });
+
+  it('a button that goes off under the keyboard keeps the focus: more presses do nothing, and none adds a topic', async () => {
+    mount(fakeApi(), wordy);
+    const wider = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Wider')!;
+    act(() => wider.focus());
+    for (let i = 0; i < 14; i++) {
+      await act(async () => {
+        wider.click();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+    // At the most a map may hold (1600 px) the central topic's 24 words are on two lines: no wider than that.
+    expect(wider.getAttribute('aria-disabled')).toBe('true');
+    expect(hint()).toContain('The text wraps at 1600 px.');
+    expect(lines()).toBe(2);
+    expect(document.activeElement).toBe(wider);
+    keydown({ key: 'Enter' }, document.activeElement!);
+    expect(topics()).toBe(2);
+  });
+
+  it('with the keyboard on a button of the panel, undo and redo still work on the map, and Escape gives the keyboard back to the map', async () => {
+    mount(fakeApi(), wordy);
+    const wider = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Wider')!;
+    act(() => wider.focus());
+    await act(async () => {
+      wider.click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(lines()).toBe(5);
+    keydown({ key: 'z', metaKey: true }, wider);
+    expect(lines()).toBe(6);
+    keydown({ key: 'z', metaKey: true, shiftKey: true }, wider);
+    expect(lines()).toBe(5);
+    expect(document.activeElement).toBe(wider);
+    // Any other key is the button's: an arrow does not move the selection.
+    keydown({ key: 'ArrowRight' }, wider);
+    expect(container.querySelector('g.topic.selected')!.getAttribute('data-id')).toBe('root000001');
+    keydown({ key: 'Escape' }, wider);
+    expect(document.activeElement).toBe(document.body);
+    keydown({ key: 'ArrowRight' });
+    expect(container.querySelector('g.topic.selected')!.getAttribute('data-id')).toBe('child00001');
   });
 
   it('with several topics selected, a step leaves a topic alone on which it would not show', async () => {

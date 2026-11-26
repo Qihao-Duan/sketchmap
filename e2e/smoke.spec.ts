@@ -985,6 +985,20 @@ test('the bar and the fold button of a topic sit side by side: the button still 
   await page.mouse.up();
   await expect.poll(() => branch.locator('text').count()).toBeGreaterThan(lines);
   await expect(page.locator('g.topic')).toHaveCount(3);
+  // The bar shows up to 2 px beyond the topic's edge, where the fold button's area has begun: a press on
+  // that part of the bar drags, and folds nothing.
+  await settled(page);
+  const narrow = await branch.locator('text').count();
+  const now = (await page.locator('.wrap-handle').boundingBox())!;
+  const [bx, by] = [now.x + 12 + 1, now.y + now.height / 2];
+  expect(await page.evaluate(([px, py]) => document.elementFromPoint(px, py)?.className, [bx, by])).toContain('wrap-handle');
+  await page.mouse.move(bx, by);
+  await page.mouse.down();
+  await page.mouse.move(bx + 110 * (await zoomOf(page)), by, { steps: 4 });
+  await expect(page.locator('.size-box')).toBeVisible();
+  await page.mouse.up();
+  await expect.poll(() => branch.locator('text').count()).toBeLessThan(narrow);
+  await expect(page.locator('g.topic')).toHaveCount(3);
 });
 
 test('Wider, Narrower and Automatic step the width of a topic’s text, with the mouse and from the keyboard', async ({ page }) => {
@@ -1022,6 +1036,22 @@ test('Wider, Narrower and Automatic step the width of a topic’s text, with the
   await expect(hint).toContainText('The text wraps at 360 px.');
   await expect(page.locator('g.topic')).toHaveCount(2);
   await expect(page.locator('textarea.inline-editor')).toHaveCount(0);
+  // Undo is the map's also with the keyboard on the button.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(hint).toContainText('The text wraps at 290 px.');
+  // Pressed until there is no wider: the button goes off, keeps the focus, and Enter still adds no topic.
+  const wider = page.getByRole('button', { name: 'Wider' });
+  for (let i = 0; i < 12; i++) await page.keyboard.press('Enter');
+  await expect(wider).toBeDisabled();
+  await expect(wider).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('g.topic')).toHaveCount(2);
+  await expect(page.locator('textarea.inline-editor')).toHaveCount(0);
+  // Escape gives the keyboard back to the map: an arrow moves the selection again.
+  await page.keyboard.press('Escape');
+  await expect(wider).not.toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('g.topic').first()).toHaveClass(/selected/);
 });
 
 test('a step of the text width that would show nothing is not offered', async ({ page }) => {
@@ -1075,6 +1105,23 @@ test('a double click near a topic’s edge opens its text, although the bar is u
   await expect(editor).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(hint).toContainText('The text wraps at 290 px.');
+  // A second click that slips a few px, either way, is still the second click: the text opens and is not re-wrapped.
+  const lines = await topic.locator('text').count();
+  for (const slip of [-4, 4]) {
+    await page.locator('g.topic').first().click();
+    const shown = (await topic.locator('rect.hit').boundingBox())!;
+    const [x, y] = [shown.x + shown.width - 4 * (await zoomOf(page)) - 6, shown.y + shown.height / 2];
+    await page.mouse.click(x, y);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + slip, y + 1);
+    await page.mouse.up();
+    await expect(editor, `slipping ${slip} px`).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(editor).toHaveCount(0);
+  }
+  await expect(hint).toContainText('The text wraps at 290 px.');
+  expect(await topic.locator('text').count()).toBe(lines);
 });
 
 test('zoomed far out, where the bar is larger than the topic’s fold button, the button still folds and a double click still opens the text', async ({ page }) => {
@@ -1139,12 +1186,14 @@ test('a box wider than the canvas does not make the canvas jump back and forth w
   const box = page.locator('textarea.inline-editor');
   await expect(box).toBeVisible();
   await page.keyboard.press('End');
-  // Word after word: the canvas only ever moves one way (to the left, as the box grows to the right).
+  // Key after key, with words of every length, so that lines grow and wrap: the canvas only ever moves
+  // one way (to the left, as the box grows to the right), also when a word wraps and the box gets narrower.
+  const more = ' so a supercalifragilistic word wraps, then a few short ones do, and an extraordinarily long-winded one again';
   let last = await tx();
-  for (let i = 0; i < 30; i++) {
-    await page.keyboard.type(' again');
+  for (const key of more.repeat(2)) {
+    await page.keyboard.type(key);
     const now = await tx();
-    expect(now, `after word ${i + 1}`).toBeLessThanOrEqual(last + 0.5);
+    expect(now, `after "${key}"`).toBeLessThanOrEqual(last + 0.5);
     last = now;
   }
   expect((await box.boundingBox())!.width).toBeGreaterThan((await page.locator('.canvas').boundingBox())!.width - 300);
@@ -1174,6 +1223,39 @@ test('a box wider than the canvas does not make the canvas jump back and forth w
   const after = await view();
   expect(Math.abs(after.tx + after.k * under[0] - (px - stage.x))).toBeLessThan(1.5);
   expect(Math.abs(after.ty + after.k * under[1] - (py - stage.y))).toBeLessThan(1.5);
+});
+
+test('opened on a topic, the box wraps its text the way the topic does, also with a narrow width set by hand and zoomed far out', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('g.topic').click();
+  await page.keyboard.press('Tab');
+  await page.keyboard.type(LONG_TEXT);
+  await page.keyboard.press('Enter');
+  await settled(page);
+  const topic = page.locator('g.topic').nth(1);
+  const box = page.locator('textarea.inline-editor');
+  const boxLines = () => box.evaluate((ta) => {
+    const cs = getComputedStyle(ta);
+    return Math.round((ta.scrollHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / parseFloat(cs.lineHeight));
+  });
+  const compare = async (what: string) => {
+    await settled(page);
+    const lines = await topic.locator('text').count();
+    await page.keyboard.press('F2');
+    await expect(box).toBeVisible();
+    expect(await boxLines(), what).toBe(lines);
+    await page.keyboard.press('Escape');
+    await expect(box).toHaveCount(0);
+  };
+  await compare('automatic width');
+  // Narrower than the least width of the box: the text has the topic's room, not the box's.
+  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Narrower' }).click();
+  await expect(page.locator('.details .text-width')).toContainText('The text wraps at 90 px.');
+  await compare('90 px');
+  await page.getByRole('button', { name: 'Automatic' }).click();
+  for (let i = 0; i < 12 && (await zoomOf(page)) > 0.5; i++) await page.getByRole('button', { name: 'Zoom out' }).click();
+  expect(await zoomOf(page)).toBeLessThanOrEqual(0.5);
+  await compare('zoomed out');
 });
 
 test('a long text is typed into a box as wide as the topic will be, which wraps it the way the topic does and stays clear of the Details panel', async ({ page }) => {

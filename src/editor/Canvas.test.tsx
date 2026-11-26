@@ -313,9 +313,46 @@ describe('Canvas', () => {
         expect(now).toBeLessThanOrEqual(last);
         last = now;
       }
+      // A word that wraps makes the place smaller again, and the next word larger: the canvas does not
+      // come back for that. It only ever follows the side that grows.
+      for (const w of [2300, 2250, 2330, 2100, 2399]) {
+        act(() => canvasRef.current!.reveal({ ...place, w: w / k }, 'right'));
+        expect(canvasRef.current!.view().tx, `at ${w} px`).toBe(last);
+      }
+      act(() => canvasRef.current!.reveal({ ...place, w: 2500 / k }, 'right'));
+      expect(canvasRef.current!.view().tx).toBeLessThan(last);
+      expect(canvasRef.current!.view().tx + k * place.x + 2500).toBeCloseTo(700 - 24, 6);
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('reveal on a canvas with next to no room (a narrow window beside the panel) settles, and does not move back and forth for ever', () => {
+    for (const width of [330, 320, 300, 90]) {
+      const spy = vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        x: 0, y: 0, width, height: 400, top: 0, left: 0, right: width, bottom: 400, toJSON: () => ({}),
+      } as DOMRect);
+      try {
+        const canvasRef: { current: CanvasHandle | null } = { current: null };
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        const root = createRoot(container);
+        act(() => root.render(<Canvas ref={canvasRef} layout={layout} selectedId={null} interactive rightInset={width === 90 ? 44 : 296} onToggleFold={vi.fn()} />));
+        const place = { x: 100, y: 50, w: 300, h: 60 };
+        for (const grows of ['right', 'left', 'both'] as const) {
+          act(() => canvasRef.current!.reveal(place, grows));
+          const settled = canvasRef.current!.view();
+          for (let i = 0; i < 3; i++) act(() => canvasRef.current!.reveal(place, grows));
+          expect(canvasRef.current!.view(), `${width} px, ${grows}`).toEqual(settled);
+        }
+        act(() => root.unmount());
+        container.remove();
+      } finally {
+        spy.mockRestore();
+      }
+    }
+    container = document.createElement('div');
+    document.body.appendChild(container);
   });
 
   describe('drop', () => {
