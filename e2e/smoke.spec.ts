@@ -386,12 +386,19 @@ test('map layout: a main branch put on the other side of the central topic stays
   await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 10_000 });
 
   const box = async (text: string) => (await page.locator('g.topic', { has: page.locator('text', { hasText: text }) }).locator('rect.hit').boundingBox())!;
-  /** Which side of the central topic each branch is on. */
+  /**
+   * Which side of the central topic each branch is on. Null while the map is being drawn anew after a
+   * change and a topic is not on the page for a moment: a poll then asks again.
+   */
   const sides = async () => {
-    const root = await box('Central topic');
-    const out: Record<string, string> = {};
-    for (const name of ['Alpha', 'Beta', 'Gamma', 'Delta']) out[name] = (await box(name)).x < root.x ? 'left' : 'right';
-    return out;
+    try {
+      const root = await box('Central topic');
+      const out: Record<string, string> = {};
+      for (const name of ['Alpha', 'Beta', 'Gamma', 'Delta']) out[name] = (await box(name)).x < root.x ? 'left' : 'right';
+      return out;
+    } catch {
+      return null;
+    }
   };
   // Balanced automatically: the first two on the right, the rest on the left.
   expect(await sides()).toEqual({ Alpha: 'right', Beta: 'right', Gamma: 'left', Delta: 'left' });
