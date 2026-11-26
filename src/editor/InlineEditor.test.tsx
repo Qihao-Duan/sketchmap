@@ -266,4 +266,46 @@ describe('InlineEditor', () => {
       expect(px(centre.style.left) + px(centre.style.width) / 2).toBe(30 + r.x + r.w / 2);
     });
   });
+
+  describe('says when it needs more room', () => {
+    const long = Array.from({ length: 24 }, () => 'word').join(' ');
+    const t = computeLayout({ id: 'r', text: 'Root', children: [{ id: 'a', text: 'Alpha', children: [{ id: 't', text: '', children: [] }] }] }, measure).byId.get('t')!;
+
+    it('not when it opens: the topic it is on was brought into view when it was selected', () => {
+      const onGrow = vi.fn();
+      mount({ box: t, initialText: '', onGrow });
+      expect(onGrow).not.toHaveBeenCalled();
+    });
+
+    it('when the text makes it wider: where it is on the map now', () => {
+      const onGrow = vi.fn();
+      const { ta } = mount({ box: t, initialText: '', onGrow, view: { tx: 40, ty: 10, k: 2 } });
+      type(ta, 'word word word word word');
+      expect(onGrow).toHaveBeenCalledTimes(1);
+      const width = (24 * 8.5 + 10) * 2 + 6;
+      // One line of 22 px with 4 px above and below it, twice as large on the screen, and 4 px for the border and some air.
+      expect(onGrow).toHaveBeenLastCalledWith({ x: t.x, y: t.y, w: width / 2, h: (30 * 2 + 4) / 2 });
+      type(ta, long);
+      expect(onGrow).toHaveBeenCalledTimes(2);
+      expect(onGrow.mock.calls[1][0].w).toBe(((29 * 8.5 + 10) * 2 + 6) / 2);
+    });
+
+    it('when a line break makes it higher', () => {
+      const onGrow = vi.fn();
+      const { ta } = mount({ box: t, initialText: 'word', onGrow });
+      type(ta, 'word\nword\nword');
+      expect(onGrow).toHaveBeenCalledTimes(1);
+      // Three lines of 22 px, 4 px above and below them, and 4 px for the border and some air.
+      expect(onGrow.mock.calls[0][0].h).toBe(3 * 22 + 8 + 4);
+    });
+
+    it('not when it stays as it is or gets smaller', () => {
+      const onGrow = vi.fn();
+      const { ta } = mount({ box: t, initialText: '', onGrow });
+      type(ta, 'word word word word word');
+      type(ta, 'word word word word wor');
+      type(ta, 'word');
+      expect(onGrow).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -161,6 +161,7 @@ describe('Canvas: the corner of an image', () => {
     expect(outline().style.width).toBe('260px');
     expect(outline().style.height).toBe('130px');
     expect(outline().textContent).toBe('260 × 130');
+    expect(outline().querySelector('span')!.style.top).toBe('135px');
     // The handle goes with the outline's corner.
     expect(at()).toEqual([from.left + 260, from.top + 130]);
     fire(handle(), 'pointerup', from.right + 60, from.bottom + 30);

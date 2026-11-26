@@ -239,6 +239,39 @@ describe('Canvas', () => {
     }
   });
 
+  it('reveal brings a place on the map into view, clear of a right-hand panel, and moves nothing for a place that is in view', () => {
+    const spy = vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, width: 1000, height: 600, top: 0, left: 0, right: 1000, bottom: 600, toJSON: () => ({}),
+    } as DOMRect);
+    try {
+      const canvasRef: { current: CanvasHandle | null } = { current: null };
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      act(() =>
+        createRoot(container).render(
+          <Canvas ref={canvasRef} layout={layout} selectedId={null} interactive rightInset={300} onToggleFold={vi.fn()} />,
+        ),
+      );
+      const before = canvasRef.current!.view();
+      const onScreen = (x: number, y: number) => [before.tx + before.k * x, before.ty + before.k * y];
+      // A place in the middle of what shows: nothing moves.
+      const [mx, my] = [(350 - before.tx) / before.k, (300 - before.ty) / before.k];
+      act(() => canvasRef.current!.reveal({ x: mx - 20, y: my - 10, w: 40, h: 20 }));
+      expect(canvasRef.current!.view()).toEqual(before);
+      // A place that ends 100 px behind the panel's edge (at 700) and 50 px below the canvas.
+      const [px, py] = [(800 - before.tx) / before.k, (650 - before.ty) / before.k];
+      expect(onScreen(px, py)).toEqual([800, 650]);
+      act(() => canvasRef.current!.reveal({ x: px - 40, y: py - 20, w: 40, h: 20 }));
+      const v = canvasRef.current!.view();
+      expect(v.k).toBe(before.k);
+      // 24 px of room is kept to the panel and to the canvas's edge.
+      expect(v.tx + v.k * px).toBeCloseTo(700 - 24, 6);
+      expect(v.ty + v.k * py).toBeCloseTo(600 - 24, 6);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   describe('drop', () => {
     const file = new File(['x'], 'photo.png', { type: 'image/png' });
 

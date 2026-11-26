@@ -1197,6 +1197,26 @@ describe('Text width', () => {
     expect(['wrap' in lastSaved(api).root, 'wrap' in lastSaved(api).root.children[0]]).toEqual([false, false]);
   });
 
+  it('the box a text is typed into stays clear of the Details panel as it grows: the canvas moves', () => {
+    const spy = vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, width: 600, height: 500, top: 0, left: 0, right: 600, bottom: 500, toJSON: () => ({}),
+    } as DOMRect);
+    try {
+      mount(fakeApi());
+      keydown({ key: 'Tab' });
+      const ta = container.querySelector('textarea.inline-editor') as HTMLTextAreaElement;
+      const right = () => parseFloat(ta.style.left) + parseFloat(ta.style.width);
+      const world = () => container.querySelector('g.world')!.getAttribute('transform');
+      const before = world();
+      // The panel is 296 px wide: the canvas shows up to 304 px, and the box keeps 24 px from there.
+      type(ta, long);
+      expect(world()).not.toBe(before);
+      expect(right()).toBeCloseTo(600 - 296 - 24, 6);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('the box a text is typed into grows with the text, up to where the topic’s text wraps', () => {
     mount(fakeApi());
     keydown({ key: 'Tab' });

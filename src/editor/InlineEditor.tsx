@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import type { TopicBox } from '../layout/map';
+import type { Bounds, TopicBox } from '../layout/map';
 import { wrapText, type Measure } from '../layout/wrap';
 import { linkRange, normalizeHref, parseRich } from '../shared/rich';
 import type { View } from './viewport';
@@ -14,11 +14,13 @@ interface Props {
   onCommit(text: string): void;
   onCancel(): void;
   onTab(text: string): void;
+  /** The box got wider or higher while its text was typed: where on the map it is now, so it can be kept in view. */
+  onGrow?(place: Bounds): void;
 }
 
 const TOO_LONG = 'With this link the topic would be longer than 5000 characters.';
 
-export function InlineEditor({ box, view, measure, initialText, selectAll, onCommit, onCancel, onTab }: Props) {
+export function InlineEditor({ box, view, measure, initialText, selectAll, onCommit, onCancel, onTab, onGrow }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [value, setValue] = useState(initialText);
   const done = useRef(false);
@@ -108,6 +110,17 @@ export function InlineEditor({ box, view, measure, initialText, selectAll, onCom
     ta.style.height = `${Math.max(minHeight, ta.scrollHeight + border)}px`;
     setTaH(ta.offsetHeight);
   }, [value, k]);
+
+  // Says so when typing made the box larger. Not when it opens (its topic was brought into view when it was
+  // selected), and not when only the zoom changed.
+  const shownH = taH || Math.max(minHeight, style.height as number);
+  const last = useRef<{ w: number; h: number; k: number } | null>(null);
+  useLayoutEffect(() => {
+    if (taH === null) return;
+    const was = last.current;
+    last.current = { w: width, h: shownH, k };
+    if (was && was.k === k && (width > was.w || shownH > was.h)) onGrow?.({ x: left / k, y: box.y + textOffset, w: width / k, h: shownH / k });
+  });
 
   return (
     <>

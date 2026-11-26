@@ -100,25 +100,23 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(at()).toEqual([boxOf('r').x + boxOf('r').w, midOf('r')]);
   });
 
-  it('the handle keeps clear of the fold button: where that is in its way, it sits above it', () => {
-    // A main branch: its fold button is at the middle of the same edge.
+  it('a topic with a fold button has the handle at the middle of its text too: the handle is on the edge, the button beyond it', () => {
+    // A main branch: its fold button is at the middle of the same edge, 11 px out.
     mount({ selectedId: 'a' });
-    expect(boxOf('a').fold.y).toBe(midOf('a'));
-    expect(at()).toEqual([edgeOf('a'), boxOf('a').fold.y - 27]);
-    // A deeper topic with one line: the fold button is at the end of its underline, 15 px below the middle of the text.
+    expect([boxOf('a').fold.x, boxOf('a').fold.y]).toEqual([edgeOf('a') + 11, midOf('a')]);
+    expect(at()).toEqual([edgeOf('a'), midOf('a')]);
+    // A deeper topic with one line: the fold button is at the end of its underline.
     remount({ selectedId: 'u' });
-    expect(at()).toEqual([edgeOf('u'), boxOf('u').fold.y - 27]);
-    // With four lines the button is far enough away.
-    remount({ selectedId: 'l' });
-    expect(at()).toEqual([edgeOf('l'), midOf('l')]);
+    expect(at()).toEqual([edgeOf('u'), midOf('u')]);
   });
 
-  it('zoomed in, the handle keeps its own size, so it needs less room above the fold button', () => {
-    const { canvas } = mount({ selectedId: 'a' });
-    act(() => canvas.current!.zoomBy(2));
-    const { ty } = canvas.current!.view();
-    // The button is twice as large (11 px → 22 px to its edge); the handle is still 14 px from its middle to its end.
-    expect(at()[1]).toBe(ty + 2 * boxOf('a').fold.y - 38);
+  it('the handle says which edge it is on, so that it can sit just inside the topic on either side', () => {
+    mount({ selectedId: 't' });
+    expect(handle().classList.contains('left')).toBe(false);
+    remount({ selectedId: 'l' });
+    expect(handle().classList.contains('left')).toBe(true);
+    remount({ selectedId: 'r' });
+    expect(handle().classList.contains('left')).toBe(false);
   });
 
   it('there is no handle while nothing is selected, with several topics selected, or for a topic without text', () => {
@@ -180,6 +178,16 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(h.onWrapText).toHaveBeenCalledWith('t', 97);
   });
 
+  it('narrowed, the topic gets higher: the width is said under the outline', () => {
+    mount();
+    const [x, y] = at();
+    fire(handle(), 'pointerdown', x, y, { buttons: 1 });
+    fire(handle(), 'pointermove', x - 150, y, { buttons: 1 });
+    const becomes = wrappedAt('t', 97);
+    expect(becomes.h).toBeGreaterThan(boxOf('t').h);
+    expect(outline().querySelector('span')!.style.top).toBe(`${becomes.h + 5}px`);
+  });
+
   it('on the left of the map, outwards is to the left', () => {
     const h = mount({ selectedId: 'l' });
     drag(-200);
@@ -204,6 +212,9 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(outline().style.width).toBe(`${becomes.w}px`);
     expect(outline().style.height).toBe(`${becomes.h}px`);
     expect(outline().textContent).toBe('447 px');
+    // The topic gets lower: the width is said under the topic as it is now, clear of its text.
+    expect(becomes.h).toBeLessThan(t.h);
+    expect(outline().querySelector('span')!.style.top).toBe(`${(t.h + becomes.h) / 2 + 5}px`);
     // The handle goes with the pointer: it is where the text may reach to, not where it happens to end.
     expect(at()[0]).toBe(x + 200);
     expect(at()[0]).toBeGreaterThan(t.x + becomes.w);
@@ -311,6 +322,7 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(outline().style.left).toBe(`${2 * boxOf('t').x}px`);
     expect(outline().style.width).toBe(`${2 * becomes.w}px`);
     expect(outline().style.height).toBe(`${2 * becomes.h}px`);
+    expect(outline().querySelector('span')!.style.top).toBe(`${(boxOf('t').h + becomes.h) + 5}px`);
     fire(handle(), 'pointerup', x + 200, y);
     expect(onWrapText).toHaveBeenCalledWith('t', 347);
   });

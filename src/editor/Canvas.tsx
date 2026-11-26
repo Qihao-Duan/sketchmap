@@ -1,6 +1,6 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type Ref } from 'react';
 import { displaySize } from '../io/imagePrep';
-import { measureTopic, type MapLayout, type Measured, type TopicBox } from '../layout/map';
+import { measureTopic, type Bounds, type MapLayout, type Measured, type TopicBox } from '../layout/map';
 import type { Measure } from '../layout/wrap';
 import { renderMap, storedImageKey } from '../render/renderMap';
 import { WRAP_MAX_PX, WRAP_MIN_PX } from '../shared/types';
@@ -13,6 +13,8 @@ export interface CanvasHandle {
   zoomBy(factor: number): void;
   view(): View;
   ensureVisible(id: string): void;
+  /** Moves the canvas, if need be, so that this place on the map shows (the box a text is typed into, as it grows). */
+  reveal(place: Bounds): void;
   svg(): SVGSVGElement | null;
 }
 
@@ -102,13 +104,17 @@ interface Rewrap {
   moved: boolean;
 }
 
-/** What the dashed outline of a drag shows: a box in map units, and what it says under it. */
+/**
+ * What the dashed outline of a drag shows: a box in map units, and what it says under it. `under`: what
+ * else the words go under (the topic as it is now, which may reach lower than the outline).
+ */
 interface Outline {
   x: number;
   y: number;
   w: number;
   h: number;
   label: string;
+  under?: number;
 }
 
 const NO_IDS: readonly string[] = [];
@@ -244,10 +250,10 @@ export function Canvas({
     return r && { x, y, w, h, label: `${w} × ${h}` };
   };
   /**
-   * Puts the other handle on the edge the selected topic's text grows towards, at the middle of the text,
-   * or above the fold button where that is in its way. During a drag of the handle it goes where the
-   * pointer wants the edge, and the outline is to show the topic with its text wrapped at that width:
-   * it grows from where the topic is held by the layout, as the topic itself will.
+   * Puts the other handle on the edge the selected topic's text grows towards, at the middle of the text.
+   * During a drag of the handle it goes where the pointer wants the edge, and the outline is to show the
+   * topic with its text wrapped at that width: it grows from where the topic is held by the layout, as
+   * the topic itself will.
    */
   const placeWrapHandle = (v: View): Outline | null => {
     const el = wrapHandleRef.current;
@@ -257,21 +263,16 @@ export function Canvas({
     const r = drag?.moved ? drag : null;
     el.hidden = !b;
     if (!b) return null;
-    let top = v.ty + v.k * (b.y + b.textTop + (b.lines.length * b.style.lineHeight) / 2);
-    if (b.depth > 0 && b.node.children.length > 0) {
-      // The fold button is 22 map units across; the handle has its size on the screen (none in jsdom).
-      const fold = v.ty + v.k * b.fold.y;
-      const clear = 11 * v.k + (el.offsetHeight || 28) / 2 + 2;
-      if (Math.abs(top - fold) < clear) top = fold - clear;
-    }
+    // The style sheet puts the bar just inside the edge, on either side: the fold button is just outside it.
+    el.classList.toggle('left', b.side === -1);
     el.style.left = `${v.tx + v.k * (r ? edgeAt(b, r.wrap) : outerEdge(b))}px`;
-    el.style.top = `${top}px`;
+    el.style.top = `${v.ty + v.k * (b.y + b.textTop + (b.lines.length * b.style.lineHeight) / 2)}px`;
     if (!r) return null;
     const { becomes, changes } = rewrapped(b, r.wrap);
     return {
       x: b.parentId === null ? b.x + (b.w - becomes.w) / 2 : b.side === -1 ? b.x + b.w - becomes.w : b.x,
       y: kindRef.current === 'org' ? b.y : b.y + (b.h - becomes.h) / 2,
-      w: becomes.w, h: becomes.h, label: changes ? `${r.wrap} px` : 'No change',
+      w: becomes.w, h: becomes.h, label: changes ? `${r.wrap} px` : 'No change', under: b.y + b.h,
     };
   };
   /**
@@ -289,7 +290,9 @@ export function Canvas({
     Object.assign(outline.style, {
       left: `${v.tx + v.k * shown.x}px`, top: `${v.ty + v.k * shown.y}px`, width: `${v.k * shown.w}px`, height: `${v.k * shown.h}px`,
     });
-    outline.firstElementChild!.textContent = shown.label;
+    const words = outline.firstElementChild as HTMLElement;
+    words.textContent = shown.label;
+    words.style.top = `${v.k * (Math.max(shown.under ?? shown.y, shown.y + shown.h) - shown.y) + 5}px`;
   };
   const applyView = (v: View) => {
     viewRef.current = v;
@@ -342,6 +345,10 @@ export function Canvas({
       const [w, h] = size();
       // Keep the topic clear of a panel on the right (the Details sidebar).
       if (b && w > 0) applyView(ensureVisible(viewRef.current, b, w - rightInset, h));
+    },
+    reveal: (place) => {
+      const [w, h] = size();
+      if (w > 0) applyView(ensureVisible(viewRef.current, place, w - rightInset, h, 24));
     },
     svg: () => svgRef.current,
   }));

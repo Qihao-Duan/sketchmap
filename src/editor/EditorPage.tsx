@@ -643,6 +643,8 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             onCommit={commit}
             onCancel={cancel}
             onTab={tab}
+            // A long text makes the box wide: it stays clear of the Details panel and inside the canvas.
+            onGrow={(place) => canvas.current?.reveal(place)}
           />
         )}
         {!detailsOpen && (
