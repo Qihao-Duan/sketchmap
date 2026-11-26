@@ -277,6 +277,35 @@ describe('InlineEditor', () => {
       expect(onGrow).not.toHaveBeenCalled();
     });
 
+    it('not when it opens, also where the browser lays the text out higher than its line breaks say (a text that wraps)', () => {
+      // jsdom lays nothing out; a browser reports the height of the box once it is on the page.
+      const height = vi.spyOn(HTMLTextAreaElement.prototype, 'offsetHeight', 'get').mockReturnValue(200);
+      try {
+        const onGrow = vi.fn();
+        mount({ box: t, initialText: long, onGrow });
+        expect(onGrow).not.toHaveBeenCalled();
+      } finally {
+        height.mockRestore();
+      }
+    });
+
+    it('not when only the zoom changes, which makes it larger on the screen and no larger on the map', () => {
+      const onGrow = vi.fn();
+      const handlers = { onCommit: vi.fn(), onCancel: vi.fn(), onTab: vi.fn(), onGrow };
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      const at = (k: number) => act(() => root.render(<InlineEditor box={t} view={{ tx: 0, ty: 0, k }} measure={measure} initialText={long} selectAll {...handlers} />));
+      at(1);
+      const before = parseFloat(container.querySelector('textarea')!.style.width);
+      at(2);
+      expect(parseFloat(container.querySelector('textarea')!.style.width)).toBeGreaterThan(before);
+      at(0.5);
+      at(1);
+      expect(onGrow).not.toHaveBeenCalled();
+      act(() => root.unmount());
+    });
+
     it('when the text makes it wider: where it is on the map now', () => {
       const onGrow = vi.fn();
       const { ta } = mount({ box: t, initialText: '', onGrow, view: { tx: 40, ty: 10, k: 2 } });
