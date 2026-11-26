@@ -47,18 +47,23 @@ body { background: var(--paper); color: var(--ink); font-family: var(--ui); font
   .image-handle::after { inset: 13px; }
 }
 /* The side of the selected topic's text, dragged to set where the text wraps: a bar at the topic's edge,
-   the same size at every zoom. It sits just inside the edge (left: on the left of the map), because the
-   fold button is just outside it. The bar that shows is smaller than the area that takes the press. */
-.wrap-handle { position: absolute; z-index: 1; width: 16px; height: 28px; margin: -14px 0 0 -12px; cursor: ew-resize; touch-action: none; }
-.wrap-handle.left { margin-left: -4px; }
-.wrap-handle::after { content: ''; position: absolute; top: 4px; bottom: 4px; left: 8px; width: 6px; box-sizing: border-box; border: 1.5px solid #4263eb; border-radius: 3px; background: #fff; }
-.wrap-handle.left::after { left: 2px; }
+   the same size at every zoom. The bar that shows is smaller than the area that takes the press. That
+   area reaches into the topic (--in) and a little beyond its edge (--out), where the fold button is. On
+   a topic that is small on the screen (the canvas says how large: --topic-w, --topic-h) it takes at most
+   a quarter of the topic's width and little more than its height, so most of the topic stays the
+   topic's. The bar itself goes from 4 px inside the edge to 2 px beyond it. */
+.wrap-handle {
+  --in: min(12px, var(--topic-w, 48px) * 0.25); --out: 4px; --high: min(28px, var(--topic-h, 20px) + 8px);
+  position: absolute; z-index: 1; width: calc(var(--in) + var(--out)); height: var(--high);
+  margin: calc(var(--high) / -2) 0 0 calc(-1 * var(--in)); cursor: ew-resize; touch-action: none;
+}
+.wrap-handle.left { margin-left: calc(-1 * var(--out)); }
+.wrap-handle::after { content: ''; position: absolute; top: 4px; bottom: 4px; left: calc(var(--in) - 4px); width: 6px; box-sizing: border-box; border: 1.5px solid #4263eb; border-radius: 3px; background: #fff; }
+.wrap-handle.left::after { left: calc(var(--out) - 2px); }
 .wrap-handle[hidden] { display: none; }
 @media (pointer: coarse) {
-  .wrap-handle { width: 36px; height: 44px; margin: -22px 0 0 -28px; }
-  .wrap-handle.left { margin-left: -8px; }
-  .wrap-handle::after { top: 11px; bottom: 11px; left: 24px; }
-  .wrap-handle.left::after { left: 6px; }
+  .wrap-handle { --in: min(28px, var(--topic-w, 112px) * 0.25); --out: 8px; --high: min(44px, var(--topic-h, 32px) + 12px); }
+  .wrap-handle::after { top: max(4px, calc((var(--high) - 22px) / 2)); bottom: max(4px, calc((var(--high) - 22px) / 2)); }
 }
 /* What a handle is being dragged to (an image's new size, a topic with its text wrapped anew), with the
    numbers under its left corner. */

@@ -31,6 +31,7 @@ import { navigate } from './navigate';
 import { OutlinePanel } from './OutlinePanel';
 import { pictureSize } from './pictureSize';
 import { editorReducer, initEditor, selectedIds } from './store';
+import { steppedWrap } from './wrapStep';
 import type { View } from './viewport';
 
 const IGNORE_KEYS_IN = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A']);
@@ -270,7 +271,10 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
    */
   const endEdit = () => {
     const active = document.activeElement as HTMLElement | null;
-    if (stateRef.current.editing || active?.closest('.details')) active?.blur();
+    // Only what is typed into: a button of the panel pressed from the keyboard keeps the focus, so the
+    // next key is the button's again and not the map's.
+    const field = active?.tagName === 'TEXTAREA' || active?.tagName === 'INPUT';
+    if (stateRef.current.editing || (field && active?.closest('.details'))) active?.blur();
   };
   // Uploads that finished while a topic was being edited: applied once editing ends (I1), so a finished
   // upload never blurs the inline editor or the Note box. If the topic is gone by then, the reducer
@@ -327,6 +331,14 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
   };
   const selectedNode = state.selectedId === null ? null : layout.byId.get(state.selectedId)?.node ?? findNode(state.map.root, state.selectedId)?.node ?? null;
   const selection = selectedIds(state);
+  // Which steps of the text width would show on the selected topic: the Details panel offers only those.
+  // Not known for several topics at once (each may differ), nor while the topic's text is open.
+  const selectedDepth = state.selectedId === null ? undefined : layout.byId.get(state.selectedId)?.depth;
+  const widthSteps = useMemo(() => {
+    if (!selectedNode || selectedDepth === undefined || selection.length !== 1 || state.editing) return undefined;
+    const leads = (step: 'wider' | 'narrower') => steppedWrap(selectedNode, selectedDepth, state.map.layout, step, measure) !== null;
+    return { wider: leads('wider'), narrower: leads('narrower') };
+  }, [selectedNode, selectedDepth, selection.length, state.editing, state.map.layout, measure]);
 
   /**
    * Moves topic `id` to a place. A place with a side (among the main branches of the map layout) also
@@ -644,7 +656,7 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             onCancel={cancel}
             onTab={tab}
             // A long text makes the box wide: it stays clear of the Details panel and inside the canvas.
-            onGrow={(place) => canvas.current?.reveal(place)}
+            onGrow={(place, grows) => canvas.current?.reveal(place, grows)}
           />
         )}
         {!detailsOpen && (
@@ -696,9 +708,10 @@ export function Editor({ initial, etag, api, measureFactory = canvasMeasure, sto
             onTextWidth={(step) => {
               const id = selectedNode.id;
               endEdit();
-              dispatch({ type: 'stepWrap', id, step });
+              dispatch({ type: 'stepWrap', id, step, measure });
             }}
             autoWrap={layout.byId.get(selectedNode.id)?.style.maxW}
+            steps={widthSteps}
             uploading={imageUploads > 0}
             newTopicOpen={!!state.editing?.isNew}
             onFold={toggleDetails}

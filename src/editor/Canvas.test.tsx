@@ -272,6 +272,52 @@ describe('Canvas', () => {
     }
   });
 
+  it('reveal with a place too large for the canvas keeps the side it grows towards, and its bottom, in view, and does not move back and forth', () => {
+    const spy = vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, width: 1000, height: 600, top: 0, left: 0, right: 1000, bottom: 600, toJSON: () => ({}),
+    } as DOMRect);
+    try {
+      const canvasRef: { current: CanvasHandle | null } = { current: null };
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      act(() =>
+        createRoot(container).render(
+          <Canvas ref={canvasRef} layout={layout} selectedId={null} interactive rightInset={300} onToggleFold={vi.fn()} />,
+        ),
+      );
+      const { k } = canvasRef.current!.view();
+      // What shows is 700 px wide (the panel covers the rest) and 600 px high; this place is 2000 × 1500 px.
+      const place = { x: -300, y: -200, w: 2000 / k, h: 1500 / k };
+      const left = () => canvasRef.current!.view().tx + k * place.x;
+      const right = () => left() + 2000;
+      const bottom = () => canvasRef.current!.view().ty + k * place.y + 1500;
+      act(() => canvasRef.current!.reveal(place, 'right'));
+      expect(right()).toBeCloseTo(700 - 24, 6);
+      expect(bottom()).toBeCloseTo(600 - 24, 6);
+      const settled = canvasRef.current!.view();
+      act(() => canvasRef.current!.reveal(place, 'right'));
+      expect(canvasRef.current!.view()).toEqual(settled);
+      act(() => canvasRef.current!.reveal(place, 'left'));
+      expect(left()).toBeCloseTo(24, 6);
+      const onLeft = canvasRef.current!.view();
+      act(() => canvasRef.current!.reveal(place, 'left'));
+      expect(canvasRef.current!.view()).toEqual(onLeft);
+      // To both sides: its middle is put in the middle of what shows.
+      act(() => canvasRef.current!.reveal(place, 'both'));
+      expect(Math.abs((left() + right()) / 2 - 350)).toBeLessThanOrEqual(1);
+      // A place that grows on, a word at a time, keeps going the same way.
+      let last = canvasRef.current!.view().tx;
+      for (let w = 2000; w < 2400; w += 57) {
+        act(() => canvasRef.current!.reveal({ ...place, w: w / k }, 'right'));
+        const now = canvasRef.current!.view().tx;
+        expect(now).toBeLessThanOrEqual(last);
+        last = now;
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   describe('drop', () => {
     const file = new File(['x'], 'photo.png', { type: 'image/png' });
 

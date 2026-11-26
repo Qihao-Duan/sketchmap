@@ -201,47 +201,101 @@ describe('InlineEditor', () => {
 
     it('it grows with the text that is typed, and stops where the topic’s text wraps', () => {
       const { ta } = mount({ box: shown().byId.get('t')!, initialText: '' });
-      // 17 px text: 8.5 px a character. 24 characters and 2 × 5 px beside them, and 6 px for the border and some air.
+      // 17 px text: 8.5 px a character. 24 characters and 2 × 5 px beside them, and 5 px for the border and some air.
       type(ta, 'word word word word word');
-      expect(px(ta.style.width)).toBe(24 * 8.5 + 10 + 6);
+      expect(px(ta.style.width)).toBe(24 * 8.5 + 10 + 5);
       // A deeper topic wraps at 250 px: six of these words (29 characters) are its widest line.
       type(ta, long);
-      expect(px(ta.style.width)).toBe(29 * 8.5 + 10 + 6);
+      expect(px(ta.style.width)).toBe(29 * 8.5 + 10 + 5);
     });
 
     it('a topic whose text width was set by hand grows up to that width', () => {
       const { ta } = mount({ box: shown({ wrap: 500 }).byId.get('t')!, initialText: '' });
       type(ta, long);
       // 500 px hold 58 characters: eleven of these words (54 characters).
-      expect(px(ta.style.width)).toBe(54 * 8.5 + 10 + 6);
+      expect(px(ta.style.width)).toBe(54 * 8.5 + 10 + 5);
     });
 
     it('a line break ends a line: the widest line counts', () => {
       const { ta } = mount({ box: shown().byId.get('t')!, initialText: '' });
       type(ta, 'word word word word word\nword');
-      expect(px(ta.style.width)).toBe(24 * 8.5 + 10 + 6);
+      expect(px(ta.style.width)).toBe(24 * 8.5 + 10 + 5);
     });
 
     it('it never gets narrower than the topic is now', () => {
       const t = shown({}, long).byId.get('t')!;
       const { ta } = mount({ box: t, initialText: long });
       const before = px(ta.style.width);
-      expect(before).toBeGreaterThanOrEqual(t.w);
+      expect(before).toBe(t.w + 5);
       type(ta, 'word');
-      expect(px(ta.style.width)).toBe(Math.max(t.w, 140));
+      expect(px(ta.style.width)).toBe(t.w + 5);
     });
 
     it('the room of a priority badge and of the note icon is added', () => {
       const t = shown({ priority: 1, note: 'n' }).byId.get('t')!;
       const { ta } = mount({ box: t, initialText: '' });
       type(ta, 'word word word word word');
-      expect(px(ta.style.width)).toBe(24 * 8.5 + 10 + t.badgeW + t.noteW + 6);
+      expect(px(ta.style.width)).toBe(24 * 8.5 + 10 + t.badgeW + t.noteW + 5);
     });
 
-    it('zoomed, it is as wide on the screen as the topic will be there', () => {
+    it('zoomed, it is as wide on the screen as the topic will be there; the air is 2 px of the map at every zoom', () => {
       const { ta } = mount({ box: shown().byId.get('t')!, initialText: '', view: { tx: 0, ty: 0, k: 2 } });
       type(ta, 'word word word word word');
-      expect(px(ta.style.width)).toBe((24 * 8.5 + 10) * 2 + 6);
+      // The border is 3 px on the screen whatever the zoom.
+      expect(px(ta.style.width)).toBe((24 * 8.5 + 10 + 2) * 2 + 3);
+      const small = mount({ box: shown({ wrap: 500 }).byId.get('t')!, initialText: '', view: { tx: 0, ty: 0, k: 0.5 } }).ta;
+      type(small, long);
+      expect(px(small.style.width)).toBe((54 * 8.5 + 10 + 2) * 0.5 + 3);
+    });
+
+    it('it is measured on what the topic will show, not on what is typed: a link’s address does not count', () => {
+      const address = `https://example.org/${'a-very-long-path/'.repeat(9)}`;
+      expect(address.length).toBeGreaterThan(170);
+      const { ta } = mount({ box: shown().byId.get('t')!, initialText: '' });
+      // The topic shows "Read the docs first": 19 characters. The least width for a text with link syntax is more.
+      type(ta, `Read [the docs](${address}) first`);
+      expect(px(ta.style.width)).toBe(280);
+      // A bare address is shown shortened (28 characters at most): the box is not as wide as the address.
+      type(ta, address);
+      expect(px(ta.style.width)).toBe(280);
+      // With more text beside the link, the box follows the text.
+      type(ta, `${long} [the docs](${address})`);
+      expect(px(ta.style.width)).toBe(280);
+      const wide = mount({ box: shown({ wrap: 500 }).byId.get('t')!, initialText: '' }).ta;
+      type(wide, `${long} [the docs](${address})`);
+      expect(px(wide.style.width)).toBe(54 * 8.5 + 10 + 5);
+    });
+
+    it('a word longer than the topic’s width does not make it wider than that: the box breaks such a word', () => {
+      const { ta } = mount({ box: shown().byId.get('t')!, initialText: '' });
+      type(ta, 'x'.repeat(80));
+      expect(px(ta.style.width)).toBe(250 + 10 + 5);
+    });
+
+    it('the marker that the topic shows before its text counts', () => {
+      const { ta } = mount({ box: shown({ emoji: '💡' }).byId.get('t')!, initialText: '' });
+      type(ta, 'word word word word word');
+      expect(px(ta.style.width)).toBe(measure('💡 word word word word word', 17) + 10 + 5);
+    });
+
+    it('opened on a short topic, the least width goes where it does not move the text: around centred text, after text that starts on the left', () => {
+      const map = computeLayout({ id: 'r', text: 'Root', children: [
+        { id: 'a', text: 'Aa', side: 'right', children: [{ id: 't', text: 'Leaf', children: [] }] },
+        { id: 'b', text: 'Bb', side: 'left', children: [{ id: 'l', text: 'Leaf', children: [] }] },
+      ] }, measure);
+      const [a, b, t, l] = ['a', 'b', 't', 'l'].map((id) => map.byId.get(id)!);
+      for (const box of [a, b]) {
+        const { ta } = mount({ box, initialText: 'Aa' });
+        expect(px(ta.style.width)).toBe(140);
+        // Centred text: the middle of the box is the middle of the topic.
+        expect(px(ta.style.left) + 70, box.id).toBe(box.x + box.w / 2);
+      }
+      for (const box of [t, l]) {
+        const { ta } = mount({ box, initialText: 'Leaf' });
+        expect(px(ta.style.width)).toBe(140);
+        // Text from the left: the box starts where the topic does, less half of its border and air.
+        expect(px(ta.style.left), box.id).toBe(box.x - 2.5);
+      }
     });
 
     it('with link syntax in it, it is wide enough for the address', () => {
@@ -255,12 +309,13 @@ describe('InlineEditor', () => {
       const [t, l, r] = ['t', 'l', 'r'].map((id) => map.byId.get(id)!);
       expect([t.side, l.side]).toEqual([1, -1]);
       const view = { tx: 30, ty: 0, k: 1 };
+      // The border and the air are half on either side of where the topic will be.
       const right = mount({ box: t, initialText: '', view }).ta;
       type(right, long);
-      expect(px(right.style.left)).toBe(30 + t.x);
+      expect(px(right.style.left) + 2.5).toBe(30 + t.x);
       const left = mount({ box: l, initialText: '', view }).ta;
       type(left, long);
-      expect(px(left.style.left) + px(left.style.width)).toBe(30 + l.x + l.w);
+      expect(px(left.style.left) + px(left.style.width) - 2.5).toBe(30 + l.x + l.w);
       const centre = mount({ box: r, initialText: 'Root', view }).ta;
       type(centre, long);
       expect(px(centre.style.left) + px(centre.style.width) / 2).toBe(30 + r.x + r.w / 2);
@@ -289,6 +344,26 @@ describe('InlineEditor', () => {
       }
     });
 
+    it('not when only the zoom changes, also where the browser lays the box out anew at the other zoom', () => {
+      // A browser reports the box's height after it has drawn it: at a new zoom, first the old one's.
+      const height = vi.spyOn(HTMLTextAreaElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLTextAreaElement) {
+        return parseFloat(this.style.lineHeight) * 4 + 12;
+      });
+      try {
+        const onGrow = vi.fn();
+        const handlers = { onCommit: vi.fn(), onCancel: vi.fn(), onTab: vi.fn(), onGrow };
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        const root = createRoot(container);
+        const at = (k: number) => act(() => root.render(<InlineEditor box={t} view={{ tx: 0, ty: 0, k }} measure={measure} initialText={long} selectAll {...handlers} />));
+        for (const k of [1, 2, 3, 0.5, 1, 2]) at(k);
+        expect(onGrow).not.toHaveBeenCalled();
+        act(() => root.unmount());
+      } finally {
+        height.mockRestore();
+      }
+    });
+
     it('not when only the zoom changes, which makes it larger on the screen and no larger on the map', () => {
       const onGrow = vi.fn();
       const handlers = { onCommit: vi.fn(), onCancel: vi.fn(), onTab: vi.fn(), onGrow };
@@ -311,12 +386,25 @@ describe('InlineEditor', () => {
       const { ta } = mount({ box: t, initialText: '', onGrow, view: { tx: 40, ty: 10, k: 2 } });
       type(ta, 'word word word word word');
       expect(onGrow).toHaveBeenCalledTimes(1);
-      const width = (24 * 8.5 + 10) * 2 + 6;
+      const width = (24 * 8.5 + 10) * 2 + 7;
       // One line of 22 px with 4 px above and below it, twice as large on the screen, and 4 px for the border and some air.
-      expect(onGrow).toHaveBeenLastCalledWith({ x: t.x, y: t.y, w: width / 2, h: (30 * 2 + 4) / 2 });
+      // A topic on the right of the map grows to the right.
+      expect(onGrow).toHaveBeenLastCalledWith({ x: t.x - 3.5 / 2, y: t.y, w: width / 2, h: (30 * 2 + 4) / 2 }, 'right');
       type(ta, long);
       expect(onGrow).toHaveBeenCalledTimes(2);
-      expect(onGrow.mock.calls[1][0].w).toBe(((29 * 8.5 + 10) * 2 + 6) / 2);
+      expect(onGrow.mock.calls[1][0].w).toBe(((29 * 8.5 + 10) * 2 + 7) / 2);
+    });
+
+    it('says which way it grows: to the left on the left of the map, to both sides for the central topic', () => {
+      const map = computeLayout({ id: 'r', text: 'Root', children: [
+        { id: 'a', text: 'Alpha', side: 'right', children: [] },
+        { id: 'b', text: 'Beta', side: 'left', children: [{ id: 'l', text: '', children: [] }] },
+      ] }, measure);
+      const onGrow = vi.fn();
+      type(mount({ box: map.byId.get('l')!, initialText: '', onGrow }).ta, long);
+      expect(onGrow.mock.calls.at(-1)![1]).toBe('left');
+      type(mount({ box: map.byId.get('r')!, initialText: 'Root', onGrow }).ta, long);
+      expect(onGrow.mock.calls.at(-1)![1]).toBe('both');
     });
 
     it('when a line break makes it higher', () => {

@@ -130,6 +130,18 @@ describe('DetailsPanel text width row', () => {
     expect(container.textContent).toContain('Importance, priority, marker and text width go to all of them.');
   });
 
+  it('a step that would show nothing is not offered: its button is off', () => {
+    const one = show({ id: 'a', text: 'Cat', children: [] }, { steps: { wider: false, narrower: false } });
+    expect([one.button('Wider').disabled, one.button('Narrower').disabled, one.button('Automatic').disabled]).toEqual([true, true, false]);
+    container.remove();
+    const some = show({ id: 'a', text: 'Two words', children: [] }, { steps: { wider: false, narrower: true } });
+    expect([some.button('Wider').disabled, some.button('Narrower').disabled]).toEqual([true, false]);
+    container.remove();
+    // Not told which steps lead somewhere (several topics, an open text box): both are offered.
+    const unknown = show({ id: 'a', text: 'Cat', children: [] });
+    expect([unknown.button('Wider').disabled, unknown.button('Narrower').disabled]).toEqual([false, false]);
+  });
+
   it('a click on a button leaves the keyboard where it is', () => {
     const { button } = show({ id: 'a', text: 'Cat', children: [] });
     const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });

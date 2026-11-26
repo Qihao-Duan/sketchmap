@@ -14,8 +14,11 @@ interface Props {
   onCommit(text: string): void;
   onCancel(): void;
   onTab(text: string): void;
-  /** The box got wider or higher while its text was typed: where on the map it is now, so it can be kept in view. */
-  onGrow?(place: Bounds): void;
+  /**
+   * The box got wider or higher while its text was typed: where on the map it is now, and which way it
+   * grows, so that it can be kept in view.
+   */
+  onGrow?(place: Bounds, grows: 'left' | 'right' | 'both'): void;
 }
 
 const TOO_LONG = 'With this link the topic would be longer than 5000 characters.';
@@ -32,8 +35,11 @@ export function InlineEditor({ box, view, measure, initialText, selectAll, onCom
   /** True while focus moves between the textarea and the link field on purpose, so neither blur ends the edit. */
   const moving = useRef(false);
   const caret = useRef<number | null>(null);
-  /** The textarea's measured pixel height (null until the first layout effect runs), so the link field sits under it. */
-  const [taH, setTaH] = useState<number | null>(null);
+  /**
+   * The textarea's measured pixel height, and the zoom it was measured at (null until the first layout
+   * effect runs). The link field sits under it.
+   */
+  const [taSize, setTaSize] = useState<{ h: number; k: number } | null>(null);
 
   const focusQuietly = (el: HTMLElement | null) => {
     moving.current = true;
@@ -77,15 +83,29 @@ export function InlineEditor({ box, view, measure, initialText, selectAll, onCom
   // Start below the image (if any), so the box never covers it, even while an image-only topic gets its first text.
   const textOffset = box.image ? box.image.y + box.image.h : 0;
   const minHeight = (box.h - textOffset) * k;
-  // As wide as the topic will be with this text: it grows while one types, up to where the topic's text
-  // wraps, so a long text is not typed into a narrow column. The 6 px are the border and a little air,
-  // which keep a line that fits the topic from wrapping in the box. Never narrower than the topic is now.
-  const widest = wrapText(value || ' ', fontSize, box.node.wrap ?? box.style.maxW, measure).reduce((m, line) => Math.max(m, measure(line, fontSize)), 0);
-  const typed = (widest + padX * 2 + box.badgeW + box.noteW) * k + 6;
-  const width = Math.max(box.w * k, typed, parseRich(value).plain !== value ? 280 : 140);
+  // As wide as the topic will be with this text: the box grows while one types, up to where the topic's
+  // text wraps, so a long text is not typed into a narrow column. Measured on what the topic will show
+  // (its marker, and a link as its label: an address is shown shortened), not on the raw text, which an
+  // address would make as wide as the address. A word longer than the topic's width is broken by the
+  // box, so the box stops at that width. Never narrower than the topic is now.
+  const rich = parseRich(value);
+  const limit = box.node.wrap ?? box.style.maxW;
+  const shownText = (box.node.emoji ? `${box.node.emoji} ` : '') + rich.plain;
+  const widest = wrapText(shownText || ' ', fontSize, limit, measure).reduce((m, line) => Math.max(m, measure(line, fontSize)), 0);
+  const topicW = Math.max(box.w, Math.min(widest, limit) + padX * 2 + box.badgeW + box.noteW) * k;
+  // Around that: the box's own 1.5 px border, and 1 map unit of air on either side, which keeps a line
+  // that fits the topic from wrapping in the box at any zoom.
+  const air = 3 + 2 * k;
+  // The least width leaves room to type in, and for link syntax to be read.
+  const width = Math.max(topicW + air, rich.plain !== value ? 280 : 140);
+  const spare = width - (topicW + air);
   const lines = Math.max(1, value.split('\n').length);
   // It grows the way the topic will: away from its parent, and to both sides for the central topic.
-  const left = box.parentId === null ? (box.x + box.w / 2) * k - width / 2 : box.side === -1 ? (box.x + box.w) * k - width : box.x * k;
+  const grows = box.parentId === null ? 'both' : box.side === -1 ? 'left' : 'right';
+  const topicLeft = grows === 'both' ? (box.x + box.w / 2) * k - topicW / 2 : grows === 'left' ? (box.x + box.w) * k - topicW : box.x * k;
+  // What the least width adds goes where it does not move the text when the box opens on a short topic:
+  // around centred text, and after text that starts on the left.
+  const left = topicLeft - air / 2 - (kind === 'line' ? 0 : spare / 2);
   const style: CSSProperties = {
     left: view.tx + left,
     top: view.ty + (box.y + textOffset) * k,
@@ -108,18 +128,25 @@ export function InlineEditor({ box, view, measure, initialText, selectAll, onCom
     // border added back; otherwise the applied height is short by the border width and the last line clips.
     const border = ta.offsetHeight - ta.clientHeight;
     ta.style.height = `${Math.max(minHeight, ta.scrollHeight + border)}px`;
-    setTaH(ta.offsetHeight);
-  }, [value, k]);
+    const h = ta.offsetHeight;
+    setTaSize((s) => (s && s.h === h && s.k === k ? s : { h, k }));
+  }, [value, k, width]);
+  /** The measured height, once it has been measured at the zoom the box is drawn at now. */
+  const taH = taSize && taSize.k === k ? taSize.h : null;
 
   // Says so when typing made the box larger. Not when it opens (its topic was brought into view when it was
-  // selected), and not when only the zoom changed.
+  // selected), and not when only the zoom changed: the height measured at the zoom before says nothing
+  // about this one, so the comparison starts again once the height at this zoom is in.
   const shownH = taH || Math.max(minHeight, style.height as number);
-  const last = useRef<{ w: number; h: number; k: number } | null>(null);
+  const last = useRef<{ w: number; h: number } | null>(null);
   useLayoutEffect(() => {
-    if (taH === null) return;
+    if (taH === null) {
+      last.current = null;
+      return;
+    }
     const was = last.current;
-    last.current = { w: width, h: shownH, k };
-    if (was && was.k === k && (width > was.w || shownH > was.h)) onGrow?.({ x: left / k, y: box.y + textOffset, w: width / k, h: shownH / k });
+    last.current = { w: width, h: shownH };
+    if (was && (width > was.w || shownH > was.h)) onGrow?.({ x: left / k, y: box.y + textOffset, w: width / k, h: shownH / k }, grows);
   });
 
   return (

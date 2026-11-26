@@ -72,8 +72,8 @@ const PRIORITIES: Array<{ value: 1 | 2 | 3 | null; label: string; title: string;
 
 const IMAGE_SIZE_KEYS = ['S', 'M', 'L'] as const;
 const WRAP_STEPS: Array<{ step: WrapStep; label: string; title: string }> = [
-  { step: 'narrower', label: 'Narrower', title: 'The text wraps sooner' },
-  { step: 'wider', label: 'Wider', title: 'The text wraps later' },
+  { step: 'narrower', label: 'Narrower', title: 'The text wraps sooner (nothing to do when every word is on its own line)' },
+  { step: 'wider', label: 'Wider', title: 'The text wraps later (nothing to do when the text is on one line)' },
   { step: 'auto', label: 'Automatic', title: 'The text wraps where the topic’s level says' },
 ];
 
@@ -93,6 +93,12 @@ export interface DetailsPanelProps {
   onTextWidth(step: WrapStep): void;
   /** Where the current topic's text wraps while no width was set by hand: the width that goes with its level. */
   autoWrap?: number;
+  /**
+   * Whether a step wider, and one narrower, would move a word of the current topic to another line. A
+   * step that would not is not offered. Left out when that is not known for all the topics a step goes
+   * to (several selected, a text box open): then both are offered.
+   */
+  steps?: { wider: boolean; narrower: boolean };
   /** An image is being uploaded: the Add/Replace button is disabled and reads "Uploading…". */
   uploading?: boolean;
   /** A new topic is open for typing: finish it before writing a note. */
@@ -118,7 +124,7 @@ export function NoTopicDetails({ onFold }: { onFold(): void }) {
 
 /** The selected topic's importance, priority, marker, note and image. Mount it with `key={node.id}`. */
 export function DetailsPanel({
-  node, count = 1, onEmphasis, onPriority, onMarker, onNote, onImageFile, onImageSize, onImageRemove, onTextWidth, autoWrap, uploading, newTopicOpen, onFold,
+  node, count = 1, onEmphasis, onPriority, onMarker, onNote, onImageFile, onImageSize, onImageRemove, onTextWidth, autoWrap, steps, uploading, newTopicOpen, onFold,
 }: DetailsPanelProps) {
   const many = count > 1;
   const [note, setNote] = useState(node.note ?? '');
@@ -239,6 +245,7 @@ export function DetailsPanel({
               className="chip word"
               title={it.title}
               aria-pressed={it.step === 'auto' ? node.wrap === undefined : undefined}
+              disabled={it.step !== 'auto' && steps?.[it.step] === false}
               onMouseDown={noFocus}
               onClick={() => onTextWidth(it.step)}
             >

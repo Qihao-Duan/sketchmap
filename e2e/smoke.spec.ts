@@ -987,7 +987,7 @@ test('the bar and the fold button of a topic sit side by side: the button still 
   await expect(page.locator('g.topic')).toHaveCount(3);
 });
 
-test('Wider, Narrower and Automatic step the width of a topic’s text; a double click on the bar goes back to automatic', async ({ page }) => {
+test('Wider, Narrower and Automatic step the width of a topic’s text, with the mouse and from the keyboard', async ({ page }) => {
   await openNewMap(page);
   await page.locator('g.topic').click();
   await page.keyboard.press('Tab');
@@ -1014,11 +1014,166 @@ test('Wider, Narrower and Automatic step the width of a topic’s text; a double
   await page.keyboard.press('ControlOrMeta+z');
   await expect(hint).toContainText('Automatic: the text wraps at 230 px.');
 
-  await page.getByRole('button', { name: 'Wider' }).click();
+  // From the keyboard: the button keeps the focus, so Enter is its press each time and adds no topic.
+  await page.getByRole('button', { name: 'Wider' }).focus();
+  await page.keyboard.press('Enter');
   await expect(hint).toContainText('The text wraps at 290 px.');
+  await page.keyboard.press('Enter');
+  await expect(hint).toContainText('The text wraps at 360 px.');
+  await expect(page.locator('g.topic')).toHaveCount(2);
+  await expect(page.locator('textarea.inline-editor')).toHaveCount(0);
+});
+
+test('a step of the text width that would show nothing is not offered', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('g.topic').click();
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Word');
+  await page.keyboard.press('Enter');
+  await settled(page);
+  // One word on one line: it can get neither wider nor narrower.
+  await expect(page.getByRole('button', { name: 'Wider' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Narrower' })).toBeDisabled();
+  await page.keyboard.press('F2');
+  await page.keyboard.type('Two words');
+  await page.keyboard.press('Enter');
+  await settled(page);
+  // Two words on one line: narrower puts them on two lines, in one press, and then there is no narrower.
+  await expect(page.getByRole('button', { name: 'Wider' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Narrower' }).click();
+  await expect(page.locator('g.topic').nth(1).locator('text')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Narrower' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Wider' })).toBeEnabled();
+});
+
+test('a double click near a topic’s edge opens its text, although the bar is under the pointer after the first press; a width set by hand stays', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('g.topic').click();
+  await page.keyboard.press('Tab');
+  await page.keyboard.type(LONG_TEXT);
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Wider' }).click();
+  const hint = page.locator('.details .text-width');
+  await expect(hint).toContainText('The text wraps at 290 px.');
+  await settled(page);
+  const editor = page.locator('textarea.inline-editor');
+  const topic = page.locator('g.topic').nth(1);
+  for (const inside of [10, 6, 2]) {
+    // Select the central topic first, so that the topic is not the selected one when the double click starts.
+    await page.locator('g.topic').first().click();
+    await expect(page.locator('g.topic').first()).toHaveClass(/selected/);
+    const shown = (await topic.locator('rect.hit').boundingBox())!;
+    const zoom = await zoomOf(page);
+    await page.mouse.dblclick(shown.x + shown.width - 4 * zoom - inside, shown.y + shown.height / 2);
+    await expect(editor, `${inside} px inside the edge`).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(editor).toHaveCount(0);
+  }
+  // And on the bar of a topic that is selected already.
+  await expect(topic).toHaveClass(/selected/);
   await page.locator('.wrap-handle').dblclick();
-  await expect(hint).toContainText('Automatic: the text wraps at 230 px.');
-  await expect(lines).toHaveCount(auto);
+  await expect(editor).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(hint).toContainText('The text wraps at 290 px.');
+});
+
+test('zoomed far out, where the bar is larger than the topic’s fold button, the button still folds and a double click still opens the text', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('g.topic').click();
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Idea');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Child');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowLeft');
+  const branch = page.locator('g.topic').nth(1);
+  await expect(branch).toHaveClass(/selected/);
+  await settled(page);
+  for (let i = 0; i < 12 && (await zoomOf(page)) > 0.3; i++) await page.getByRole('button', { name: 'Zoom out' }).click();
+  const zoom = await zoomOf(page);
+  expect(zoom).toBeLessThanOrEqual(0.3);
+  // The bar's area is kept to a part of the small topic.
+  const shown = (await branch.locator('rect.hit').boundingBox())!;
+  const grip = (await page.locator('.wrap-handle').boundingBox())!;
+  expect(grip.width).toBeLessThan(16);
+  expect(grip.width - 4).toBeLessThanOrEqual((shown.width - 8 * zoom) / 4 + 0.5);
+  const fold = (await branch.locator('[data-fold]').boundingBox())!;
+  await page.mouse.click(fold.x + fold.width / 2, fold.y + fold.height / 2);
+  await expect(page.locator('g.topic')).toHaveCount(2);
+  await page.mouse.click(fold.x + fold.width / 2, fold.y + fold.height / 2);
+  await expect(page.locator('g.topic')).toHaveCount(3);
+  await page.mouse.dblclick(shown.x + shown.width / 2, shown.y + shown.height / 2);
+  await expect(page.locator('textarea.inline-editor')).toBeVisible();
+});
+
+test('a topic with a long address is typed into a box of the topic’s width, not of the address’s', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('g.topic').click();
+  await page.keyboard.press('Tab');
+  const address = `https://example.org/${'a-very-long-path/'.repeat(9)}`;
+  await page.keyboard.insertText(`Read [the docs](${address}) first`);
+  const box = page.locator('textarea.inline-editor');
+  const typed = (await box.boundingBox())!;
+  expect(typed.width).toBeLessThanOrEqual(320);
+  const stage = (await page.locator('.canvas').boundingBox())!;
+  expect(typed.x).toBeGreaterThanOrEqual(stage.x);
+  expect(typed.x + typed.width).toBeLessThanOrEqual((await page.locator('.details').boundingBox())!.x);
+  await page.keyboard.press('Enter');
+  await settled(page);
+  // Opened again, it is still that narrow.
+  await page.keyboard.press('F2');
+  expect((await box.boundingBox())!.width).toBeLessThanOrEqual(320);
+});
+
+test('a box wider than the canvas does not make the canvas jump back and forth while typing; zooming with a box open only zooms', async ({ page }) => {
+  await openNewMap(page);
+  await page.locator('g.topic').click();
+  await page.keyboard.press('Tab');
+  await page.keyboard.type(LONG_TEXT);
+  await page.keyboard.press('Enter');
+  for (let i = 0; i < 7; i++) await page.getByRole('button', { name: 'Wider' }).click();
+  await settled(page);
+  const tx = async () => Number(/translate\(([-\d.e]+)/.exec((await page.locator('g.world').getAttribute('transform'))!)![1]);
+  await page.keyboard.press('F2');
+  const box = page.locator('textarea.inline-editor');
+  await expect(box).toBeVisible();
+  await page.keyboard.press('End');
+  // Word after word: the canvas only ever moves one way (to the left, as the box grows to the right).
+  let last = await tx();
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.type(' again');
+    const now = await tx();
+    expect(now, `after word ${i + 1}`).toBeLessThanOrEqual(last + 0.5);
+    last = now;
+  }
+  expect((await box.boundingBox())!.width).toBeGreaterThan((await page.locator('.canvas').boundingBox())!.width - 300);
+  await page.keyboard.press('Enter');
+  await expect(box).toHaveCount(0);
+
+  // Zooming at a point keeps that point of the map under the pointer, with a text box open as without.
+  await page.getByRole('button', { name: 'Automatic' }).click();
+  await page.getByRole('button', { name: 'Fit' }).click();
+  await settled(page);
+  await page.keyboard.press('F2');
+  await expect(box).toBeVisible();
+  const stage = (await page.locator('.canvas').boundingBox())!;
+  const [px, py] = [stage.x + 60, stage.y + stage.height / 2];
+  const view = async () => {
+    const m = /translate\(([-\d.e]+) ([-\d.e]+)\) scale\(([\d.]+)\)/.exec((await page.locator('g.world').getAttribute('transform'))!)!;
+    return { tx: Number(m[1]), ty: Number(m[2]), k: Number(m[3]) };
+  };
+  const before = await view();
+  const under = [(px - stage.x - before.tx) / before.k, (py - stage.y - before.ty) / before.k];
+  await page.mouse.move(px, py);
+  await page.keyboard.down('ControlOrMeta');
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -40);
+  await page.keyboard.up('ControlOrMeta');
+  await expect.poll(async () => (await view()).k).toBeGreaterThan(before.k * 1.5);
+  await page.waitForTimeout(200);
+  const after = await view();
+  expect(Math.abs(after.tx + after.k * under[0] - (px - stage.x))).toBeLessThan(1.5);
+  expect(Math.abs(after.ty + after.k * under[1] - (py - stage.y))).toBeLessThan(1.5);
 });
 
 test('a long text is typed into a box as wide as the topic will be, which wraps it the way the topic does and stays clear of the Details panel', async ({ page }) => {

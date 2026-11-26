@@ -1,9 +1,10 @@
 import { produce } from 'immer';
 import { IMAGE_MAX_PX, IMAGE_MIN_PX } from '../io/imagePrep';
 import { linkWhole } from '../shared/rich';
-import { styleFor } from '../layout/styles';
+import type { Measure } from '../layout/wrap';
 import { WRAP_MAX_PX, WRAP_MIN_PX, type BranchSide, type Emphasis, type LayoutKind, type MapNode, type MindMap } from '../shared/types';
 import * as T from '../model/tree';
+import { steppedWrap } from './wrapStep';
 
 export const HISTORY_LIMIT = 200;
 
@@ -61,16 +62,16 @@ export type EditorAction =
   /** Where the topic's text wraps, set by hand: px, rounded and kept within 60-1600. null: automatic again. */
   | { type: 'setWrap'; id: string; wrap: number | null }
   /**
-   * A step wider or narrower from where the text wraps now, or back to automatic: on `id`, or on every
-   * selected topic when `id` is the current one, each from its own width.
+   * A step wider or narrower from where the text wraps now (see `steppedWrap`), or back to automatic: on
+   * `id`, or on every selected topic when `id` is the current one, each from its own width. `measure`:
+   * how the map is measured, to tell which width moves a word to another line; a topic where none does
+   * is left as it is.
    */
-  | { type: 'stepWrap'; id: string; step: WrapStep };
+  | { type: 'stepWrap'; id: string; step: WrapStep; measure: Measure };
 
 export type WrapStep = 'wider' | 'narrower' | 'auto';
 
 const wrapWithin = (px: number) => Math.min(WRAP_MAX_PX, Math.max(WRAP_MIN_PX, Math.round(px)));
-/** A quarter wider or narrower, in whole tens: a step that shows at every width and leads back to where it came from. */
-const wrapStepped = (px: number, step: 'wider' | 'narrower') => wrapWithin(Math.round((step === 'wider' ? px * 1.25 : px / 1.25) / 10) * 10);
 
 /** One shared empty list, so "no multi-selection" never looks like a change. */
 const NONE: readonly string[] = [];
@@ -414,11 +415,8 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
               if (node.wrap !== undefined) changed = true;
               delete node.wrap;
             } else {
-              // Automatic is the width that goes with the topic's level: a step starts from there.
-              const now = node.wrap ?? styleFor(depth, d.layout, node.emphasis).maxW;
-              const wrap = wrapStepped(now, step);
-              // At the least and at the most a step leads nowhere.
-              if (wrap !== now) {
+              const wrap = steppedWrap(node, depth, d.layout, step, action.measure);
+              if (wrap !== null) {
                 changed = true;
                 node.wrap = wrap;
               }

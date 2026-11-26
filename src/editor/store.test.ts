@@ -336,70 +336,80 @@ describe('setWrap and stepWrap (where a topic’s text wraps)', () => {
     expect(reduce(editing, { type: 'setWrap', id: 'a1', wrap: null })).toBe(editing);
   });
 
-  it('stepWrap goes a quarter wider or narrower, in whole tens, from the width that goes with the topic’s level', () => {
-    const step = (id: string, how: 'wider' | 'narrower', layout: MindMap['layout'] = 'map') =>
-      reduce(reduce(initEditor({ ...base(), layout }), { type: 'select', id }), { type: 'stepWrap', id, step: how });
-    // Central topic 300, main branch 230, deeper 250; in an org chart, deeper 200.
-    expect(step('r', 'wider').map.root.wrap).toBe(380);
-    expect(nodeA(step('a', 'wider')).wrap).toBe(290);
-    expect(nodeA1(step('a1', 'wider')).wrap).toBe(310);
-    expect(nodeA1(step('a1', 'narrower')).wrap).toBe(200);
-    expect(nodeA1(step('a1', 'wider', 'org')).wrap).toBe(250);
-  });
+  describe('stepWrap', () => {
+    const measure = (t: string, size: number) => t.length * size * 0.5;
+    /** 24 words: enough for a step to move words to other lines at every level. */
+    const long = Array.from({ length: 24 }, () => 'word').join(' ');
+    /** A map with long texts on `a` and `a1`, and a third topic, `b`, with one short word. */
+    const wordy = (layout: MindMap['layout'] = 'map'): MindMap => ({
+      ...base(), layout,
+      root: { id: 'r', text: long, children: [
+        { id: 'a', text: long, children: [{ id: 'a1', text: long, children: [] }] },
+        { id: 'b', text: 'Short', children: [] },
+      ] },
+    });
+    const nodeB = (s: EditorState) => s.map.root.children[1];
+    const press = (s: EditorState, id: string, step: 'wider' | 'narrower' | 'auto') => reduce(s, { type: 'stepWrap', id, step, measure });
+    const sel = (id: string, layout?: MindMap['layout']) => reduce(initEditor(wordy(layout)), { type: 'select', id });
 
-  it('stepWrap goes on from a width set before, back to where it came from, and is one undo step each time', () => {
-    let s = reduce(initEditor(base()), { type: 'select', id: 'a1' });
-    const press = (how: 'wider' | 'narrower' | 'auto') => (s = reduce(s, { type: 'stepWrap', id: 'a1', step: how }));
-    press('wider');
-    press('wider');
-    expect(nodeA1(s).wrap).toBe(390);
-    press('narrower');
-    expect(nodeA1(s).wrap).toBe(310);
-    expect(s.past).toHaveLength(3);
-    s = reduce(s, { type: 'undo' });
-    expect(nodeA1(s).wrap).toBe(390);
-  });
+    it('goes a step wider or narrower from the width that goes with the topic’s level', () => {
+      // Central topic 300, main branch 230, deeper 250; in an org chart, deeper 200.
+      expect(press(sel('r'), 'r', 'wider').map.root.wrap).toBe(380);
+      expect(nodeA(press(sel('a'), 'a', 'wider')).wrap).toBe(290);
+      expect(nodeA1(press(sel('a1'), 'a1', 'wider')).wrap).toBe(310);
+      expect(nodeA1(press(sel('a1'), 'a1', 'narrower')).wrap).toBe(200);
+      expect(nodeA1(press(sel('a1', 'org'), 'a1', 'wider')).wrap).toBe(250);
+    });
 
-  it('stepWrap stops at the least and at the most', () => {
-    let s = reduce(reduce(initEditor(base()), { type: 'select', id: 'a1' }), { type: 'setWrap', id: 'a1', wrap: 70 });
-    s = reduce(s, { type: 'stepWrap', id: 'a1', step: 'narrower' });
-    expect(nodeA1(s).wrap).toBe(60);
-    expect(reduce(s, { type: 'stepWrap', id: 'a1', step: 'narrower' })).toBe(s);
-    s = reduce(s, { type: 'setWrap', id: 'a1', wrap: 1500 });
-    s = reduce(s, { type: 'stepWrap', id: 'a1', step: 'wider' });
-    expect(nodeA1(s).wrap).toBe(1600);
-    expect(reduce(s, { type: 'stepWrap', id: 'a1', step: 'wider' })).toBe(s);
-  });
+    it('goes on from a width set before, back to where it came from, and is one undo step each time', () => {
+      let s = sel('a1');
+      s = press(s, 'a1', 'wider');
+      s = press(s, 'a1', 'wider');
+      expect(nodeA1(s).wrap).toBe(390);
+      s = press(s, 'a1', 'narrower');
+      expect(nodeA1(s).wrap).toBe(310);
+      expect(s.past).toHaveLength(3);
+      s = reduce(s, { type: 'undo' });
+      expect(nodeA1(s).wrap).toBe(390);
+    });
 
-  it('stepWrap to automatic takes the width away; with none set it changes nothing', () => {
-    const fresh = reduce(initEditor(base()), { type: 'select', id: 'a1' });
-    expect(reduce(fresh, { type: 'stepWrap', id: 'a1', step: 'auto' })).toBe(fresh);
-    const s = reduce(reduce(fresh, { type: 'stepWrap', id: 'a1', step: 'wider' }), { type: 'stepWrap', id: 'a1', step: 'auto' });
-    expect('wrap' in nodeA1(s)).toBe(false);
-    expect(s.past).toHaveLength(2);
-  });
+    it('a step that would move no word to another line changes nothing: no width that does not show is kept', () => {
+      const s = sel('b');
+      expect(press(s, 'b', 'narrower')).toBe(s);
+      expect(press(s, 'b', 'wider')).toBe(s);
+    });
 
-  it('with several topics selected, stepWrap moves each from its own width, as one undo step', () => {
-    let s = reduce(initEditor(base()), { type: 'setWrap', id: 'a1', wrap: 400 });
-    s = reduce(s, { type: 'selectMany', ids: ['a', 'a1'] });
-    const before = s.past.length;
-    s = reduce(s, { type: 'stepWrap', id: s.selectedId!, step: 'wider' });
-    expect([nodeA(s).wrap, nodeA1(s).wrap]).toEqual([290, 500]);
-    expect(s.past).toHaveLength(before + 1);
-    s = reduce(s, { type: 'stepWrap', id: s.selectedId!, step: 'auto' });
-    expect(['wrap' in nodeA(s), 'wrap' in nodeA1(s)]).toEqual([false, false]);
-    s = reduce(s, { type: 'undo' });
-    expect([nodeA(s).wrap, nodeA1(s).wrap]).toEqual([290, 500]);
-  });
+    it('to automatic takes the width away; with none set it changes nothing', () => {
+      const fresh = sel('a1');
+      expect(press(fresh, 'a1', 'auto')).toBe(fresh);
+      const s = press(press(fresh, 'a1', 'wider'), 'a1', 'auto');
+      expect('wrap' in nodeA1(s)).toBe(false);
+      expect(s.past).toHaveLength(2);
+    });
 
-  it('stepWrap on a topic that is not the current one changes only that topic, and nothing while editing or for a topic that is gone', () => {
-    const many = reduce(initEditor(base()), { type: 'selectMany', ids: ['a', 'a1'] });
-    const other = many.selectedId === 'a' ? 'a1' : 'a';
-    const s = reduce(many, { type: 'stepWrap', id: other, step: 'wider' });
-    expect([nodeA(s).wrap, nodeA1(s).wrap].filter((w) => w !== undefined)).toHaveLength(1);
-    expect(reduce(many, { type: 'stepWrap', id: 'gone', step: 'wider' })).toBe(many);
-    const editing = reduce(initEditor(base()), { type: 'startEdit', id: 'a1' });
-    expect(reduce(editing, { type: 'stepWrap', id: 'a1', step: 'wider' })).toBe(editing);
+    it('with several topics selected, each goes from its own width, as one undo step; a topic it would not show on is left alone', () => {
+      let s = reduce(initEditor(wordy()), { type: 'setWrap', id: 'a1', wrap: 390 });
+      s = reduce(s, { type: 'selectMany', ids: ['a', 'a1', 'b'] });
+      const before = s.past.length;
+      s = press(s, s.selectedId!, 'wider');
+      expect([nodeA(s).wrap, nodeA1(s).wrap]).toEqual([290, 490]);
+      expect('wrap' in nodeB(s)).toBe(false);
+      expect(s.past).toHaveLength(before + 1);
+      s = press(s, s.selectedId!, 'auto');
+      expect(['wrap' in nodeA(s), 'wrap' in nodeA1(s)]).toEqual([false, false]);
+      s = reduce(s, { type: 'undo' });
+      expect([nodeA(s).wrap, nodeA1(s).wrap]).toEqual([290, 490]);
+    });
+
+    it('on a topic that is not the current one changes only that topic, and nothing while editing or for a topic that is gone', () => {
+      const many = reduce(initEditor(wordy()), { type: 'selectMany', ids: ['a', 'a1'] });
+      const other = many.selectedId === 'a' ? 'a1' : 'a';
+      const s = press(many, other, 'wider');
+      expect([nodeA(s).wrap, nodeA1(s).wrap].filter((w) => w !== undefined)).toHaveLength(1);
+      expect(press(many, 'gone', 'wider')).toBe(many);
+      const editing = reduce(initEditor(wordy()), { type: 'startEdit', id: 'a1' });
+      expect(press(editing, 'a1', 'wider')).toBe(editing);
+    });
   });
 });
 

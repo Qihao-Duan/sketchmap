@@ -13,8 +13,12 @@ export interface CanvasHandle {
   zoomBy(factor: number): void;
   view(): View;
   ensureVisible(id: string): void;
-  /** Moves the canvas, if need be, so that this place on the map shows (the box a text is typed into, as it grows). */
-  reveal(place: Bounds): void;
+  /**
+   * Moves the canvas, if need be, so that this place on the map shows (the box a text is typed into, as
+   * it grows). Of a place too large for the canvas, the side it `grows` towards (default: right) and its
+   * bottom are kept in view.
+   */
+  reveal(place: Bounds, grows?: 'left' | 'right' | 'both'): void;
   svg(): SVGSVGElement | null;
 }
 
@@ -39,10 +43,10 @@ interface Props {
   /** The corner of topic `id`'s image was dragged to a new size (px, in the picture's proportions). */
   onResizeImage?(id: string, size: Size): void;
   /**
-   * The side of topic `id` was dragged to where its text is to wrap (px), or double-clicked (null: where
-   * its level says, again). Needs `measure`, which shows what the topic becomes during the drag.
+   * The side of topic `id` was dragged to where its text is to wrap (px). Needs `measure`, which shows
+   * what the topic becomes during the drag.
    */
-  onWrapText?(id: string, wrap: number | null): void;
+  onWrapText?(id: string, wrap: number): void;
   /** Measures text the way the layout was measured. */
   measure?: Measure;
   onViewChange?(view: View): void;
@@ -91,9 +95,10 @@ interface Resize {
 }
 
 /**
- * A drag of the side of a topic's text. `x`, `y`: where the press was, on screen. `g`: how far from the
- * topic's edge the press was, in map units, so the edge keeps that distance to the pointer. `wrap`: the
- * width the drag is at now.
+ * A press on the side of a topic's text, which becomes a drag once it moves. `x`, `y`: where the press
+ * was, on screen. `g`: how far from the topic's edge the press was, in map units, so the edge keeps that
+ * distance to the pointer. `wrap`: the width the drag is at now. `dbl`: the second of two quick presses
+ * on the topic, which opens its text when it does not drag.
  */
 interface Rewrap {
   id: string;
@@ -102,6 +107,7 @@ interface Rewrap {
   g: number;
   wrap: number;
   moved: boolean;
+  dbl: boolean;
 }
 
 /**
@@ -266,8 +272,11 @@ export function Canvas({
     const r = drag?.moved ? drag : null;
     el.hidden = !b;
     if (!b) return null;
-    // The style sheet puts the bar just inside the edge, on either side: the fold button is just outside it.
+    // The style sheet puts the bar just inside the edge, on either side (the fold button is just outside
+    // it), and keeps its area to a part of a topic that is small on the screen.
     el.classList.toggle('left', b.side === -1);
+    el.style.setProperty('--topic-w', `${v.k * b.w}px`);
+    el.style.setProperty('--topic-h', `${v.k * b.h}px`);
     el.style.left = `${v.tx + v.k * (r ? edgeAt(b, r.wrap) : outerEdge(b))}px`;
     el.style.top = `${v.ty + v.k * (b.y + b.textTop + (b.lines.length * b.style.lineHeight) / 2)}px`;
     if (!r) return null;
@@ -297,7 +306,8 @@ export function Canvas({
     outline.dataset.words = shown.words ?? 'start';
     const words = outline.firstElementChild as HTMLElement;
     words.textContent = shown.label;
-    words.style.top = `${v.k * (Math.max(shown.under ?? shown.y, shown.y + shown.h) - shown.y) + 5}px`;
+    // 5 px under the lower of the two, measured from inside the outline's 1.5 px border.
+    words.style.top = `${v.k * (Math.max(shown.under ?? shown.y, shown.y + shown.h) - shown.y) + 2}px`;
   };
   const applyView = (v: View) => {
     viewRef.current = v;
@@ -351,9 +361,28 @@ export function Canvas({
       // Keep the topic clear of a panel on the right (the Details sidebar).
       if (b && w > 0) applyView(ensureVisible(viewRef.current, b, w - rightInset, h));
     },
-    reveal: (place) => {
+    reveal: (place, grows = 'right') => {
       const [w, h] = size();
-      if (w > 0) applyView(ensureVisible(viewRef.current, place, w - rightInset, h, 24));
+      if (w <= 0) return;
+      // A place too large for what shows is cut down to the part to keep in view: the side it grows
+      // towards, and its bottom, where the typing goes on. Left whole, it would be moved to its left edge
+      // and to its right edge in turn. A pixel less than the room, so that the part always fits.
+      const { k } = viewRef.current;
+      const roomW = Math.max(0, w - rightInset - 49) / k;
+      const roomH = Math.max(0, h - 49) / k;
+      let { x, y, w: pw, h: ph } = place;
+      if (pw > roomW) {
+        x += grows === 'left' ? 0 : grows === 'right' ? pw - roomW : (pw - roomW) / 2;
+        pw = roomW;
+      }
+      if (ph > roomH) {
+        y += ph - roomH;
+        ph = roomH;
+      }
+      const now = viewRef.current;
+      const next = ensureVisible(now, { x, y, w: pw, h: ph }, w - rightInset, h, 24);
+      // Not for less than half a pixel: that is rounding, and would be asked for again at every key.
+      if (Math.abs(next.tx - now.tx) >= 0.5 || Math.abs(next.ty - now.ty) >= 0.5) applyView(next);
     },
     svg: () => svgRef.current,
   }));
@@ -701,10 +730,24 @@ export function Canvas({
   const startRewrap = (e: PointerEvent<HTMLDivElement>) => {
     const b = wrappedRef.current;
     if (e.button !== 0 || !b) return;
+    const [px, py] = onMap(e);
+    // The bar has its size on the screen and the fold button its size on the map, so on a topic that is
+    // small on the screen (and for a finger's larger area) the bar's area lies over the button. A press
+    // inside the button's own area, 22 map units across, is the button's.
+    if (b.depth > 0 && b.node.children.length > 0 && Math.abs(px - b.fold.x) <= 11 && Math.abs(py - b.fold.y) <= 11) {
+      onToggleFold(b.id);
+      return;
+    }
     endResize(true);
     e.currentTarget.setPointerCapture?.(e.pointerId);
+    // The bar's area also reaches into the topic, and is under the pointer as soon as a press selected
+    // the topic. So a press that does not drag counts as a press on the topic: the second of two quick
+    // ones, wherever the first one was, opens its text (see onPointerDown).
+    const now = Date.now();
+    const dbl = lastDown.current.id === b.id && now - lastDown.current.t < 420;
+    lastDown.current = { id: b.id, t: dbl ? 0 : now };
     const edge = outerEdge(b);
-    rewrapping.current = { id: b.id, x: e.clientX, y: e.clientY, g: onMap(e)[0] - edge, wrap: wrapAt(b, edge), moved: false };
+    rewrapping.current = { id: b.id, x: e.clientX, y: e.clientY, g: px - edge, wrap: wrapAt(b, edge), moved: false, dbl };
   };
   const moveRewrap = (e: PointerEvent<HTMLDivElement>) => {
     const r = liveRewrap();
@@ -727,10 +770,15 @@ export function Canvas({
     if (!r) return;
     rewrapping.current = null;
     placeHandles(viewRef.current);
+    if (cancelled) return;
+    if (!r.moved) {
+      if (r.dbl) onEdit?.(r.id);
+      return;
+    }
     const b = wrappedRef.current;
     // The topic is as narrow as its text, so a width that leaves every word on its line would change
     // nothing that shows. It is not kept: it would only wrap a later, longer text somewhere unexpected.
-    if (!cancelled && r.moved && b && rewrapped(b, r.wrap).changes) onWrapText?.(r.id, r.wrap);
+    if (b && rewrapped(b, r.wrap).changes) onWrapText?.(r.id, r.wrap);
   };
 
   return (
@@ -826,7 +874,7 @@ export function Canvas({
             className="wrap-handle"
             hidden
             aria-hidden="true"
-            title="Drag to set where the text wraps. Double-click for the automatic width."
+            title="Drag to set where the text wraps"
             onMouseDown={(e) => e.preventDefault()}
             onContextMenu={(e) => e.preventDefault()}
             onPointerDown={startRewrap}
@@ -834,10 +882,6 @@ export function Canvas({
             onPointerUp={() => endRewrap(false)}
             onPointerCancel={() => endRewrap(true)}
             onLostPointerCapture={() => endRewrap(true)}
-            onDoubleClick={() => {
-              const b = wrappedRef.current;
-              if (b && b.node.wrap !== undefined) onWrapText?.(b.id, null);
-            }}
           />
         </>
       )}

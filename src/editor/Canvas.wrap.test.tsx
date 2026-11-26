@@ -185,7 +185,7 @@ describe('Canvas: the side of a topic’s text', () => {
     fire(handle(), 'pointermove', x - 150, y, { buttons: 1 });
     const becomes = wrappedAt('t', 97);
     expect(becomes.h).toBeGreaterThan(boxOf('t').h);
-    expect(outline().querySelector('span')!.style.top).toBe(`${becomes.h + 5}px`);
+    expect(outline().querySelector('span')!.style.top).toBe(`${becomes.h + 2}px`);
   });
 
   it('on the left of the map, outwards is to the left', () => {
@@ -215,7 +215,7 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(outline().dataset.words).toBe('start');
     // The topic gets lower: the width is said under the topic as it is now, clear of its text.
     expect(becomes.h).toBeLessThan(t.h);
-    expect(outline().querySelector('span')!.style.top).toBe(`${(t.h + becomes.h) / 2 + 5}px`);
+    expect(outline().querySelector('span')!.style.top).toBe(`${(t.h + becomes.h) / 2 + 2}px`);
     // The handle goes with the pointer: it is where the text may reach to, not where it happens to end.
     expect(at()[0]).toBe(x + 200);
     expect(at()[0]).toBeGreaterThan(t.x + becomes.w);
@@ -326,7 +326,7 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(outline().style.left).toBe(`${2 * boxOf('t').x}px`);
     expect(outline().style.width).toBe(`${2 * becomes.w}px`);
     expect(outline().style.height).toBe(`${2 * becomes.h}px`);
-    expect(outline().querySelector('span')!.style.top).toBe(`${(boxOf('t').h + becomes.h) + 5}px`);
+    expect(outline().querySelector('span')!.style.top).toBe(`${(boxOf('t').h + becomes.h) + 2}px`);
     fire(handle(), 'pointerup', x + 200, y);
     expect(onWrapText).toHaveBeenCalledWith('t', 347);
   });
@@ -465,23 +465,141 @@ describe('Canvas: the side of a topic’s text', () => {
     expect(world.getAttribute('transform')).toBe('translate(-10 -20) scale(1)');
   });
 
-  describe('a double click on the handle', () => {
+  describe('a press on the handle that does not drag is a press on the topic', () => {
+    const tap = (x: number, y: number) => {
+      fire(handle(), 'pointerdown', x, y, { buttons: 1 });
+      fire(handle(), 'pointerup', x, y);
+    };
     const withWrap = computeLayout({ id: 'r', text: 'Root', children: [{ id: 'a', text: 'Alpha', children: [
       { id: 't', text: long, wrap: 447, children: [] },
     ] }] }, measure);
 
-    it('takes a width set by hand away: the text wraps where its level says again', () => {
+    it('two quick presses open the topic’s text, as they do anywhere else on the topic; a width set by hand stays', () => {
       const h = mount({ layout: withWrap });
-      fire(handle(), 'dblclick', ...at());
-      expect(h.onWrapText).toHaveBeenCalledTimes(1);
-      expect(h.onWrapText).toHaveBeenCalledWith('t', null);
+      const [x, y] = at();
+      tap(x, y);
+      expect(h.onEdit).not.toHaveBeenCalled();
+      tap(x, y);
+      expect(h.onEdit).toHaveBeenCalledTimes(1);
+      expect(h.onEdit).toHaveBeenCalledWith('t');
+      expect(h.onWrapText).not.toHaveBeenCalled();
     });
 
-    it('does nothing on a topic whose width is automatic', () => {
+    it('the second press of a double click that began on the topic itself opens its text too (the handle is under the pointer once the first press selected the topic)', () => {
       const h = mount();
+      const hit = container.querySelector('g.topic[data-id="t"] rect.hit')!;
+      const [x, y] = at();
+      fire(hit, 'pointerdown', x - 6, y, { buttons: 1 });
+      fire(hit, 'pointerup', x - 6, y);
+      tap(x - 6, y);
+      expect(h.onEdit).toHaveBeenCalledTimes(1);
+      expect(h.onEdit).toHaveBeenCalledWith('t');
+    });
+
+    it('and the other way round: a press on the handle, then one on the topic', () => {
+      const h = mount();
+      const hit = container.querySelector('g.topic[data-id="t"] rect.hit')!;
+      const [x, y] = at();
+      tap(x, y);
+      fire(hit, 'pointerdown', x - 30, y, { buttons: 1 });
+      fire(hit, 'pointerup', x - 30, y);
+      expect(h.onEdit).toHaveBeenCalledTimes(1);
+    });
+
+    it('two presses far apart in time are two single presses', () => {
+      const h = mount();
+      const [x, y] = at();
+      const now = vi.spyOn(Date, 'now');
+      try {
+        now.mockReturnValue(1_000_000);
+        tap(x, y);
+        now.mockReturnValue(1_000_500);
+        tap(x, y);
+        expect(h.onEdit).not.toHaveBeenCalled();
+        // And a third one right after the second is the second of a new pair.
+        now.mockReturnValue(1_000_600);
+        tap(x, y);
+        expect(h.onEdit).toHaveBeenCalledTimes(1);
+      } finally {
+        now.mockRestore();
+      }
+    });
+
+    it('a second press that drags sets the width and opens nothing', () => {
+      const h = mount();
+      const [x, y] = at();
+      tap(x, y);
+      drag(200);
+      expect(h.onWrapText).toHaveBeenCalledWith('t', 447);
+      expect(h.onEdit).not.toHaveBeenCalled();
+    });
+
+    it('a double click as the browser reports it does nothing by itself: no width is taken away', () => {
+      const h = mount({ layout: withWrap });
       fire(handle(), 'dblclick', ...at());
       expect(h.onWrapText).not.toHaveBeenCalled();
     });
+  });
+
+  describe('where the handle’s area lies over the fold button (a small topic at a low zoom, a finger’s larger area)', () => {
+    it('a press inside the button’s own area is the button’s: it folds, and starts no drag', () => {
+      const h = mount({ selectedId: 'a' });
+      const a = boxOf('a');
+      // The fold button's area is 22 map units across, around a point 11 beyond the edge.
+      fire(handle(), 'pointerdown', a.fold.x - 8, a.fold.y + 9, { buttons: 1 });
+      expect(h.onToggleFold).toHaveBeenCalledTimes(1);
+      expect(h.onToggleFold).toHaveBeenCalledWith('a');
+      fire(handle(), 'pointermove', a.fold.x + 200, a.fold.y, { buttons: 1 });
+      expect(outline().hidden).toBe(true);
+      fire(handle(), 'pointerup', a.fold.x + 200, a.fold.y);
+      expect(h.onWrapText).not.toHaveBeenCalled();
+      expect(h.onEdit).not.toHaveBeenCalled();
+    });
+
+    it('zoomed out, the button’s area is smaller on the screen, and so is the part of the handle that is the button’s', () => {
+      const { canvas, onToggleFold, onWrapText } = mount({ selectedId: 'a' });
+      act(() => canvas.current!.zoomBy(0.25));
+      const { tx, ty, k } = canvas.current!.view();
+      expect(k).toBe(0.25);
+      const a = boxOf('a');
+      const [fx, fy] = [tx + k * a.fold.x, ty + k * a.fold.y];
+      // 2 px from the button's middle is inside its area (2.75 px each way); 4 px above it is not.
+      fire(handle(), 'pointerdown', fx - 2, fy + 2, { buttons: 1 });
+      fire(handle(), 'pointerup', fx - 2, fy + 2);
+      expect(onToggleFold).toHaveBeenCalledTimes(1);
+      fire(handle(), 'pointerdown', fx - 2, fy - 4, { buttons: 1 });
+      fire(handle(), 'pointermove', fx - 2 - 20, fy - 4, { buttons: 1 });
+      fire(handle(), 'pointerup', fx - 2 - 20, fy - 4);
+      expect(onToggleFold).toHaveBeenCalledTimes(1);
+      expect(onWrapText).not.toHaveBeenCalled(); // 'Alpha' is one word: the drag changes no line
+      expect(outline().hidden).toBe(true);
+    });
+
+    it('a press beside the button’s area drags, and so does any press on a topic that has no fold button', () => {
+      const wide = computeLayout({ id: 'r', text: 'Root', children: [{ id: 'a', text: long, children: [{ id: 'c', text: 'Child', children: [] }] }] }, measure);
+      const h = mount({ layout: wide, selectedId: 'a' });
+      const a = boxOf('a', wide);
+      fire(handle(), 'pointerdown', a.x + a.w - 5, a.fold.y, { buttons: 1 });
+      fire(handle(), 'pointermove', a.x + a.w - 5 + 200, a.fold.y, { buttons: 1 });
+      fire(handle(), 'pointerup', a.x + a.w - 5 + 200, a.fold.y);
+      expect(h.onToggleFold).not.toHaveBeenCalled();
+      expect(h.onWrapText).toHaveBeenCalledTimes(1);
+      // The central topic has no fold button: 3 px beyond its edge is the handle's.
+      remount({ layout: wide, selectedId: 'r' });
+      const [x, y] = at();
+      fire(handle(), 'pointerdown', x + 3, y, { buttons: 1 });
+      expect(h.onToggleFold).not.toHaveBeenCalled();
+    });
+  });
+
+  it('the handle is told how large its topic is on the screen, so that its area never takes more than a part of a small topic', () => {
+    const { canvas } = mount();
+    const t = boxOf('t');
+    expect(handle().style.getPropertyValue('--topic-w')).toBe(`${t.w}px`);
+    expect(handle().style.getPropertyValue('--topic-h')).toBe(`${t.h}px`);
+    act(() => canvas.current!.zoomBy(0.5));
+    expect(handle().style.getPropertyValue('--topic-w')).toBe(`${t.w / 2}px`);
+    expect(handle().style.getPropertyValue('--topic-h')).toBe(`${t.h / 2}px`);
   });
 
   describe('a drag ends without a width when its topic is no longer the one with the handle', () => {

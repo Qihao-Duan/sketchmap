@@ -1152,13 +1152,68 @@ describe('Text width', () => {
     expect('wrap' in lastSaved(api).root).toBe(false);
   });
 
-  it('a double click on the bar takes a width set by hand away', async () => {
+  it('a double press on the bar opens the topic’s text, as it does anywhere on the topic, and keeps the width', async () => {
     mount(fakeApi(), wordy);
     await click('Wider');
     expect(lines()).toBe(5);
-    act(() => void handle().dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })));
-    expect(lines()).toBe(6);
-    expect(pressedIn('Text width')).toEqual(['Automatic']);
+    const x = parseFloat(handle().style.left);
+    const y = parseFloat(handle().style.top);
+    for (let i = 0; i < 2; i++) {
+      fire('pointerdown', x, y, 1);
+      fire('pointerup', x, y, 0);
+    }
+    expect(container.querySelector('textarea.inline-editor')).not.toBeNull();
+    keydown({ key: 'Escape' }, container.querySelector('textarea.inline-editor')!);
+    expect(hint()).toContain('The text wraps at 380 px.');
+  });
+
+  it('pressed from the keyboard, a button keeps the focus: the next Enter is the button’s again, not a new topic', async () => {
+    mount(fakeApi(), wordy);
+    const wider = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Wider')!;
+    act(() => wider.focus());
+    await act(async () => {
+      wider.click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hint()).toContain('The text wraps at 380 px.');
+    expect(document.activeElement).toBe(wider);
+    keydown({ key: 'Enter' }, document.activeElement!);
+    expect(topics()).toBe(2);
+    expect(container.querySelector('textarea.inline-editor')).toBeNull();
+  });
+
+  it('a note still being typed is saved before a step, although the button is in the same panel', async () => {
+    const api = fakeApi();
+    mount(api, wordy);
+    const note = container.querySelector('textarea[aria-label="Note"]') as HTMLTextAreaElement;
+    act(() => note.focus());
+    type(note, 'Keep this');
+    await click('Wider');
+    await advance(1500);
+    expect(lastSaved(api).root).toMatchObject({ note: 'Keep this', wrap: 380 });
+  });
+
+  it('a step that would show nothing is not offered', async () => {
+    // One short word: it cannot get narrower, and it is on one line already.
+    mount(fakeApi());
+    const button = (t: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === t)!;
+    expect([button('Wider').disabled, button('Narrower').disabled, button('Automatic').disabled]).toEqual([true, true, false]);
+    act(() => roots.splice(0).forEach((root) => root.unmount()));
+    container.remove();
+    mount(fakeApi(), wordy);
+    expect([button('Wider').disabled, button('Narrower').disabled]).toEqual([false, false]);
+    // With several topics selected each may differ: both are offered.
+    keydown({ key: 'a', metaKey: true });
+    expect([button('Wider').disabled, button('Narrower').disabled]).toEqual([false, false]);
+  });
+
+  it('with several topics selected, a step leaves a topic alone on which it would not show', async () => {
+    const api = fakeApi();
+    mount(api, { ...wordy, root: { ...wordy.root, children: [...wordy.root.children, { id: 'child00002', text: 'Short', children: [] }] } });
+    keydown({ key: 'a', metaKey: true });
+    await click('Wider');
+    await advance(1500);
+    expect(lastSaved(api).root.children.map((c) => c.wrap)).toEqual([290, undefined]);
   });
 
   it('there is no bar while the topic’s text is open; it is back afterwards', () => {
@@ -1217,17 +1272,47 @@ describe('Text width', () => {
     }
   });
 
+  it('a box wider than the canvas keeps the side it grows towards in view: on the left of the map, its left edge', () => {
+    const spy = vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, width: 600, height: 500, top: 0, left: 0, right: 600, bottom: 500, toJSON: () => ({}),
+    } as DOMRect);
+    try {
+      const sides: MindMap = { ...map, root: { ...map.root, children: [
+        { id: 'child00001', text: 'A', side: 'right', children: [] },
+        { id: 'child00002', text: 'B', side: 'left', children: [{ id: 'child00003', text: 'word', wrap: 1600, children: [] }] },
+      ] } };
+      mount(fakeApi(), sides);
+      act(() => void container.querySelector('g.topic[data-id="child00003"] rect.hit')!.dispatchEvent(
+        new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }),
+      ));
+      keydown({ key: 'F2' });
+      const ta = container.querySelector('textarea.inline-editor') as HTMLTextAreaElement;
+      const left = () => parseFloat(ta.style.left);
+      // Typed a few words at a time: the box grows to the left, far past the 304 px the canvas shows.
+      const seen: number[] = [];
+      for (let words = 20; words <= 120; words += 20) {
+        type(ta, Array.from({ length: words }, () => 'word').join(' '));
+        seen.push(left());
+      }
+      expect(parseFloat(ta.style.width)).toBeGreaterThan(600);
+      // Its left edge, where the text goes on, stays 24 px inside the canvas, and never jumps away from there.
+      for (const x of seen) expect(Math.abs(x - 24)).toBeLessThanOrEqual(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('the box a text is typed into grows with the text, up to where the topic’s text wraps', () => {
     mount(fakeApi());
     keydown({ key: 'Tab' });
     const ta = container.querySelector('textarea.inline-editor') as HTMLTextAreaElement;
     expect(parseFloat(ta.style.width)).toBe(140);
-    // A main branch: 20 px text, 10 px a character, 2 × 16 px beside the text, and 6 px for the border and some air.
+    // A main branch: 20 px text, 10 px a character, 2 × 16 px beside the text, and 5 px for the border and some air.
     type(ta, 'word word word word');
-    expect(parseFloat(ta.style.width)).toBe(190 + 32 + 6);
+    expect(parseFloat(ta.style.width)).toBe(190 + 32 + 5);
     // It wraps at 230 px: four of these words to a line, however many are typed.
     type(ta, long);
-    expect(parseFloat(ta.style.width)).toBe(190 + 32 + 6);
+    expect(parseFloat(ta.style.width)).toBe(190 + 32 + 5);
   });
 });
 
